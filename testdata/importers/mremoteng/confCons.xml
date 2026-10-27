@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mrng:Connections xmlns:mrng="http://mremoteng.org" Name="Connections" Export="false" EncryptionEngine="AES" BlockCipherMode="GCM" KdfIterations="1000" FullFileEncryption="false" Protected="AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh+jKaRSI2vV7N+pTSrt/MRPveMlbokI2G0nd44RXKQ3" ConfVersion="2.7">
+  <Node Name="Datacenter" Type="Container" Username="ops" Password="AQIDBAUGBwgJCgsMDQ4PEBAREhMUFRYXGBkaGxwdHh9bBy/T9wjEHihmD6w5y/IjhRmZanTRVQNQzxk=" Protocol="SSH2">
+    <Node Name="Linux" Type="Container" InheritUsername="True" InheritPassword="True" InheritProtocol="True">
+      <Node Name="db-1" Type="Connection" Hostname="192.0.2.50" Port="22" InheritUsername="True" InheritPassword="True" InheritProtocol="True" PuttySession="Default Settings" />
+      <Node Name="old-ssh" Type="Connection" Hostname="192.0.2.51" Protocol="SSH1" Port="22" />
+    </Node>
+    <Node Name="win-1" Type="Connection" Hostname="198.51.100.10" Protocol="RDP" Port="3390" Username="alice" Domain="CORP" Password="AgMEBQYHCAkKCwwNDg8QERAREhMUFRYXGBkaGxwdHh8jD9ww1L4j5MhH/5sD/T/iUm6/LQZNgZG5ERw=" UseCredSsp="true" RDGatewayUsageMethod="Never" />
+    <Node Name="vnc-1" Type="Connection" Hostname="198.51.100.11" Protocol="VNC" Port="5900" Password="AwQFBgcICQoLDA0ODxAREhAREhMUFRYXGBkaGxwdHh/1jI7VmWLHReMWMe97AJAToAL95CZA4lOlzrI=" />
+  </Node>
+  <Node Name="router" Type="Connection" Hostname="192.0.2.1" Protocol="Telnet" Port="23" />
+  <Node Name="intranet" Type="Connection" Hostname="intranet.example" Protocol="HTTPS" Port="443" />
+  <Node Name="evil" Type="Connection" Hostname="192.0.2.99&#10;ProxyCommand touch /tmp/x" Protocol="SSH2" Port="22" />
+  <Node Name="raw-svc" Type="Connection" Hostname="192.0.2.60" Protocol="RAW" Port="7000" />
+</mrng:Connections>

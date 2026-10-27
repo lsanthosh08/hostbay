@@ -1,0 +1,14 @@
+[
+  {
+    "id": "3f1c2a9b8d7e",
+    "name": "web",
+    "cpu_time": "1.21s",
+    "cpu_percent": "0.12%",
+    "avg_cpu": "0.08%",
+    "mem_usage": "9.8MB / 2.06GB",
+    "mem_percent": "0.48%",
+    "net_io": "3.2kB / 1.1kB",
+    "block_io": "0B / 4.1kB",
+    "pids": "3"
+  }
+]

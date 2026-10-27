@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hostbay</title>
+    <!-- The webview shows untrusted remote text (logs, file names, configs), so
+         only this app's own code may run. The hash is the theme script below;
+         change both together (src/csp.test.ts checks). 'unsafe-inline' styles:
+         xterm and Monaco inject <style> elements at runtime. RDP frames and
+         VNC travel over Wails GoStreams on 'self', so no loopback socket is
+         allowed (KTD19). Stripped in `vite dev` (vite.config.ts). -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'sha256-lYEK4eYiBgJlSN+4QQIjAdzNND39RSjuXyWC8ROAdsI='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'"
+    />
+    <!-- Apply the saved theme and its ground colour BEFORE the app renders, so
+         there's no flash while Vite/React load. The colours repeat each
+         theme's --ground in src/styles.css (src/theme/theme.test.ts checks). -->
+    <script>
+      (function () {
+        var ground = { dark: "#171719", light: "#f8fafc", "deep-blue": "#0b1426" };
+        var t = localStorage.getItem("theme");
+        if (!Object.prototype.hasOwnProperty.call(ground, t)) t = "dark";
+        var root = document.documentElement;
+        root.dataset.theme = t;
+        root.style.background = ground[t];
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

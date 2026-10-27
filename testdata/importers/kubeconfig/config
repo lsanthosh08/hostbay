@@ -1,0 +1,64 @@
+# A kubeconfig with every context kind Hostbay refuses, and two it imports.
+# Tokens are fakes made for these tests.
+apiVersion: v1
+kind: Config
+current-context: lab
+clusters:
+- name: lab
+  cluster:
+    server: https://lab.example:6443
+    insecure-skip-tls-verify: true
+- name: eks
+  cluster:
+    server: https://ABC123.gr7.eu-west-1.eks.amazonaws.com
+- name: plain
+  cluster:
+    server: http://plain.example:8080
+- name: behind-proxy
+  cluster:
+    server: https://proxied.example:6443
+    proxy-url: socks5://proxy.example:1080
+users:
+- name: lab-admin
+  user:
+    token: fake-kube-token-lab-1
+- name: aws
+  user:
+    exec:
+      apiVersion: client.authentication.k8s.io/v1beta1
+      command: aws
+      args: [eks, get-token, --cluster-name, prod]
+- name: gcp
+  user:
+    auth-provider:
+      name: gcp
+- name: file-token
+  user:
+    tokenFile: ~/.ssh/id_ed25519
+- name: basic
+  user:
+    username: admin
+    password: fake-basic-password
+- name: someone-else
+  user:
+    token: fake-kube-token-as-1
+    as: system:admin
+contexts:
+- name: lab
+  context: {cluster: lab, user: lab-admin, namespace: apps}
+- name: eks-prod
+  context: {cluster: eks, user: aws}
+- name: gke
+  context: {cluster: eks, user: gcp}
+- name: from-file
+  context: {cluster: lab, user: file-token}
+- name: basic-auth
+  context: {cluster: lab, user: basic}
+- name: insecure-port
+  context: {cluster: plain, user: lab-admin}
+- name: proxied
+  context: {cluster: behind-proxy, user: lab-admin}
+- name: impersonate
+  context: {cluster: lab, user: someone-else}
+- name: dangling
+  context: {cluster: missing, user: lab-admin}

@@ -1,0 +1,52 @@
+NONCE::3f9a1c07d2e4b658
+OS::Linux
+3f9a1c07d2e4b658:STAT::
+cpu  41233 0 22101 8812345 3301 0 812 0 0 0
+cpu0 41233 0 22101 8812345 3301 0 812 0 0 0
+3f9a1c07d2e4b658:MEMINFO::
+MemTotal:         493568 kB
+MemFree:          212344 kB
+MemAvailable:     401220 kB
+Buffers:            3312 kB
+Cached:           171236 kB
+SwapCached:            0 kB
+SwapTotal:             0 kB
+SwapFree:              0 kB
+3f9a1c07d2e4b658:LOADAVG::
+0.08 0.03 0.01 1/63 2211
+3f9a1c07d2e4b658:DF::
+Filesystem           1024-blocks    Used Available Capacity Mounted on
+/dev/sda3              7123456   612340   6145212   9% /
+devtmpfs                 10240        0     10240   0% /dev
+shm                     246784        0    246784   0% /dev/shm
+/dev/sda1                92656    23144     62672  27% /boot
+tmpfs                    98716      104     98612   0% /run
+3f9a1c07d2e4b658:NETDEV::
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo:    10240     120    0    0    0     0          0         0    10240     120    0    0    0     0       0          0
+  eth0: 33412234   41201    0    0    0     0          0         0  2210334   12033    0    0    0     0       0          0
+3f9a1c07d2e4b658:PS::
+PID   USER     RSS  COMMAND
+    1 root      1.5m /sbin/init
+    2 root         0 [kthreadd]
+ 1802 root      2560 /sbin/syslogd -t -n
+ 1890 root      3.1m sshd: /usr/sbin/sshd [listener] 0 of 10-100 startups
+ 1931 redis      12m /usr/bin/redis-server 127.0.0.1:6379
+ 2190 alpine    1932 -ash
+ 2211 alpine     900 ps -o pid,user,rss,args
+3f9a1c07d2e4b658:NETSTAT::
+Active Internet connections (only servers)
+Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name
+tcp        0      0 0.0.0.0:22              0.0.0.0:*               LISTEN      -
+tcp        0      0 127.0.0.1:6379          0.0.0.0:*               LISTEN      -
+tcp        0      0 :::22                   :::*                    LISTEN      -
+udp        0      0 0.0.0.0:68              0.0.0.0:*                           -
+3f9a1c07d2e4b658:SYSNET::
+eth0 up 08:00:27:5e:1a:44 1500
+lo unknown 00:00:00:00:00:00 65536
+3f9a1c07d2e4b658:IPO::
+1: lo    inet 127.0.0.1/8 scope host lo\       valid_lft forever preferred_lft forever
+1: lo    inet6 ::1/128 scope host \       valid_lft forever preferred_lft forever
+2: eth0    inet 10.0.2.15/24 scope global eth0\       valid_lft forever preferred_lft forever
+2: eth0    inet6 fe80::a00:27ff:fe5e:1a44/64 scope link \       valid_lft forever preferred_lft forever

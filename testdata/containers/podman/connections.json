@@ -1,0 +1,26 @@
+[
+  {
+    "Name": "podman-machine-default",
+    "URI": "ssh://core@127.0.0.1:53417/run/user/501/podman/podman.sock",
+    "Identity": "/Users/dev/.local/share/containers/podman/machine/machine",
+    "IsMachine": true,
+    "Default": true,
+    "ReadWrite": true
+  },
+  {
+    "Name": "podman-machine-default-root",
+    "URI": "ssh://root@127.0.0.1:53417/run/podman/podman.sock",
+    "Identity": "/Users/dev/.local/share/containers/podman/machine/machine",
+    "IsMachine": true,
+    "Default": false,
+    "ReadWrite": true
+  },
+  {
+    "Name": "build-server",
+    "URI": "ssh://dev@build.example.com:22/run/user/1000/podman/podman.sock",
+    "Identity": "/Users/dev/.ssh/id_ed25519",
+    "IsMachine": false,
+    "Default": false,
+    "ReadWrite": true
+  }
+]

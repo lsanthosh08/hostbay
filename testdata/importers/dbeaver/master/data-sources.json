@@ -1,0 +1,14 @@
+{
+  "connections": {
+    "postgres-jdbc-locked": {
+      "provider": "postgresql",
+      "name": "locked",
+      "save-password": true,
+      "configuration": {
+        "host": "192.0.2.30",
+        "port": "5432",
+        "database": "app"
+      }
+    }
+  }
+}

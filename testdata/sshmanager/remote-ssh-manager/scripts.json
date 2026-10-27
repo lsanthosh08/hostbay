@@ -1,0 +1,12 @@
+[
+  {
+    "id": "548386f6-b07f-4243-b676-fe49cb299f18",
+    "label": "nginx -t",
+    "script": "sudo -n nginx -t 2>&1"
+  },
+  {
+    "id": "s-uptime",
+    "label": "Uptime",
+    "script": "uptime"
+  }
+]

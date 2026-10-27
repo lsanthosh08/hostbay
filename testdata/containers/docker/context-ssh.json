@@ -1,0 +1,17 @@
+[
+    {
+        "Name": "build-server",
+        "Metadata": {},
+        "Endpoints": {
+            "docker": {
+                "Host": "ssh://dev@build.example.com",
+                "SkipTLSVerify": false
+            }
+        },
+        "TLSMaterial": {},
+        "Storage": {
+            "MetadataPath": "/Users/dev/.docker/contexts/meta/0b6a0b1d2c3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a",
+            "TLSPath": "<IN MEMORY>"
+        }
+    }
+]

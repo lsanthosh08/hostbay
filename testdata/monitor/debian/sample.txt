@@ -1,0 +1,59 @@
+NONCE::3f9a1c07d2e4b658
+OS::Linux
+3f9a1c07d2e4b658:STAT::
+cpu  1838245 3104 512381 48211937 40213 0 18733 0 0 0
+cpu0 921034 1550 256101 24105611 20119 0 12544 0 0 0
+cpu1 917211 1554 256280 24106326 20094 0 6189 0 0 0
+3f9a1c07d2e4b658:MEMINFO::
+MemTotal:        4022136 kB
+MemFree:          312448 kB
+MemAvailable:    2871904 kB
+Buffers:          150236 kB
+Cached:          2244816 kB
+SwapCached:         1024 kB
+Active:          1612480 kB
+Inactive:        1585328 kB
+SwapTotal:       1048572 kB
+SwapFree:         996348 kB
+Dirty:               132 kB
+Shmem:             10244 kB
+3f9a1c07d2e4b658:LOADAVG::
+0.42 0.31 0.27 2/187 48211
+3f9a1c07d2e4b658:DF::
+Filesystem     1024-blocks    Used Available Capacity Mounted on
+udev               1985404       0   1985404       0% /dev
+tmpfs               402216     948    401268       1% /run
+/dev/vda1         41186748 9876544  29192356      26% /
+tmpfs              2011068       0   2011068       0% /dev/shm
+tmpfs                 5120       0      5120       0% /run/lock
+/dev/vda15          126678   11840    114838      10% /boot/efi
+/dev/vdb1        103081248 52340112  45475872      54% /srv/backup data
+tmpfs               402212       0    402212       0% /run/user/1000
+3f9a1c07d2e4b658:NETDEV::
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo:  8245310   61204    0    0    0     0          0         0  8245310   61204    0    0    0     0       0          0
+  ens3: 9834471620 8211344    0  412    0     0          0         0 2203917455 3104221    0    0    0     0       0          0
+3f9a1c07d2e4b658:PS::
+    PID USER     %CPU   RSS COMMAND
+      1 root      0.0 12904 /sbin/init
+      2 root      0.0     0 [kthreadd]
+    412 root      0.0 31244 /lib/systemd/systemd-journald
+    601 root      0.0  8840 sshd: /usr/sbin/sshd -D [listener] 0 of 10-100 startups
+    733 postgres  0.3 31120 /usr/lib/postgresql/15/bin/postgres -D /var/lib/postgresql/15/main -c config_file=/etc/postgresql/15/main/postgresql.conf
+    790 www-data  1.2 64512 nginx: worker process
+   1204 deploy    7.5 412880 node /srv/app/server.js --port 3000
+  48190 deploy    0.0  5320 -bash
+  48211 deploy    0.0  4100 ps -eo pid,user,pcpu,rss,args
+3f9a1c07d2e4b658:SS::
+Netid State  Recv-Q Send-Q Local Address:Port  Peer Address:PortProcess
+udp   UNCONN 0      0          127.0.0.1:323        0.0.0.0:*
+udp   UNCONN 0      0       10.0.2.15%ens3:68       0.0.0.0:*
+tcp   LISTEN 0      511          0.0.0.0:80         0.0.0.0:*
+tcp   LISTEN 0      128          0.0.0.0:22         0.0.0.0:*
+tcp   LISTEN 0      244        127.0.0.1:5432       0.0.0.0:*
+tcp   LISTEN 0      511                *:3000             *:*    users:(("node",pid=1204,fd=19))
+tcp   LISTEN 0      128             [::]:22            [::]:*
+tcp   LISTEN 0      511             [::]:80            [::]:*
+3f9a1c07d2e4b658:IPJ::
+[{"ifindex":1,"ifname":"lo","flags":["LOOPBACK","UP","LOWER_UP"],"mtu":65536,"qdisc":"noqueue","operstate":"UNKNOWN","group":"default","txqlen":1000,"link_type":"loopback","address":"00:00:00:00:00:00","broadcast":"00:00:00:00:00:00","addr_info":[{"family":"inet","local":"127.0.0.1","prefixlen":8,"scope":"host","label":"lo","valid_life_time":4294967295,"preferred_life_time":4294967295},{"family":"inet6","local":"::1","prefixlen":128,"scope":"host","valid_life_time":4294967295,"preferred_life_time":4294967295}]},{"ifindex":2,"ifname":"ens3","flags":["BROADCAST","MULTICAST","UP","LOWER_UP"],"mtu":1500,"qdisc":"fq_codel","operstate":"UP","group":"default","txqlen":1000,"link_type":"ether","address":"52:54:00:12:34:56","broadcast":"ff:ff:ff:ff:ff:ff","altnames":["enp0s3"],"addr_info":[{"family":"inet","local":"10.0.2.15","prefixlen":24,"broadcast":"10.0.2.255","scope":"global","dynamic":true,"noprefixroute":true,"label":"ens3","valid_life_time":86011,"preferred_life_time":86011},{"family":"inet6","local":"fe80::5054:ff:fe12:3456","prefixlen":64,"scope":"link","valid_life_time":4294967295,"preferred_life_time":4294967295}]}]

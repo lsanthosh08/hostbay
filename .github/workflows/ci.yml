@@ -1,0 +1,109 @@
+name: CI
+
+# Runs on every pull request and on pushes to main: builds the UI (its dist/
+# is embedded by main.go), then vets and tests the Go code and the Rust RDP
+# helper on all three OSes. A Linux job runs the Docker integration tests
+# and reports the binary size.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+
+      # Wails links GTK and WebKitGTK through cgo on Linux (the gtk3 build tag,
+      # as packaging uses); the RDP helper links ALSA for audio.
+      - name: Install Linux libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libasound2-dev
+
+      - name: Build UI
+        run: |
+          npm ci
+          npm run build
+
+      - name: Go vet
+        run: go vet ${{ runner.os == 'Linux' && '-tags gtk3' || '' }} ./...
+
+      - name: Go test
+        run: go test ${{ runner.os == 'Linux' && '-tags gtk3' || '' }} ./...
+
+      - name: RDP helper test
+        working-directory: rdp-helper
+        run: cargo test --locked
+
+  integration:
+    # Docker-backed tests (the integration build tag) and the stripped
+    # binary size against Release 2 (KTD30). Linux only: the macOS and
+    # Windows runners cannot run the Linux containers the tests start.
+    runs-on: ubuntu-latest
+    env:
+      # The last commit before Release 3 work; its build is the baseline.
+      # Its stripped sizes elsewhere (go1.27.3, -trimpath -s -w):
+      # darwin/arm64 34,396,482 bytes; windows/amd64 35,000,320 bytes.
+      RELEASE2_BASELINE: 4c3a4896f2e5dcc0c78544c9577a3360d100f739
+      # Raised from 30 on 2026-10-25: all R56 engines measured 31.35 MiB on
+      # darwin/arm64 (KTD30). Headroom stays small so another large driver trips it.
+      BUDGET_MIB: 36
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+
+      - name: Install Linux libraries
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libasound2-dev
+
+      - name: Build UI
+        run: |
+          npm ci
+          npm run build
+
+      - name: Integration tests
+        # The SQL Server and Oracle images are large: pulling them on a cold
+        # runner can outlast go test's default 10-minute timeout.
+        run: go test -tags "gtk3 integration" -timeout 30m ./...
+
+      # Going over the budget stops for a decision rather than shipping.
+      - name: Binary size against Release 2
+        run: |
+          build() { go build -C "$1" -tags gtk3 -trimpath -ldflags "-s -w" -o "$2" .; }
+          build . "$RUNNER_TEMP/hostbay"
+          git worktree add "$RUNNER_TEMP/release2" "$RELEASE2_BASELINE"
+          cp -R dist "$RUNNER_TEMP/release2/"
+          build "$RUNNER_TEMP/release2" "$RUNNER_TEMP/hostbay-release2"
+          now=$(stat -c %s "$RUNNER_TEMP/hostbay")
+          base=$(stat -c %s "$RUNNER_TEMP/hostbay-release2")
+          delta=$((now - base))
+          echo "Stripped linux/amd64 binary: $now bytes. Release 2 ($RELEASE2_BASELINE): $base bytes. Added: $delta bytes (budget $BUDGET_MIB MiB)." | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$delta" -gt $((BUDGET_MIB * 1048576)) ]; then
+            echo "::error::Release 3 adds more than $BUDGET_MIB MiB to the binary; this needs a decision (KTD30)"
+            exit 1
+          fi

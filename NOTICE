@@ -1,0 +1,77 @@
+Hostbay
+Copyright 2026 Hostbay contributors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Hostbay's design follows patterns from uniterm (https://github.com/ys-ll/uniterm),
+Copyright its contributors, licensed under the Apache License, Version 2.0.
+Any file that includes code copied or adapted from uniterm names it in a header
+comment and keeps uniterm's copyright notice.
+
+The terminal colour themes (src/theme/terminalThemes.ts), the .itermcolors reader
+(src/theme/itermcolors.ts) and the translations in src/i18n/ (zh-CN, zh-TW, ja,
+ko, de, es, fr, ru, pt and vi) are taken from uniterm, Copyright 2025 uniTerm,
+licensed under the Apache License, Version 2.0. Hostbay renamed uniterm's own two
+terminal themes and kept only the translations whose English matches Hostbay's.
+The terminal themes reproduce published colour schemes by their authors:
+Solarized (Ethan Schoonover), Monokai (Wimer Hazenberg), Dracula (Zeno Rocha and
+the Dracula Theme contributors), Molokai (Tomas Restrepo), Tomorrow (Chris
+Kempson), One Dark and One Light (the Atom project), GitHub (GitHub, Inc.),
+Gotham (Andrea Leopardi), Hybrid (Andrew Wong), Nord (Arctic Ice Studio and
+Sven Greb), Gruvbox (Pavel Pertsev), Catppuccin (the Catppuccin organization),
+Tokyo Night (enkia), Rosé Pine (the Rosé Pine organization) and Everforest
+(sainnhe).
+
+The terminal's Zmodem transfers use zmodem.js (https://github.com/FGasper/zmodemjs),
+Copyright Felipe Gasper, licensed under the Apache License, Version 2.0, and its
+dependency crc-32 (https://github.com/SheetJS/js-crc32), Copyright (C) 2014-present
+SheetJS LLC, licensed under the Apache License, Version 2.0. Neither package ships
+a NOTICE file.
+
+The VNC screen uses noVNC 1.7.0 (@novnc/novnc, https://github.com/novnc/noVNC),
+shipped unmodified and licensed under the Mozilla Public License, Version 2.0
+(https://mozilla.org/MPL/2.0/). Its source is available at
+https://registry.npmjs.org/@novnc/novnc/-/novnc-1.7.0.tgz.
+noVNC is Copyright (C) 2022 The noVNC authors
+noVNC includes pako (vendor/pako), licensed under the MIT License:
+Copyright (C) 2014-2016 by Vitaly Puzrin
+noVNC's DES code (core/crypto/des.js) keeps these notices, under the licence
+terms in that file's header (BSD-style):
+Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
+Copyright (c) 1996 Widget Workshop, Inc. All Rights Reserved.
+Copyright (C) 1996 by Jef Poskanzer <jef@acme.com>.  All rights reserved.
+
+The SPICE screen uses spice-html5 0.3.0 (https://gitlab.freedesktop.org/spice/spice-html5),
+Copyright (C) 2012 by Jeremy P. White and the spice-html5 contributors, licensed under
+the GNU Lesser General Public License, version 3 or later. Hostbay ships it modified:
+one change adds a socket option to src/spiceconn.js, described with its diff, source
+and checksum in src/vendor/spice-html5/PATCHES.md. Its corresponding source, with the
+LGPL-3.0 (COPYING.LESSER) and GPL-3.0 (COPYING) texts, is in the app bundle at
+vendor/spice-html5/, as separate unminified files the app loads only for SPICE.
+spice-html5 includes code under these notices, kept in each file's header:
+jsbn.js, prng4.js, rng.js and rsa.js (thirdparty/): Copyright (c) 2003-2005 Tom Wu,
+under a permissive licence (MIT-style, with the condition that redistributions keep
+the copyright notice and disclaimer intact).
+sha1.js (thirdparty/): Copyright (c) 1998-2009 Paul Johnston and contributors, under
+the BSD License.
+
+The MySQL and MariaDB engine uses go-sql-driver/mysql v1.10.1
+(github.com/go-sql-driver/mysql, https://github.com/go-sql-driver/mysql),
+shipped unmodified and licensed under the Mozilla Public License, Version 2.0
+(https://mozilla.org/MPL/2.0/). Its source is available at
+https://proxy.golang.org/github.com/go-sql-driver/mysql/@v/v1.10.1.zip.
+go-sql-driver/mysql is Copyright 2012 The Go-MySQL-Driver Authors.
+
+The AI agent reads proposed shell commands with mvdan.cc/sh/v3 v3.12.0
+(https://github.com/mvdan/sh), shipped unmodified and licensed under the
+BSD 3-Clause License. Copyright (c) 2016, Daniel Martí. All rights reserved.
+
+The MCP server uses the Model Context Protocol Go SDK,
+github.com/modelcontextprotocol/go-sdk v1.8.0, shipped unmodified. The project
+is moving from the MIT License to the Apache License, Version 2.0: new code is
+Apache-2.0, and contributions whose authors have not yet agreed to relicense
+remain under the MIT License. Copyright The Go MCP SDK Authors. Its own
+dependencies are github.com/google/jsonschema-go, github.com/segmentio/encoding
+and github.com/segmentio/asm (MIT License), github.com/yosida95/uritemplate/v3
+(BSD 3-Clause License, Copyright (C) 2016 Kohei YOSHIDA), and golang.org/x/oauth2
+and golang.org/x/time (BSD 3-Clause License, Copyright 2009 The Go Authors).

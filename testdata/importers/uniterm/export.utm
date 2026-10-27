@@ -1,0 +1,192 @@
+{
+  "format": "uniterm",
+  "version": 1,
+  "encrypted": true,
+  "kdf": {
+    "algo": "pbkdf2-sha256",
+    "iterations": 100000,
+    "salt": "AAECAwQFBgcICQoLDA0ODw=="
+  },
+  "groups": [
+    {
+      "id": "grp-1",
+      "name": "Lab"
+    },
+    {
+      "id": "grp-2",
+      "name": "Edge",
+      "parentId": "grp-1"
+    },
+    {
+      "id": "grp-3",
+      "name": "Empty"
+    }
+  ],
+  "connections": [
+    {
+      "id": "conn-1",
+      "name": "jump",
+      "type": "ssh",
+      "host": "203.0.113.50",
+      "port": 22,
+      "user": "ops",
+      "authType": "password",
+      "password": "enc:v1:AQEBAQEBAQEBAQEB:75lyHcm5hfEzYS9ZlJGYaEkzeEG3WuzNQ9lg",
+      "groupId": "grp-1"
+    },
+    {
+      "id": "conn-2",
+      "name": "inner",
+      "type": "ssh",
+      "host": "10.0.0.5",
+      "port": 22,
+      "user": "root",
+      "authType": "keyText",
+      "keyContent": "enc:v1:AgICAgICAgICAgIC:KegAM2DxxgTKnV2BmLwNzOR9UPYWlLgiAGpaBa+UkMTv86mW0zeVlb5tyxz3oTgFOvz7d1x73TV/qa/iM5M6TdspEiuMat8dakvtTSWHWLoLXcRc7C33W4ZOUkRRPYjILdP3D1x6bNrQU/6Uwn9cJtFcyAj7P5JhCtl7D820FA==",
+      "tunnelSSHConnId": "conn-1",
+      "agentForwarding": true,
+      "groupId": "grp-2"
+    },
+    {
+      "id": "conn-3",
+      "name": "legacy",
+      "type": "ssh",
+      "host": "203.0.113.51",
+      "port": 22,
+      "user": "admin",
+      "authType": "password",
+      "password": "enc:v1:AwMDAwMDAwMDAwMD:y2NXBwt1IX3AbysMkOl9OlC7A/MoPaX/SlBv",
+      "sshAlgorithms": {
+        "mode": "custom",
+        "keyExchanges": [
+          "diffie-hellman-group1-sha1"
+        ],
+        "ciphers": [
+          "aes128-cbc"
+        ]
+      },
+      "x11Forwarding": true,
+      "proxyId": "proxy-1"
+    },
+    {
+      "id": "conn-4",
+      "name": "desk",
+      "type": "rdp",
+      "host": "198.51.100.60",
+      "port": 3390,
+      "user": "alice",
+      "authType": "password",
+      "password": "enc:v1:BAQEBAQEBAQEBAQE:BM2druq80Z/BaDlKxI4pMxbaI/IXTBfLNsI=",
+      "rdpDomain": "CORP",
+      "rdpEnableNLA": true
+    },
+    {
+      "id": "conn-5",
+      "name": "files",
+      "type": "ftp",
+      "host": "198.51.100.61",
+      "port": 21,
+      "user": "ftpuser",
+      "authType": "password",
+      "password": "enc:v1:BQUFBQUFBQUFBQUF:8b0N02PxUueXFarTgRC7X5yJt5vBOHpzEGg=",
+      "ftpEncryption": "none"
+    },
+    {
+      "id": "conn-6",
+      "name": "bucket",
+      "type": "s3",
+      "host": "https://minio.example:9000",
+      "port": 0,
+      "user": "AKIAEXAMPLE",
+      "authType": "password",
+      "password": "enc:v1:BgYGBgYGBgYGBgYG:7SeuNG6enJ5D3hyIX0xdLDeSAwLohG90SA==",
+      "s3Bucket": "backups",
+      "s3Region": "us-east-1",
+      "s3UrlStyle": "path"
+    },
+    {
+      "id": "conn-7",
+      "name": "dav",
+      "type": "webdav",
+      "host": "https://dav.example/remote.php/webdav",
+      "port": 0,
+      "user": "bob",
+      "authType": "password",
+      "password": "enc:v1:BwcHBwcHBwcHBwcH:Bz7DkMlFVpsce/+GWYpo/HSpEhqAZfeG++w="
+    },
+    {
+      "id": "conn-8",
+      "name": "tty",
+      "type": "serial",
+      "host": "",
+      "port": 0,
+      "user": "",
+      "authType": ""
+    },
+    {
+      "id": "conn-9",
+      "name": "db",
+      "type": "database",
+      "host": "198.51.100.63",
+      "port": 5432,
+      "user": "pg",
+      "authType": "password"
+    },
+    {
+      "id": "conn-10",
+      "name": "evil",
+      "type": "ssh",
+      "host": "203.0.113.52\nProxyCommand x",
+      "port": 22,
+      "user": "root",
+      "authType": "password"
+    },
+    {
+      "id": "conn-11",
+      "name": "vm",
+      "type": "vnc",
+      "host": "198.51.100.62",
+      "port": 5900,
+      "user": "",
+      "authType": "password",
+      "password": "enc:v1:CAgICAgICAgICAgI:bhCQhmTFseJU/OKlbXtyqOgOZtOnrdbcnfFB"
+    },
+    {
+      "id": "conn-12",
+      "name": "orders",
+      "type": "database",
+      "dbType": "mysql",
+      "host": "10.0.0.7",
+      "port": 3306,
+      "user": "shop",
+      "authType": "password",
+      "password": "enc:v1:CQkJCQkJCQkJCQkJ:TLQY8KALdHvIXl+5D6QuHxSn95wMs1nEI/Q=",
+      "dbName": "orders",
+      "dbParams": "tls=skip-verify&charset=utf8mb4",
+      "tunnelSSHConnId": "conn-1",
+      "groupId": "grp-1"
+    },
+    {
+      "id": "conn-13",
+      "name": "search",
+      "type": "elasticsearch",
+      "host": "198.51.100.64",
+      "port": 9200,
+      "user": "elastic",
+      "authType": "password",
+      "password": "enc:v1:CgoKCgoKCgoKCgoK:0tm3q5GeTxYBzvg4GBLfk5cSxcewc0rA/3k=",
+      "esUseSsl": true,
+      "esSkipVerify": true,
+      "esPathPrefix": "/es"
+    },
+    {
+      "id": "conn-14",
+      "name": "sentinel",
+      "type": "redis",
+      "host": "198.51.100.65",
+      "port": 26379,
+      "authType": "password",
+      "redisMode": "sentinel"
+    }
+  ]
+}

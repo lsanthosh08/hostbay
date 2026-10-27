@@ -1,0 +1,43 @@
+[
+  {
+    "session.protocol": "SSH",
+    "session.target": "deploy@203.0.113.30",
+    "session.port": 22,
+    "session.label": "wt-app",
+    "session.group": "Cloud>Prod",
+    "session.autoLogin": "VgHD0OJ1tFFCxbw23jd8624J6WuEIPe0VObuIKjIL7fg7uftqlL8gkEbNotdP3aD2LQOqiXleeXsiCfp14YN4gUeGcJFJC8VH4gV7NYsCjw="
+  },
+  {
+    "session.protocol": "SSH",
+    "session.target": "203.0.113.31",
+    "session.label": "wt-key",
+    "session.group": "Cloud",
+    "ssh": {
+      "identityFilePath.windows": "$(HomeDir)/.ssh/id_ed25519"
+    }
+  },
+  {
+    "session.protocol": "SSH",
+    "session.target": "203.0.113.34",
+    "session.label": "wt-escape",
+    "ssh": {
+      "identityFilePath.windows": "$(HomeDir)/../../etc/ssh/ssh_host_rsa_key"
+    }
+  },
+  {
+    "session.protocol": "Telnet",
+    "session.target": "203.0.113.32",
+    "session.port": 23,
+    "session.label": "wt-switch"
+  },
+  {
+    "session.protocol": "Serial",
+    "session.target": "COM1",
+    "session.label": "wt-serial"
+  },
+  {
+    "session.protocol": "SSH",
+    "session.target": "203.0.113.33\nevil",
+    "session.label": "wt-evil"
+  }
+]

@@ -1,0 +1,6 @@
+[virt-viewer]
+type=spice
+host=198.51.100.42
+port=5903
+password=Vv-Ticket-2!
+proxy=http://proxy.example:3128

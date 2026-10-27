@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<VanDyke version="3.0">
+  <key name="Sessions">
+    <key name="Default">
+      <string name="Protocol Name">SSH2</string>
+      <string name="Hostname"></string>
+    </key>
+    <key name="Production">
+    <key name="app-1">
+      <string name="Protocol Name">SSH2</string>
+      <string name="Hostname">203.0.113.10</string>
+      <dword name="[SSH2] Port">2200</dword>
+      <string name="Username">deploy</string>
+      <string name="Password V2">02:35b043b57062807fde20d19f39a4f4620e7b4ac910e1a7b553c16ea029c9c33fdaf40b3c72782b704b8c979fb454ccf8</string>
+      <dword name="Enable Agent Forwarding">1</dword>
+      <string name="Firewall Name">None</string>
+    </key>
+    <key name="app-2">
+      <string name="Protocol Name">SSH2</string>
+      <string name="Hostname">203.0.113.11</string>
+      <string name="Username">root</string>
+      <string name="Identity Filename V2">../../etc/ssh/ssh_host_ed25519_key</string>
+      <string name="Firewall Name">corp-socks</string>
+      <dword name="Forward X11">1</dword>
+      <string name="Password V2">03:00112233445566778899aabbccddeeff</string>
+    </key>
+    </key>
+    <key name="legacy">
+      <string name="Protocol Name">SSH2</string>
+      <string name="Hostname">203.0.113.12</string>
+      <string name="Username">admin</string>
+      <string name="Password">u44eeb48f7bf15c1e1343d29a3f884a81bbf5fb6cd66d2fccc8b54fa3ae96d77a</string>
+    </key>
+    <key name="switch">
+      <string name="Protocol Name">Telnet</string>
+      <string name="Hostname">203.0.113.13</string>
+      <dword name="Port">23</dword>
+    </key>
+    <key name="console">
+      <string name="Protocol Name">Serial</string>
+      <string name="Hostname"></string>
+    </key>
+    <key name="rlogin-box">
+      <string name="Protocol Name">RLogin</string>
+      <string name="Hostname">203.0.113.14</string>
+    </key>
+  </key>
+</VanDyke>

@@ -1,0 +1,6 @@
+[virt-viewer]
+type=vnc
+host=198.51.100.41
+port=5902
+password=Vv-Vnc-3!
+title=vm-guest-2

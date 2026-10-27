@@ -1,0 +1,19 @@
+[
+    {
+        "Name": "desktop-linux",
+        "Metadata": {
+            "Description": "Docker Desktop"
+        },
+        "Endpoints": {
+            "docker": {
+                "Host": "unix:///Users/dev/.docker/run/docker.sock",
+                "SkipTLSVerify": false
+            }
+        },
+        "TLSMaterial": {},
+        "Storage": {
+            "MetadataPath": "/Users/dev/.docker/contexts/meta/fe9c6bd7a66301f49ca9b6a70b217107cd1284598bfc254700c989b916da791e",
+            "TLSPath": "/Users/dev/.docker/contexts/tls/fe9c6bd7a66301f49ca9b6a70b217107cd1284598bfc254700c989b916da791e"
+        }
+    }
+]

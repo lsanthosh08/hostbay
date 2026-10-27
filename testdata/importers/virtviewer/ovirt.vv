@@ -1,0 +1,4 @@
+[virt-viewer]
+type=ovirt
+host=198.51.100.43
+title=managed-vm

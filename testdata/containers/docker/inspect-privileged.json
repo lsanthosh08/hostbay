@@ -1,0 +1,42 @@
+[
+    {
+        "Id": "c0ffee1234567890c0ffee1234567890c0ffee1234567890c0ffee1234567890",
+        "Created": "2026-10-20T09:12:01.402191Z",
+        "Path": "sleep",
+        "Args": ["infinity"],
+        "State": {
+            "Status": "running",
+            "Running": true,
+            "Pid": 4242,
+            "ExitCode": 0
+        },
+        "Image": "sha256:39286ab8a5e14aeaf5fdd6e2fac76e0c8d31a0c07224f0ee5e6be502f12e93f3",
+        "Name": "/tools",
+        "HostConfig": {
+            "Binds": ["/var/run/docker.sock:/var/run/docker.sock"],
+            "NetworkMode": "bridge",
+            "Privileged": true,
+            "RestartPolicy": {"Name": "no", "MaximumRetryCount": 0}
+        },
+        "Mounts": [
+            {
+                "Type": "bind",
+                "Source": "/var/run/docker.sock",
+                "Destination": "/var/run/docker.sock",
+                "Mode": "",
+                "RW": true,
+                "Propagation": "rprivate"
+            },
+            {
+                "Type": "volume",
+                "Name": "toolcache",
+                "Source": "/var/lib/docker/volumes/toolcache/_data",
+                "Destination": "/cache",
+                "Driver": "local",
+                "Mode": "z",
+                "RW": true,
+                "Propagation": ""
+            }
+        ]
+    }
+]

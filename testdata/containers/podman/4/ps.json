@@ -1,0 +1,82 @@
+[
+  {
+    "AutoRemove": false,
+    "Command": [
+      "nginx",
+      "-g",
+      "daemon off;"
+    ],
+    "CreatedAt": "2 hours ago",
+    "Exited": false,
+    "ExitedAt": -62135596800,
+    "ExitCode": 0,
+    "Id": "3f1c2a9b8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a",
+    "Image": "docker.io/library/nginx:1.27",
+    "ImageID": "39286ab8a5e14aeaf5fdd6e2fac76e0c8d31a0c07224f0ee5e6be502f12e93f3",
+    "IsInfra": false,
+    "Labels": {
+      "maintainer": "NGINX Docker Maintainers"
+    },
+    "Mounts": [],
+    "Names": [
+      "web"
+    ],
+    "Namespaces": {},
+    "Networks": [
+      "podman"
+    ],
+    "Pid": 2201,
+    "Pod": "",
+    "PodName": "",
+    "Ports": [
+      {
+        "host_ip": "",
+        "container_port": 80,
+        "host_port": 8080,
+        "range": 1,
+        "protocol": "tcp"
+      }
+    ],
+    "Restarts": 0,
+    "Size": null,
+    "StartedAt": 1792487521,
+    "State": "running",
+    "Status": "Up 2 hours",
+    "Created": 1792487521
+  },
+  {
+    "AutoRemove": false,
+    "Command": [
+      "postgres"
+    ],
+    "CreatedAt": "16 hours ago",
+    "Exited": true,
+    "ExitedAt": 1792483612,
+    "ExitCode": 0,
+    "Id": "9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b",
+    "Image": "docker.io/library/postgres:16",
+    "ImageID": "b781f3a53e61df916e97056d4bc0a7d0b77c4a27e1c36f7c0d7e9a4e4c1fd0a2",
+    "IsInfra": false,
+    "Labels": null,
+    "Mounts": [
+      "/var/lib/postgresql/data"
+    ],
+    "Names": [
+      "db"
+    ],
+    "Namespaces": {},
+    "Networks": [
+      "podman"
+    ],
+    "Pid": 0,
+    "Pod": "",
+    "PodName": "",
+    "Ports": null,
+    "Restarts": 0,
+    "Size": null,
+    "StartedAt": 1792436412,
+    "State": "exited",
+    "Status": "Exited (0) 3 hours ago",
+    "Created": 1792436412
+  }
+]

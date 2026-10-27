@@ -1,0 +1,8 @@
+data: {"id":"chatcmpl-7","object":"chat.completion.chunk","created":1,"model":"qwen3","system_fingerprint":"fp_ollama","choices":[{"index":0,"delta":{"role":"assistant","content":"Checking the load."},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-7","object":"chat.completion.chunk","created":1,"model":"qwen3","system_fingerprint":"fp_ollama","choices":[{"index":0,"delta":{"role":"assistant","content":"","tool_calls":[{"id":"call_q1","index":0,"type":"function","function":{"name":"run_command","arguments":"{\"command\":\"uptime\"}"}}]},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-7","object":"chat.completion.chunk","created":1,"model":"qwen3","system_fingerprint":"fp_ollama","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":"tool_calls"}]}
+
+data: [DONE]
+

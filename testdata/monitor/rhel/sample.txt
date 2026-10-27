@@ -1,0 +1,58 @@
+NONCE::3f9a1c07d2e4b658
+OS::Linux
+3f9a1c07d2e4b658:STAT::
+cpu  26174212 11873 6420533 410298214 1402235 1291004 487112 82113 0 0
+cpu0 6612340 2970 1611002 102498345 351221 400132 201003 20511 0 0
+cpu1 6503221 2981 1603411 102633190 350122 297001 95337 20533 0 0
+cpu2 6534501 2955 1602010 102585011 350321 296870 95441 20509 0 0
+cpu3 6524150 2967 1604110 102581668 350571 297001 95331 20560 0 0
+3f9a1c07d2e4b658:MEMINFO::
+MemTotal:       16104952 kB
+MemFree:         1022180 kB
+MemAvailable:    9810344 kB
+Buffers:            5308 kB
+Cached:          8901212 kB
+SwapCached:        41288 kB
+SwapTotal:       8257532 kB
+SwapFree:        7781120 kB
+HugePages_Total:       0
+Hugepagesize:       2048 kB
+3f9a1c07d2e4b658:LOADAVG::
+1.84 1.62 1.40 3/412 902113
+3f9a1c07d2e4b658:DF::
+Filesystem          1024-blocks     Used Available Capacity Mounted on
+devtmpfs                   4096        0      4096       0% /dev
+tmpfs                   8052476        0   8052476       0% /dev/shm
+tmpfs                   3220992    33888   3187104       2% /run
+/dev/mapper/rl-root    73364480 21007288  52357192      29% /
+/dev/sda1               1038336   431644    606692      42% /boot
+/dev/mapper/rl-home   394312704 88123112 306189592      23% /home
+tmpfs                   1610492        4   1610488       1% /run/user/1000
+3f9a1c07d2e4b658:NETDEV::
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo: 1203344560 4501233    0    0    0     0          0         0 1203344560 4501233    0    0    0     0       0          0
+ens192: 812334096712 701223344    0 1203    0     0          0      3311 99812334001 312233411    0    0    0     0       0          0
+docker0:  4123301   31201    0    0    0     0          0         0 18823100   40112    0    0    0     0       0          0
+3f9a1c07d2e4b658:PS::
+    PID USER     %CPU   RSS COMMAND
+      1 root      0.0 17612 /usr/lib/systemd/systemd rhgb --switched-root --system --deserialize 31
+    981 root      0.0  9124 /usr/sbin/sshd -D
+   1342 mysql     4.1 1622312 /usr/libexec/mysqld --basedir=/usr
+   1501 root      0.6 81220 /usr/bin/containerd
+   2210 root      0.4 102344 /usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock
+   3301 apache    0.1 22100 /usr/sbin/httpd -DFOREGROUND
+   3302 apache    0.1 21988 /usr/sbin/httpd -DFOREGROUND
+ 902100 admin     0.0  6120 -bash
+ 902113 admin     0.0  3988 ps -eo pid,user,pcpu,rss,args
+3f9a1c07d2e4b658:SS::
+Netid State  Recv-Q Send-Q Local Address:Port Peer Address:PortProcess
+udp   UNCONN 0      0          127.0.0.1:323       0.0.0.0:*
+udp   UNCONN 0      0              [::1]:323          [::]:*
+tcp   LISTEN 0      128          0.0.0.0:22        0.0.0.0:*
+tcp   LISTEN 0      80         127.0.0.1:3306      0.0.0.0:*
+tcp   LISTEN 0      511                *:443             *:*
+tcp   LISTEN 0      511                *:80              *:*
+tcp   LISTEN 0      128             [::]:22           [::]:*
+3f9a1c07d2e4b658:IPJ::
+[{"ifindex":1,"ifname":"lo","flags":["LOOPBACK","UP","LOWER_UP"],"mtu":65536,"qdisc":"noqueue","operstate":"UNKNOWN","group":"default","txqlen":1000,"link_type":"loopback","address":"00:00:00:00:00:00","broadcast":"00:00:00:00:00:00","addr_info":[{"family":"inet","local":"127.0.0.1","prefixlen":8,"scope":"host","label":"lo","valid_life_time":4294967295,"preferred_life_time":4294967295}]},{"ifindex":2,"ifname":"ens192","flags":["BROADCAST","MULTICAST","UP","LOWER_UP"],"mtu":1500,"qdisc":"mq","operstate":"UP","group":"default","txqlen":1000,"link_type":"ether","address":"00:50:56:a1:2b:3c","broadcast":"ff:ff:ff:ff:ff:ff","altnames":["enp11s0"],"addr_info":[{"family":"inet","local":"192.168.40.21","prefixlen":24,"broadcast":"192.168.40.255","scope":"global","noprefixroute":true,"label":"ens192","valid_life_time":4294967295,"preferred_life_time":4294967295}]},{"ifindex":3,"ifname":"docker0","flags":["NO-CARRIER","BROADCAST","MULTICAST","UP"],"mtu":1500,"qdisc":"noqueue","operstate":"DOWN","group":"default","link_type":"ether","address":"02:42:9f:11:c0:7e","broadcast":"ff:ff:ff:ff:ff:ff","addr_info":[{"family":"inet","local":"172.17.0.1","prefixlen":16,"broadcast":"172.17.255.255","scope":"global","label":"docker0","valid_life_time":4294967295,"preferred_life_time":4294967295}]}]

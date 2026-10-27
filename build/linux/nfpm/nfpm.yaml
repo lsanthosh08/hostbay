@@ -1,0 +1,75 @@
+# Feel free to remove those if you don't want/need to use them.
+# Make sure to check the documentation at https://nfpm.goreleaser.com
+#
+# The lines below are called `modelines`. See `:help modeline`
+
+name: "hostbay"
+arch: ${GOARCH}
+platform: "linux"
+version: "0.0.1"
+section: "default"
+priority: "extra"
+maintainer: "Hostbay contributors"
+description: "SSH, RDP and server manager"
+vendor: "Hostbay"
+homepage: "https://github.com/lsanthosh08/hostbay"
+license: "Apache-2.0"
+release: "1"
+
+contents:
+  - src: "./bin/hostbay"
+    dst: "/usr/local/bin/hostbay"
+  # internal/rdp.HelperPath looks for the RDP helper beside the hostbay binary.
+  - src: "./bin/hostbay-rdp-helper"
+    dst: "/usr/local/bin/hostbay-rdp-helper"
+  - src: "./build/appicon.png"
+    dst: "/usr/share/icons/hicolor/128x128/apps/hostbay.png"
+  - src: "./build/linux/hostbay.desktop"
+    dst: "/usr/share/applications/hostbay.desktop"
+
+# Hostbay builds with -tags gtk3 (build/linux/Taskfile.yml): the GTK3 + WebKit2GTK 4.1
+# stack. libasound2 is ALSA, which the RDP helper uses for remote audio and the microphone.
+depends:
+  - libgtk-3-0
+  - libwebkit2gtk-4.1-0
+  - libasound2
+
+# Distribution-specific overrides for different package formats
+overrides:
+  # RPM packages for Fedora / RHEL / AlmaLinux / Rocky Linux
+  rpm:
+    depends:
+      - gtk3
+      - webkit2gtk4.1
+      - alsa-lib
+
+  # Arch Linux packages
+  archlinux:
+    depends:
+      - gtk3
+      - webkit2gtk-4.1
+      - alsa-lib
+
+# scripts section to ensure desktop database is updated after install
+scripts:
+  postinstall: "./build/linux/nfpm/scripts/postinstall.sh"
+  # You can also add preremove, postremove if needed
+  # preremove: "./build/linux/nfpm/scripts/preremove.sh"
+  # postremove: "./build/linux/nfpm/scripts/postremove.sh"
+
+# The gtk3 stack is supported through Wails v3.0.x and removed in v3.1. Moving to GTK4 means
+# dropping the gtk3 default in build/linux/Taskfile.yml and depending on libgtk-4-1 and
+# libwebkitgtk-6.0-4 (rpm: gtk4, webkitgtk6.0; arch: gtk4, webkitgtk-6.0) instead.
+#
+# replaces:
+#   - foobar
+# provides:
+#   - bar
+# recommends:
+#   - whatever
+# suggests:
+#   - something-else
+# conflicts:
+#   - not-foo
+#   - not-bar
+# changelog: "changelog.yaml"

@@ -1,0 +1,9 @@
+[virt-viewer]
+type=spice
+host=198.51.100.40
+port=5900
+tls-port=5901
+password=Vv-Ticket-1!
+title=vm-guest-1
+ca=-----BEGIN CERTIFICATE-----\nc3ludGhldGlj\n-----END CERTIFICATE-----\n
+delete-this-file=1

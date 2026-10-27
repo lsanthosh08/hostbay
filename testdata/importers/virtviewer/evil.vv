@@ -1,0 +1,5 @@
+[virt-viewer]
+type=spice
+host=-oProxyCommand=x
+port=5900
+title=evil

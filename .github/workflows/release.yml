@@ -1,0 +1,188 @@
+name: Release
+
+# Pushing a v* tag builds the installers on each OS, signs the update
+# manifest that lists them, then publishes them with the manifest, its
+# signature and one SHA256SUMS file to a GitHub Release named after the tag.
+# Builds are not code-signed: macOS needs a Developer ID and notarization,
+# Windows an Authenticode certificate, before the OS stops warning about them.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    # Git Bash on Windows: Task runs cp and mkdir from its PATH.
+    shell: bash
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+          cache: npm
+
+      # rustup is preinstalled on GitHub's runners; the macOS package task adds
+      # the aarch64 and x86_64 targets itself.
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - name: Install Linux libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev libasound2-dev
+
+      - name: Install NSIS
+        if: runner.os == 'Windows'
+        run: |
+          command -v makensis || choco install nsis -y --no-progress
+          echo "C:/Program Files (x86)/NSIS" >> "$GITHUB_PATH"
+
+      # The same Wails CLI version as the library in go.mod.
+      - name: Install Wails CLI
+        run: |
+          go install "github.com/wailsapp/wails/v3/cmd/wails3@$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v3)"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Install UI dependencies
+        run: npm ci
+
+      # Write the tag's version into every file that carries the app version.
+      # Installers and Info.plist need a numeric version, so a pre-release
+      # suffix (v1.2.0-rc1) stays in the file names only.
+      - name: Stamp version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          NUMERIC="${VERSION%%-*}"
+          CURRENT=$(sed -n 's/^  version: "\(.*\)".*/\1/p' build/config.yml)
+          test -n "$CURRENT"
+          perl -pi -e "s/\Q$CURRENT\E/$NUMERIC/g" \
+            build/config.yml build/darwin/Info.plist build/linux/nfpm/nfpm.yaml \
+            build/windows/info.json build/windows/wails.exe.manifest build/windows/nsis/wails_tools.nsh
+          # The updater compares this with each release, pre-release suffix
+          # included; left at the default, every build would update forever.
+          perl -pi -e "s/^var Version = \".*\"/var Version = \"$VERSION\"/" internal/app/app.go
+          grep -q "^var Version = \"$VERSION\"$" internal/app/app.go
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Package
+        run: wails3 task package
+
+      - name: Collect macOS app
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p release
+          ditto -c -k --keepParent bin/Hostbay.app "release/Hostbay-$VERSION-macos-universal.zip"
+
+      - name: Collect Windows installer
+        if: runner.os == 'Windows'
+        run: |
+          mkdir -p release
+          cp bin/hostbay-amd64-installer.exe "release/Hostbay-$VERSION-windows-amd64-setup.exe"
+
+      - name: Collect Linux packages
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p release
+          cp bin/hostbay.deb "release/Hostbay-$VERSION-linux-amd64.deb"
+          cp bin/hostbay.rpm "release/Hostbay-$VERSION-linux-x86_64.rpm"
+          cp bin/hostbay-x86_64.AppImage "release/Hostbay-$VERSION-linux-x86_64.AppImage"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: hostbay-${{ runner.os }}
+          path: release/*
+          if-no-files-found: error
+
+  # Hostbay installs an update only when this manifest verifies against a
+  # public key built into it (KTD21). The private key lives only in the
+  # release-signing environment, whose required reviewer approves each run
+  # before the job can read it (docs/release-signing.md). This job runs no
+  # npm or third-party build step, and no Go cache, while it holds the key.
+  sign:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment: release-signing
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: hostbay-*
+          merge-multiple: true
+          path: release
+
+      # Until a key exists (docs/release-signing.md) builds embed no public key
+      # and cannot self-update, so an unsigned release still publishes. Once
+      # internal/update/keys.go embeds a key, a missing secret fails the
+      # release instead: those builds would find no manifest to update from.
+      - name: Sign the update manifest
+        env:
+          HOSTBAY_SIGNING_KEY: ${{ secrets.HOSTBAY_SIGNING_KEY }}
+        run: |
+          if [ -z "$HOSTBAY_SIGNING_KEY" ]; then
+            if ! grep -q 'releaseKeys = \[\]string{}' internal/update/keys.go; then
+              echo "::error::internal/update/keys.go embeds a release key but HOSTBAY_SIGNING_KEY is not set"
+              exit 1
+            fi
+            echo "::warning::HOSTBAY_SIGNING_KEY is not set; publishing without an update manifest"
+            exit 0
+          fi
+          go run ./cmd/sign-manifest -version "${GITHUB_REF_NAME#v}" -dir release
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: hostbay-manifest
+          path: |
+            release/hostbay-manifest.json
+            release/hostbay-manifest.json.sig
+          if-no-files-found: ignore
+
+  release:
+    needs: [build, sign]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: hostbay-*
+          merge-multiple: true
+          path: release
+
+      - name: Checksums
+        working-directory: release
+        run: sha256sum -- * > SHA256SUMS && cat SHA256SUMS
+
+      # A "-" tag (v1.2.0-rc1) publishes as a pre-release, which the updater
+      # offers only to users who chose pre-releases.
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME" release/*
+          --repo "$GITHUB_REPOSITORY"
+          --verify-tag
+          --title "Hostbay $GITHUB_REF_NAME"
+          --generate-notes
+          $(case "$GITHUB_REF_NAME" in *-*) echo --prerelease;; esac)

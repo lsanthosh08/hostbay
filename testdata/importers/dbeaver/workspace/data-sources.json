@@ -1,0 +1,123 @@
+{
+  "folders": {
+    "Prod": {},
+    "Prod/EU": {
+      "parent": "Prod"
+    }
+  },
+  "connections": {
+    "mysql8-orders": {
+      "provider": "mysql",
+      "driver": "mysql8",
+      "name": "orders",
+      "save-password": true,
+      "folder": "Prod/EU",
+      "configuration": {
+        "host": "192.0.2.20",
+        "port": "3306",
+        "database": "orders",
+        "url": "jdbc:mysql://192.0.2.20:3306/orders",
+        "bootstrap": {
+          "initQueries": [
+            "SET SESSION sql_mode = 'ANSI'"
+          ]
+        },
+        "local-client": "/usr/local/mysql/bin",
+        "properties": {
+          "sslMode": "VERIFY_IDENTITY",
+          "connectTimeout": "20000"
+        }
+      }
+    },
+    "postgres-jdbc-analytics": {
+      "provider": "postgresql",
+      "driver": "postgres-jdbc",
+      "name": "analytics",
+      "save-password": true,
+      "folder": "Prod",
+      "configuration": {
+        "host": "192.0.2.21",
+        "port": "5432",
+        "database": "analytics",
+        "properties": {
+          "sslmode": "disable"
+        }
+      }
+    },
+    "mssql-erp": {
+      "provider": "sqlserver",
+      "driver": "microsoft",
+      "name": "erp",
+      "save-password": true,
+      "configuration": {
+        "host": "db1\\SQLEXPRESS",
+        "port": "",
+        "database": "erp",
+        "properties": {
+          "encrypt": "true",
+          "trustServerCertificate": "true"
+        }
+      }
+    },
+    "postgres-jdbc-tunnelled": {
+      "provider": "postgresql",
+      "name": "tunnelled",
+      "save-password": true,
+      "configuration": {
+        "host": "10.10.0.5",
+        "port": 5432,
+        "database": "app",
+        "handlers": {
+          "ssh_tunnel": {
+            "type": "TUNNEL",
+            "enabled": true,
+            "save-password": true,
+            "properties": {
+              "host": "bastion.example",
+              "port": 22,
+              "authType": "PASSWORD"
+            }
+          }
+        }
+      }
+    },
+    "postgres-jdbc-nonvalidating": {
+      "provider": "postgresql",
+      "name": "nonvalidating",
+      "configuration": {
+        "host": "192.0.2.23",
+        "handlers": {
+          "postgre_ssl": {
+            "type": "CONFIG",
+            "enabled": true,
+            "properties": {
+              "sslMode": "verify-full",
+              "sslFactory": "org.postgresql.ssl.NonValidatingFactory"
+            }
+          }
+        }
+      }
+    },
+    "sqlite-local": {
+      "provider": "sqlite",
+      "name": "local file",
+      "configuration": {
+        "database": "/srv/data/app.db"
+      }
+    },
+    "by-url": {
+      "provider": "postgresql",
+      "name": "by url",
+      "configuration": {
+        "url": "jdbc:postgresql://192.0.2.25/app?sslmode=disable"
+      }
+    },
+    "csv-files": {
+      "provider": "csv",
+      "name": "spreadsheets",
+      "configuration": {
+        "database": "/srv/csv"
+      }
+    }
+  }
+}
