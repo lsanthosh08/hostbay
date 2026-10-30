@@ -52,6 +52,8 @@ func (p cmdProcess) Stop() error {
 type Manager struct {
 	env netd.TunnelEnv
 	run string // the run folder
+	// childEnv is the whole environment the clients start with (clientEnv).
+	childEnv []string
 
 	// The system's ways to start a client with no shell, create a TUN and
 	// address it, and create a Wintun adapter; tests replace them.
@@ -72,17 +74,44 @@ type tunnel struct {
 
 // New is netd.NewTunnels.
 func New(env netd.TunnelEnv) netd.Tunnels {
-	m := &Manager{env: env, run: filepath.Join(env.Dir, "run"), start: startProcess, createTUN: tun.CreateTUN, setAddrs: setAddrs,
+	m := &Manager{env: env, run: filepath.Join(env.Dir, "run"), createTUN: tun.CreateTUN, setAddrs: setAddrs,
 		adapter: createAdapter, tunnels: map[string]*tunnel{}}
+	m.start = func(path string, args []string, stdin io.Reader, stdout io.Writer) (process, error) {
+		return startProcess(path, args, m.childEnv, stdin, stdout)
+	}
 	os.RemoveAll(m.run) // a previous run's sockets and configurations
 	os.MkdirAll(m.run, 0o755)
 	os.Chmod(m.run, 0o755)
 	restrictDir(m.run)
+	conf := filepath.Join(m.run, "openssl.cnf")
+	writePrivate(conf, "") // left missing, OpenSSL still skips its compiled-in one
+	m.childEnv = clientEnv(conf, filepath.Dir(netd.ClientPath(env.Dir, "openvpn")))
 	return m
 }
 
-func startProcess(path string, args []string, stdin io.Reader, stdout io.Writer) (process, error) {
+// clientEnv is the whole environment a VPN client starts with, inheriting
+// nothing. OpenSSL in a client otherwise reads the configuration, providers
+// and engines its build names, which for Homebrew's lie in a folder the user
+// can write, and would load them into a root process. conf is an empty
+// configuration and libs a folder only root can write.
+func clientEnv(conf, libs string) []string {
+	env := []string{"OPENSSL_CONF=" + conf, "OPENSSL_MODULES=" + libs, "OPENSSL_ENGINES=" + libs}
+	if runtime.GOOS != "windows" {
+		return append(env, "PATH=/usr/bin:/bin:/usr/sbin:/sbin")
+	}
+	root := os.Getenv("SystemRoot")
+	env = append(env, "PATH="+root+`\System32;`+root) // the machine PATH may hold folders users can write
+	for _, k := range []string{"SystemRoot", "SystemDrive", "windir", "ComSpec", "PATHEXT", "TEMP", "TMP"} {
+		if v, ok := os.LookupEnv(k); ok {
+			env = append(env, k+"="+v)
+		}
+	}
+	return env
+}
+
+func startProcess(path string, args, env []string, stdin io.Reader, stdout io.Writer) (process, error) {
 	cmd := exec.Command(path, args...)
+	cmd.Env = append([]string{}, env...) // never nil, which would inherit the helper's
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = stdin, stdout, stdout
 	cmd.Dir = filepath.Dir(path)
 	if err := cmd.Start(); err != nil {

@@ -103,6 +103,39 @@ func newEnv(t *testing.T) *env {
 	return e
 }
 
+// A client starts with a fixed environment, inheriting none of the
+// helper's, and with an OpenSSL configuration of the helper's own, so a
+// Homebrew OpenSSL running as root never reads its user-writable
+// openssl.cnf or loads providers and engines from beside it.
+func TestClientsInheritNoEnvironment(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows keeps the system variables processes need")
+	}
+	t.Setenv("OPENSSL_CONF", "/tmp/user-writable/openssl.cnf")
+	t.Setenv("HB_SENTINEL", "x")
+	dir := t.TempDir()
+	m := New(netd.TunnelEnv{Dir: dir, User: strconv.Itoa(os.Getuid()), Owner: os.Getuid()}).(*Manager)
+	var out strings.Builder
+	p, err := m.start("/usr/bin/env", nil, nil, &out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	conf := filepath.Join(dir, "run", "openssl.cnf")
+	libs := filepath.Dir(netd.ClientPath(dir, "openvpn"))
+	want := []string{"OPENSSL_CONF=" + conf, "OPENSSL_ENGINES=" + libs, "OPENSSL_MODULES=" + libs, "PATH=/usr/bin:/bin:/usr/sbin:/sbin"}
+	got := strings.Split(strings.TrimSpace(out.String()), "\n")
+	slices.Sort(got)
+	if !slices.Equal(got, want) {
+		t.Errorf("client environment = %q, want %q", got, want)
+	}
+	if fi, err := os.Stat(conf); err != nil || fi.Size() != 0 || fi.Mode().Perm() != 0o600 {
+		t.Errorf("OpenSSL configuration %s: %v, want an empty file only root reads", conf, err)
+	}
+}
+
 func (e *env) event(t *testing.T) netd.Msg {
 	t.Helper()
 	select {
@@ -184,7 +217,7 @@ func TestOpenVPNScriptsRefusedByTheHelper(t *testing.T) {
 	if len(e.starts) != 0 {
 		t.Fatal("OpenVPN started")
 	}
-	if es, _ := os.ReadDir(filepath.Join(e.dir, "run")); len(es) != 0 {
+	if es, _ := os.ReadDir(filepath.Join(e.dir, "run")); len(es) != 1 || es[0].Name() != "openssl.cnf" { // the clients' shared one
 		t.Errorf("a refused profile left %v behind", es)
 	}
 }

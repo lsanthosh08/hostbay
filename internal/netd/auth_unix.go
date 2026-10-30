@@ -24,12 +24,13 @@ func currentUID() (string, error) { return strconv.Itoa(os.Getuid()), nil }
 // listen opens the helper's socket: owned by the installing user, mode 0600,
 // in a root-owned directory, so no other user can even connect. The peer
 // check (peerOf) then admits only the paired Hostbay.
-func listen(cfg Config) (net.Listener, error) {
+func listen(cfg Config) (net.Listener, error) { return listenAt(socketPath(), cfg) }
+
+func listenAt(path string, cfg Config) (net.Listener, error) {
 	uid, err := strconv.Atoi(cfg.UID)
 	if err != nil {
 		return nil, err
 	}
-	path := socketPath()
 	os.Remove(path)             // a socket left by a previous run
 	old := syscall.Umask(0o177) // never a moment with a wider mode
 	ln, err := net.Listen("unix", path)
