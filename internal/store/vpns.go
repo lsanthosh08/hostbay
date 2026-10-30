@@ -17,6 +17,10 @@ type VPN struct {
 	Port    int    `json:"port,omitempty"`
 	User    string `json:"user,omitempty"`
 	Auth    string `json:"auth,omitempty"` // the sign-in method, such as "password", "certificate" or "otp"
+	// WireGuard: the tunnel's own addresses (CIDR) and the server's public
+	// key. Neither is secret.
+	Address []string `json:"address,omitempty"`
+	PeerKey string   `json:"peerKey,omitempty"`
 
 	Routes     []string `json:"routes,omitempty"`     // CIDRs sent through the VPN
 	DNSServers []string `json:"dnsServers,omitempty"` // resolvers inside the VPN
@@ -70,10 +74,11 @@ func (v *VPN) TunnelMTU() int {
 }
 
 // SecretAAD binds the profile's secrets to where and how they are used:
-// after the profile is pointed elsewhere, signs in as someone else or moves
-// tier they no longer open (R4).
+// after the profile is pointed elsewhere, signs in as someone else, moves
+// tier or trusts another server key they no longer open (R4). The peer key
+// is the server's identity, and a synced change to it alone raises no hold.
 func (v *VPN) SecretAAD() []byte {
-	return []byte("vpn\x00" + v.ID + "\x00" + v.Type + "\x00" + v.Gateway + "\x00" + v.User + "\x00" + v.Tier)
+	return []byte("vpn\x00" + v.ID + "\x00" + v.Type + "\x00" + v.Gateway + "\x00" + v.User + "\x00" + v.Tier + "\x00" + v.PeerKey)
 }
 
 // VPN returns the profile with id, or nil.

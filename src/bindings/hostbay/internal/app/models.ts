@@ -710,6 +710,68 @@ export interface UpdateStatus {
     "error": string;
 }
 
+/**
+ * VPN is a VPN profile for Settings and the VPN panel (R1); see store.VPN.
+ * Like a proxy's password, its secrets are never sent back, only whether
+ * any are saved. On save, a nil or empty secret keeps the saved one.
+ */
+export interface VPN {
+    "id": string;
+    "name": string;
+    "type": string;
+    "tier": string;
+    "gateway"?: string;
+    "port"?: number;
+    "user"?: string;
+    "auth"?: string;
+    "address"?: string[] | null;
+    "peerKey"?: string;
+    "routes"?: string[] | null;
+    "dnsServers"?: string[] | null;
+    "dnsDomains"?: string[] | null;
+    "mtu"?: number;
+    "tags"?: string[] | null;
+    "autoReconnect"?: boolean;
+    "autoApply"?: boolean;
+    "routingMode"?: string;
+    "client"?: string;
+    "password"?: string | null;
+    "privateKey"?: string | null;
+    "presharedKey"?: string | null;
+    "authKey"?: string | null;
+    "hasSecret"?: boolean;
+}
+
+/**
+ * VPNState is a profile's live state. It never carries the SOCKS port or
+ * login, which stay between Hostbay and the helper.
+ */
+export interface VPNState {
+    "id": string;
+    "status": string;
+    "reason"?: string;
+
+    /**
+     * signing_in: "otp"
+     */
+    "need"?: string;
+
+    /**
+     * connected: the tunnel's own addresses
+     */
+    "address"?: string[] | null;
+
+    /**
+     * connected: networks reached through it
+     */
+    "routes"?: string[] | null;
+
+    /**
+     * connected: when it came up, Unix milliseconds
+     */
+    "since"?: number;
+}
+
 export interface WinDashboard {
     "os": string;
     "uptime": string;

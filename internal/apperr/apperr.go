@@ -14,8 +14,16 @@ const (
 	ProxyFailed    Code = "ProxyFailed"    // the host's proxy failed or refused; nothing was dialled directly
 	SecretNeeded   Code = "SecretNeeded"   // a saved secret is missing or cannot be decrypted
 	VerifyFailed   Code = "VerifyFailed"   // OS user verification was cancelled, failed or unavailable
-	HelperMissing  Code = "HelperMissing"  // the bundled RDP helper could not be started
+	HelperMissing  Code = "HelperMissing"  // a bundled helper (RDP or VPN) is missing, of another version or could not be started
 	DatabaseError  Code = "DatabaseError"  // a database refused or failed a request; details.category and details.detail say how
+)
+
+// VPN profiles' failures (KTD2, KTD5). None falls back to a direct
+// connection; details.vpnId names the profile.
+const (
+	VPNFailed    Code = "VPNFailed"    // the profile could not connect, or the dial through it failed
+	VPNDown      Code = "VPNDown"      // the host's profile is not connected, and the caller may not connect it
+	VPNAmbiguous Code = "VPNAmbiguous" // two connected profiles route the destination; details name both
 )
 
 // The AI agent's approval gate (KTD32).
