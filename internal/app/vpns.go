@@ -21,7 +21,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
@@ -370,9 +369,7 @@ var safeName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 // checkVPN is store.CheckVPN plus the profile's name and routing mode, and
 // this computer's own fields: its interface and client program.
 func checkVPN(v VPN) error {
-	bad := func(s string, spaces bool) bool {
-		return strings.IndexFunc(s, func(r rune) bool { return unicode.IsControl(r) || spaces && unicode.IsSpace(r) }) >= 0
-	}
+	bad := store.BadVPNText
 	if strings.TrimSpace(v.Name) == "" || bad(v.Name, false) {
 		return errors.New("name the VPN profile")
 	}

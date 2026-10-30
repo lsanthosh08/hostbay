@@ -46,13 +46,18 @@ type VPN struct {
 	Secret string `json:"secret,omitempty"`
 }
 
+// BadVPNText reports whether s holds a control character, or with spaces
+// any whitespace, either of which could add a line to an engine
+// configuration.
+func BadVPNText(s string, spaces bool) bool {
+	return strings.IndexFunc(s, func(r rune) bool { return unicode.IsControl(r) || spaces && unicode.IsSpace(r) }) >= 0
+}
+
 // CheckVPN refuses a profile whose fields could not work or could add lines
 // to the engine configuration Hostbay writes from them. Its name and routing
 // mode, and the fields kept in Local, are the caller's to check.
 func CheckVPN(v VPN) error {
-	bad := func(s string, spaces bool) bool {
-		return strings.IndexFunc(s, func(r rune) bool { return unicode.IsControl(r) || spaces && unicode.IsSpace(r) }) >= 0
-	}
+	bad := BadVPNText
 	switch {
 	case v.Type == "" || bad(v.Type, true):
 		return errors.New("no VPN type")
