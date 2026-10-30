@@ -892,6 +892,8 @@ export const tunnelStates = () => list(TunnelService.TunnelStates()) as Promise<
 export const onTunnelState = (cb: (s: TunnelState) => void) => on<TunnelState>("tunnel-state", cb);
 
 // ---- VPN profiles (R1, R8, R9) ----
+export type VpnTier = "app" | "system" | "external";
+export type VpnAuth = "password" | "certificate" | "otp" | "browser";
 // type is a row of the supported-types table (src/shell/vpnForm.ts) and tier
 // follows from it. Secrets are never sent back: hasSecret says some are saved,
 // and an empty one keeps the saved one.
@@ -903,7 +905,7 @@ export type Vpn = {
   gateway?: string;
   port?: number;
   user?: string;
-  auth?: string; // password, certificate, otp or browser
+  auth?: VpnAuth | ""; // "" is none
   address?: string[] | null; // WireGuard: the tunnel's own addresses
   peerKey?: string; // WireGuard: the server's public key
   routes?: string[] | null; // networks sent through the VPN; 0.0.0.0/0 and ::/0 are a full tunnel
@@ -987,7 +989,6 @@ export type HelperState = "unavailable" | "missing" | "repair" | "stopped" | "re
 export type HelperStatus = { state: HelperState; reason?: string };
 export const helperStatus = () => NetdService.Status() as Promise<HelperStatus>;
 export const installHelper = () => NetdService.Install() as Promise<HelperStatus>;
-export const uninstallHelper = () => NetdService.Uninstall() as Promise<HelperStatus>;
 // A planned change; gateway routes through the local network. profile is the
 // VPN profile it is for, if any.
 export type RouteKind = "add" | "delete" | "narrow" | "pin" | "mtu";

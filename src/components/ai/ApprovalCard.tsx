@@ -1,11 +1,17 @@
 import { useEffect, useState } from "react";
-import type { AIPending } from "../../api";
-import { t } from "../../i18n";
+import type { AIPending, VpnTier } from "../../api";
+import { t, type MessageKey } from "../../i18n";
 import { Button } from "../../ui/Button";
 
 /** An MCP connect_vpn or disconnect_vpn request carries these too; Go
  *  refuses a profile name, gateway or tag a card could not show as it is. */
 export type VPNPending = AIPending & { tag?: string; tier?: string; gateway?: string };
+
+/** What a request's profile reaches; an unknown tier reads as app-scoped. */
+const TIER: Partial<Record<VpnTier, MessageKey>> = {
+  system: "mcp.card.vpnTier.system",
+  external: "mcp.card.vpnTier.external",
+};
 
 const secondsLeft = (expires: string) => Math.max(0, Math.round((Date.parse(expires) - Date.now()) / 1000));
 
@@ -25,13 +31,11 @@ export function ApprovalCard({ p, onAnswer }: { p: VPNPending; onAnswer: (allow:
   }, [p.expires]);
   const skill = p.tool === "save_skill";
   const vpn = p.tool === "connect_vpn" || p.tool === "disconnect_vpn";
-  const label = skill
-    ? t(p.replaces ? "ai.card.skillReplace" : "ai.card.skill", { name: `/${p.name ?? ""}` })
-    : vpn
-      ? t(p.tool === "connect_vpn" ? "mcp.card.vpnConnect" : "mcp.card.vpnDisconnect", { client: p.client ?? "", name: p.host })
-      : p.client
-      ? t("mcp.card.label", { client: p.client, host: p.host })
-      : t("ai.card.label", { host: p.host });
+  let label: string;
+  if (skill) label = t(p.replaces ? "ai.card.skillReplace" : "ai.card.skill", { name: `/${p.name ?? ""}` });
+  else if (vpn) label = t(p.tool === "connect_vpn" ? "mcp.card.vpnConnect" : "mcp.card.vpnDisconnect", { client: p.client ?? "", name: p.host });
+  else if (p.client) label = t("mcp.card.label", { client: p.client, host: p.host });
+  else label = t("ai.card.label", { host: p.host });
 
   return (
     <article aria-label={label} className="panel rounded-card shadow-lg p-3 flex flex-col gap-2 text-sm">
@@ -43,7 +47,7 @@ export function ApprovalCard({ p, onAnswer }: { p: VPNPending; onAnswer: (allow:
         <ul className="flex flex-col gap-0.5">
           {p.tag && <li>{t("mcp.card.vpnTag", { tag: p.tag })}</li>}
           <li className={p.tier === "system" ? "text-danger font-medium" : undefined}>
-            {t(p.tier === "system" ? "mcp.card.vpnTier.system" : p.tier === "external" ? "mcp.card.vpnTier.external" : "mcp.card.vpnTier.app")}
+            {t(TIER[p.tier as VpnTier] ?? "mcp.card.vpnTier.app")}
           </li>
           {p.gateway && <li className="break-all allow-select">{t("mcp.card.vpnGateway", { gateway: p.gateway })}</li>}
         </ul>

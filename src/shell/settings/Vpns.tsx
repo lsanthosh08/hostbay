@@ -21,12 +21,15 @@ import {
   VPN_TYPES,
   authsFor,
   defaultPort,
+  hasRouting,
   isFullTunnel,
   needsGateway,
+  pickAuth,
   tierFor,
   typeLabel,
   validateVpn,
   vpnAsksSecretAgain,
+  type VpnAuth,
   type VpnField,
 } from "../vpnForm";
 import { Group, Row } from "./Group";
@@ -222,11 +225,11 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
   const err = (f: VpnField) => (tried && errors[f] ? t(errors[f]!) : undefined);
   const dirty = JSON.stringify(v) !== JSON.stringify(start);
   // An external profile's own app holds its keys and sign-in.
-  const wg = v.type === "wireguard" && v.tier !== "external";
-  const auths = v.tier === "external" ? [] : authsFor(v.type);
-  // A sign-in the type no longer offers (an imported certificate one) shows as its first.
-  const auth = auths.length ? (auths.includes(v.auth as never) ? v.auth! : auths[0]) : "";
   const external = v.tier === "external";
+  const wg = v.type === "wireguard" && !external;
+  const auths = external ? [] : authsFor(v.type);
+  // A sign-in the type no longer offers (an imported certificate one) shows as its first.
+  const auth = external ? "" : pickAuth(v.type, v.auth);
   const keep = v.hasSecret ? t("hostForm.passwordKeep") : "";
 
   const save = async () => {
@@ -297,7 +300,7 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
                 // sign-in the new type lacks is dropped, and so are typed
                 // secrets, so one type's key never reaches another's field.
                 const port = (v.port ?? 0) === defaultPort(v.type) ? defaultPort(type) : v.port;
-                set({ ...noSecrets, type, tier: tierFor(type), port, auth: authsFor(type).includes(v.auth as never) ? v.auth : authsFor(type)[0] ?? "" });
+                set({ ...noSecrets, type, tier: tierFor(type), port, auth: pickAuth(type, v.auth) });
               }}
             >
               {VPN_TYPES.map((ty) => (
@@ -387,7 +390,7 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label={t("vpnForm.auth")}>
-                <Select className="w-full" value={auth} onChange={(e) => set({ auth: e.target.value })}>
+                <Select className="w-full" value={auth} onChange={(e) => set({ auth: e.target.value as VpnAuth })}>
                   {auths.map((a) => (
                     <option key={a} value={a}>
                       {t(AUTH_LABEL[a])}
@@ -408,7 +411,7 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
         {vpnAsksSecretAgain(start, v) && <p className="text-xs text-warning">{t("vpnForm.secretAgain")}</p>}
 
         {/* An external profile's routes label its tunnel, and its DNS servers resolve names over it (R24, KTD7). */}
-        {v.type !== "tailscale" && v.type !== "zerotier" && (
+        {hasRouting(v.type) && (
           <section className="flex flex-col gap-3 pt-2 border-t border-line">
             <h3 className="text-sm font-semibold">{t("vpnForm.routing")}</h3>
             <RouteEditor v={v} set={set} err={err} />

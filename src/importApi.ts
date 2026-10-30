@@ -8,7 +8,7 @@ import type { Found } from "./bindings/hostbay/internal/importer/vpnconf/models"
 /** The host importers, and "vpn" and "tunnelhub", which go through the VPN
  *  review flow instead of importFrom. */
 export type ImportTool = "mobaxterm" | "mremoteng" | "securecrt" | "xshell" | "windterm" | "virtviewer" | "uniterm" | "kubeconfig" | "navicat" | "dbeaver" | "vpn" | "tunnelhub";
-export const isVpnTool = (tool: ImportTool) => tool === "vpn" || tool === "tunnelhub";
+export const isVpnTool = (tool: ImportTool): tool is "vpn" | "tunnelhub" => tool === "vpn" || tool === "tunnelhub";
 
 /** What an import added, the entries it skipped and why, and notes on what
  *  imported but needs a look (a password left behind, plaintext or
@@ -20,7 +20,7 @@ export type ImportReport = Report;
 /** Imports `tool`'s export at `path`. `password` is the tool's master or
  *  export password where it encrypts saved passwords, else empty. Hosts
  *  already saved are not added again. */
-export const importFrom = (tool: ImportTool, path: string, password: string): Promise<ImportReport> =>
+export const importFrom = (tool: Exclude<ImportTool, "vpn" | "tunnelhub">, path: string, password: string): Promise<ImportReport> =>
   HostService.ImportFrom(tool, path, password);
 
 /** One profile a VPN import read, with no secret; hasSecret says the file held some. */
