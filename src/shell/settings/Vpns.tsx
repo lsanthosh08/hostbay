@@ -3,17 +3,18 @@ import * as api from "../../api";
 import type { Vpn } from "../../api";
 import { reloadVpns, useVpns } from "../../components/VpnPanel";
 import { TagEditor } from "../../components/TagEditor";
+import { VpnImport } from "../../components/VpnImport";
 import { t } from "../../i18n";
 import { useHosts } from "../../state/hosts";
 import { Button } from "../../ui/Button";
 import { Dialog } from "../../ui/Dialog";
 import { Field, Input } from "../../ui/Field";
 import { IconButton } from "../../ui/IconButton";
-import { AddIcon, DeleteIcon, EditIcon } from "../../ui/icons";
+import { AddIcon, CloseIcon, DeleteIcon, EditIcon } from "../../ui/icons";
 import { usePrompt } from "../../ui/prompt";
 import { SegmentedControl } from "../../ui/SegmentedControl";
 import { Select } from "../../ui/Select";
-import { useAsyncToast } from "../../ui/toast";
+import { useAsyncToast, useToast } from "../../ui/toast";
 import {
   AUTH_LABEL,
   FULL_TUNNEL,
@@ -58,6 +59,7 @@ export function Vpns() {
 
   return (
     <Group title={t("settings.vpnsSaved")} description={t("settings.vpnsHint")}>
+      <TunnelHubBanner />
       <Button className="w-fit" icon={AddIcon} onClick={() => setEditing({ ...NEW_VPN })}>
         {t("vpn.new")}
       </Button>
@@ -100,6 +102,81 @@ export function Vpns() {
         />
       )}
     </Group>
+  );
+}
+
+const TUNNELHUB_DISMISSED = "tunnelHubBannerDismissed";
+const tunnelHubDismissed = () => {
+  try {
+    return localStorage.getItem(TUNNELHUB_DISMISSED) === "1";
+  } catch {
+    return false;
+  }
+};
+
+/** A one-time offer to move off TunnelHub (R45): import its config (R41),
+ *  then remove its helper and agent after Go's dialog. Dismissing it is
+ *  remembered on this device. */
+function TunnelHubBanner() {
+  const run = useAsyncToast();
+  const { push } = useToast();
+  const [hidden, setHidden] = useState(tunnelHubDismissed);
+  const [found, setFound] = useState<api.TunnelHubFound | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const detect = () => api.detectTunnelHub().then(setFound, () => setFound(null));
+  useEffect(() => {
+    if (!hidden) detect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hidden]);
+  if (hidden || !found || (!found.configPath && found.items.length === 0)) return null;
+
+  const remove = async () => {
+    setBusy(true);
+    const r = await run(api.removeTunnelHub);
+    setBusy(false);
+    if (!r) return;
+    if (r.status === "cancelled") push("info", t("tunnelHub.cancelled"));
+    if (r.removed.length) push("success", t("tunnelHub.removed", { items: r.removed.join(", ") }));
+    if (r.failed.length) push("error", t("tunnelHub.failed", { items: r.failed.join(", "), error: r.error ?? "" }));
+    detect();
+  };
+  const dismiss = () => {
+    try {
+      localStorage.setItem(TUNNELHUB_DISMISSED, "1");
+    } catch {
+      // storage refused: hidden for this session only
+    }
+    setHidden(true);
+  };
+
+  return (
+    <section aria-label={t("tunnelHub.title")} className="max-w-xl rounded-control border border-warning/60 bg-warning/10 p-3 text-sm flex flex-col gap-2">
+      <div className="flex items-start gap-2">
+        <p className="flex-1">
+          <span className="font-medium">{t("tunnelHub.title")}</span> <span className="text-muted">{t("tunnelHub.hint")}</span>
+        </p>
+        <IconButton label={t("tunnelHub.dismiss")} icon={CloseIcon} onClick={dismiss} />
+      </div>
+      <ol className="flex flex-col gap-2 list-decimal pl-5">
+        {found.configPath && (
+          <li>
+            <Button size="sm" onClick={() => setImporting(true)}>
+              {t("tunnelHub.import")}
+            </Button>
+          </li>
+        )}
+        {found.items.length > 0 && (
+          <li>
+            <Button size="sm" disabled={busy} onClick={remove}>
+              {t("tunnelHub.remove")}
+            </Button>
+          </li>
+        )}
+      </ol>
+      {found.appPath && <p className="text-xs text-muted">{t("tunnelHub.app", { path: found.appPath })}</p>}
+      {importing && found.configPath && <VpnImport path={found.configPath} onClose={() => setImporting(false)} />}
+    </section>
   );
 }
 

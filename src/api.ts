@@ -29,6 +29,7 @@ import {
   VPNService,
   NetdService,
   RoutingService,
+  TunnelHubService,
 } from "./bindings/hostbay/internal/app";
 
 export type UnlistenFn = () => void;
@@ -962,6 +963,19 @@ export type DetectedVpn = { name: string; type: string; shape?: string; connecte
 export const detectVpns = () => list(VPNService.DetectVPNs()) as Promise<DetectedVpn[]>;
 // Opens an external profile's client program saved on this computer (R3).
 export const launchVpnClient = (id: string) => VPNService.LaunchVPNClient(id);
+
+// ---- Browser profiles through a VPN (R33) ----
+export type BrowserProfile = { dir: string; name: string };
+/** A Chromium-family browser on this computer and its profiles. */
+export type InstalledBrowser = { id: string; name: string; profiles: BrowserProfile[] | null };
+/** Launches `profile` (its folder) of `browser` through VPN profile `vpn`; kept on this computer. */
+export type BrowserMapping = { browser: string; profile: string; vpn: string };
+export const installedBrowsers = () => list(VPNService.InstalledBrowsers()) as Promise<InstalledBrowser[]>;
+export const browserMappings = () => list(VPNService.BrowserMappings()) as Promise<BrowserMapping[]>;
+export const saveBrowserMapping = (m: BrowserMapping) => VPNService.SaveBrowserMapping(m);
+export const deleteBrowserMapping = (browser: string, profile: string) => VPNService.DeleteBrowserMapping(browser, profile);
+/** Connects the mapped VPN if needed, which may need the vault, then starts the profile through it. */
+export const launchBrowser = (browser: string, profile: string) => unlocking(() => VPNService.LaunchBrowser(browser, profile));
 // Go asks for the VPN panel when a profile waits on a one-time code or a
 // browser sign-in, or a connect from the tray failed.
 export const onShowVpns = (cb: () => void) => on<null>("show-vpns", cb);
@@ -996,6 +1010,14 @@ export const setLocalRoutes = (dsts: string[]) => RoutingService.SetLocalRoutes(
 export const pinInterface = (id: string, iface: string) => RoutingService.PinInterface(id, iface);
 export const routingState = () => RoutingService.State() as Promise<RoutingState>;
 export const onRoutingState = (cb: (s: RoutingState) => void) => on<RoutingState>("routing-state", cb);
+
+// ---- TunnelHub retirement (R45): its helper and agent, the config to import ----
+export type TunnelHubItem = { kind: "daemon" | "helper" | "socket" | "agent"; path: string; admin: boolean };
+export type TunnelHubFound = { items: TunnelHubItem[]; configPath?: string; appPath?: string };
+// status: "removed" (Removed and Failed say per item), "declined" in Hostbay's dialog, "cancelled" at the admin prompt.
+export type TunnelHubRemoval = { status: "removed" | "declined" | "cancelled"; removed: string[]; failed: string[]; error?: string };
+export const detectTunnelHub = () => Promise.resolve(TunnelHubService.Detect()).then((f) => ({ ...f, items: f?.items ?? [] }) as TunnelHubFound);
+export const removeTunnelHub = () => TunnelHubService.Remove() as Promise<TunnelHubRemoval>;
 
 // ---- Server monitor (R59): one sampler per Linux host, shared by its Monitor tabs ----
 // Sizes are bytes, rates bytes per second. Every string came from the host:

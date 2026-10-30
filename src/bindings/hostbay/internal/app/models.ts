@@ -24,6 +24,9 @@ import * as store$0 from "../store/models.js";
 import * as sync$0 from "../sync/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as browser$0 from "../vpn/browser/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as routing$0 from "../vpn/routing/models.js";
 
 export interface AIAllowEntry {
@@ -474,6 +477,16 @@ export interface Info {
 }
 
 /**
+ * InstalledBrowser is a browser on this computer with its profiles, for the
+ * mapping editor. Its path never leaves Go.
+ */
+export interface InstalledBrowser {
+    "id": string;
+    "name": string;
+    "profiles": browser$0.Profile[] | null;
+}
+
+/**
  * MCPAllowEntry is one command a token may run on a host without a card.
  */
 export interface MCPAllowEntry {
@@ -764,6 +777,44 @@ export interface Tunnel {
     "targetHost": string;
     "targetPort": number;
     "allowExternal": boolean;
+}
+
+/**
+ * TunnelHubFound is what Detect found. Items are what Remove would remove.
+ * The config is kept for import (R41), and the app bundle is shown only:
+ * removing it stays with the user.
+ */
+export interface TunnelHubFound {
+    "items": TunnelHubItem[] | null;
+    "configPath"?: string;
+    "appPath"?: string;
+}
+
+/**
+ * TunnelHubItem is one TunnelHub file on this computer. Admin: removing it
+ * needs an administrator.
+ */
+export interface TunnelHubItem {
+    /**
+     * daemon, helper, socket, agent; config and app are never removed
+     */
+    "kind": string;
+    "path": string;
+    "admin": boolean;
+}
+
+/**
+ * TunnelHubRemoval is what Remove did.
+ */
+export interface TunnelHubRemoval {
+    "status": string;
+    "removed": string[] | null;
+    "failed": string[] | null;
+
+    /**
+     * why a removal step failed
+     */
+    "error"?: string;
 }
 
 /**

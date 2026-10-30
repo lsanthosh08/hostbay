@@ -4,6 +4,7 @@
 export type {
     Algorithms,
     AllowEntry,
+    BrowserMapping,
     KeyBinding,
     Local,
     MCPSettings,

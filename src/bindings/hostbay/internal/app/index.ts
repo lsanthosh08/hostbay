@@ -21,6 +21,7 @@ import * as SpiceService from "./spiceservice.js";
 import * as SyncService from "./syncservice.js";
 import * as TerminalToolsService from "./terminaltoolsservice.js";
 import * as TransferService from "./transferservice.js";
+import * as TunnelHubService from "./tunnelhubservice.js";
 import * as TunnelService from "./tunnelservice.js";
 import * as UpdateService from "./updateservice.js";
 import * as VPNService from "./vpnservice.js";
@@ -49,6 +50,7 @@ export {
     SyncService,
     TerminalToolsService,
     TransferService,
+    TunnelHubService,
     TunnelService,
     UpdateService,
     VPNService,
@@ -90,6 +92,7 @@ export type {
     IisPool,
     IisSite,
     Info,
+    InstalledBrowser,
     MCPAllowEntry,
     MCPNewToken,
     MCPStatus,
@@ -112,6 +115,9 @@ export type {
     TerminalState,
     TransferSource,
     Tunnel,
+    TunnelHubFound,
+    TunnelHubItem,
+    TunnelHubRemoval,
     TunnelState,
     UpdateStatus,
     VPN,

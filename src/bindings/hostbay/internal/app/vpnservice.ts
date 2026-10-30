@@ -13,6 +13,9 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as store$0 from "../store/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as detect$0 from "../vpn/detect/models.js";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -24,6 +27,13 @@ import * as $models from "./models.js";
  */
 export function AnswerVPN(id: string, code: string): $CancellablePromise<void> {
     return $Call.ByID(571412128, id, code);
+}
+
+/**
+ * BrowserMappings lists the saved browser profile mappings.
+ */
+export function BrowserMappings(): $CancellablePromise<store$0.BrowserMapping[] | null> {
+    return $Call.ByID(2735996853);
 }
 
 /**
@@ -43,6 +53,13 @@ export function ConnectVPN(id: string): $CancellablePromise<$models.VPNState> {
  */
 export function ConnectedVPNs(): $CancellablePromise<number> {
     return $Call.ByID(1033464364);
+}
+
+/**
+ * DeleteBrowserMapping removes the browser profile's mapping.
+ */
+export function DeleteBrowserMapping(browserID: string, profile: string): $CancellablePromise<void> {
+    return $Call.ByID(382744951, browserID, profile);
 }
 
 /**
@@ -83,6 +100,24 @@ export function ForgetVPNCert(id: string): $CancellablePromise<void> {
 }
 
 /**
+ * InstalledBrowsers lists the Chromium-family browsers on this computer and
+ * their profiles; one whose profiles cannot be read lists none.
+ */
+export function InstalledBrowsers(): $CancellablePromise<$models.InstalledBrowser[] | null> {
+    return $Call.ByID(2048049557);
+}
+
+/**
+ * LaunchBrowser starts the mapped browser profile through its VPN,
+ * connecting the VPN first if it is down. It refuses a VPN with no SOCKS
+ * endpoint (AE6) and a browser that is already running, which would open
+ * the profile itself without the proxy (KTD11).
+ */
+export function LaunchBrowser(browserID: string, profile: string): $CancellablePromise<void> {
+    return $Call.ByID(2435425635, browserID, profile);
+}
+
+/**
  * LaunchVPNClient opens external profile id's client program, the one saved
  * on this computer: a synced name never chooses what Hostbay runs (KTD4).
  */
@@ -95,6 +130,15 @@ export function LaunchVPNClient(id: string): $CancellablePromise<void> {
  */
 export function ListVPNs(): $CancellablePromise<$models.VPN[] | null> {
     return $Call.ByID(3232456287);
+}
+
+/**
+ * SaveBrowserMapping saves m, replacing the browser profile's mapping if it
+ * has one. Any saved VPN profile is accepted; launch says when one has no
+ * SOCKS endpoint (AE6).
+ */
+export function SaveBrowserMapping(m: store$0.BrowserMapping): $CancellablePromise<void> {
+    return $Call.ByID(2934516529, m);
 }
 
 /**

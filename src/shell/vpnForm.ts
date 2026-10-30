@@ -3,8 +3,8 @@ import { t, type MessageKey } from "../i18n";
 
 /** The supported-types table (R2): each type's UI name and tier. The SSL VPN
  *  type never shows its vendor's name. App-scoped types connect inside
- *  Hostbay; the backend refuses system-wide ones with a reason until they are
- *  supported, so they are not hidden. */
+ *  Hostbay; system-wide ones through Hostbay's network helper or the
+ *  system's own VPN service. */
 export const VPN_TYPES: { id: string; label: MessageKey; tier: "app" | "system" | "external" }[] = [
   { id: "wireguard", label: "vpn.type.wireguard", tier: "app" },
   { id: "tailscale", label: "vpn.type.tailscale", tier: "app" },

@@ -22,6 +22,27 @@ export interface AllowEntry {
 }
 
 /**
+ * BrowserMapping launches one browser profile through one VPN profile
+ * (R33). A browser profile has at most one mapping.
+ */
+export interface BrowserMapping {
+    /**
+     * chrome, chromium, edge or brave
+     */
+    "browser": string;
+
+    /**
+     * the profile's folder, what --profile-directory takes
+     */
+    "profile": string;
+
+    /**
+     * the VPN profile's ID
+     */
+    "vpn": string;
+}
+
+/**
  * KeyBinding overrides an action's default shortcut per platform. nil keeps
  * the default there, and "" leaves the action unbound.
  */
@@ -100,6 +121,12 @@ export interface Local {
      * Hostbay and its VPNs stay up in the menu bar (KTD10).
      */
     "keepRunning"?: boolean;
+
+    /**
+     * BrowserMappings send browser profiles through VPN profiles (R33).
+     * Browsers and their profiles are this computer's own.
+     */
+    "browserMappings"?: BrowserMapping[] | null;
 }
 
 /**

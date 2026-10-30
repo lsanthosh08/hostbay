@@ -13,8 +13,8 @@ export const isVpnTool = (tool: ImportTool) => tool === "vpn" || tool === "tunne
 /** What an import added, the entries it skipped and why, and notes on what
  *  imported but needs a look (a password left behind, plaintext or
  *  weakening options imported as the tool had them). VPN imports add the
- *  profiles saved, each with the directives dropped (R43), and browser
- *  mappings that are not saved yet. */
+ *  profiles saved, each with the directives dropped (R43), and the browser
+ *  mappings saved with them. */
 export type ImportReport = Report;
 
 /** Imports `tool`'s export at `path`. `password` is the tool's master or
