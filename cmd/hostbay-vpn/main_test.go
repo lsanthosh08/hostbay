@@ -198,3 +198,48 @@ func TestRunRefusesBadStart(t *testing.T) {
 		})
 	}
 }
+
+// asker is an engine that waits on a one-time code.
+type asker struct {
+	fake
+	answers chan string
+}
+
+func (a *asker) Answer(code string) { a.answers <- code }
+
+func TestRunForwardsAnswers(t *testing.T) {
+	a := &asker{fake{stopped: make(chan struct{})}, make(chan string, 1)}
+	engines["asker"] = func(string, map[string]string) (engine, error) { return a, nil }
+	t.Cleanup(func() { delete(engines, "asker") })
+	h := startHelper(t)
+	h.read(t) // hello
+	h.send(t, start("asker", testUser, testPass))
+	h.read(t) // connecting
+	h.read(t) // connected
+	h.send(t, proto.Msg{T: proto.Answer, OTP: "123456"})
+	select {
+	case got := <-a.answers:
+		if got != "123456" {
+			t.Fatalf("engine got %q", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the answer never reached the engine")
+	}
+	h.stdin.Close()
+	h.wait(t)
+}
+
+// Every OpenConnect type runs, and none takes a secret in its settings.
+func TestOpenConnectTypesRegistered(t *testing.T) {
+	for _, typ := range []string{proto.TypeAnyConnect, proto.TypeSSLVPN, proto.TypeGlobalProtect, proto.TypePulse,
+		proto.TypeNetworkConnect, proto.TypeF5, proto.TypeArray} {
+		newEngine, ok := engines[typ]
+		if !ok {
+			t.Errorf("%s is not registered", typ)
+			continue
+		}
+		if _, err := newEngine(`{"gateway":"vpn.example.test"}`, map[string]string{"password": "p"}); err != nil {
+			t.Errorf("%s: %v", typ, err)
+		}
+	}
+}

@@ -8,6 +8,10 @@
 //
 // Secrets arrive only in the start message. Nothing the helper writes, to
 // stdout or stderr, carries one.
+//
+// For the OpenConnect types the helper runs openconnect, which starts the
+// helper again with one argument: "tun-fd" as its tunnel script, or a URL
+// as its browser (internal/vpn/openconnect).
 package main
 
 import (
@@ -20,6 +24,7 @@ import (
 	"os"
 	"sync"
 
+	"hostbay/internal/vpn/openconnect"
 	"hostbay/internal/vpn/proto"
 	"hostbay/internal/vpn/socks"
 	"hostbay/internal/vpn/wg"
@@ -35,11 +40,30 @@ type engine interface {
 	Dial(ctx context.Context, network, address string) (net.Conn, error)
 }
 
+// answerer is an engine that can wait on a one-time code.
+type answerer interface {
+	Answer(code string)
+}
+
 var engines = map[string]func(config string, secrets map[string]string) (engine, error){
 	proto.TypeWireGuard: func(c string, s map[string]string) (engine, error) { return wg.New(c, s) },
 }
 
+func init() {
+	for _, typ := range []string{proto.TypeAnyConnect, proto.TypeSSLVPN, proto.TypeGlobalProtect, proto.TypePulse,
+		proto.TypeNetworkConnect, proto.TypeF5, proto.TypeArray} {
+		engines[typ] = func(c string, s map[string]string) (engine, error) { return openconnect.New(typ, c, s) }
+	}
+}
+
 func main() {
+	if len(os.Args) > 1 {
+		if err := openconnect.Child(os.Args[1]); err != nil {
+			fmt.Fprintln(os.Stderr, "hostbay-vpn:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(os.Stdin, os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, "hostbay-vpn:", err)
 		os.Exit(1)
@@ -91,12 +115,14 @@ func run(in io.Reader, out io.Writer) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() {
-		// No WireGuard step waits on an answer, so only the end of stdin matters.
 		for {
 			var m proto.Msg
 			if dec.Decode(&m) != nil {
 				cancel()
 				return
+			}
+			if a, ok := eng.(answerer); ok && m.T == proto.Answer {
+				a.Answer(m.OTP)
 			}
 		}
 	}()
