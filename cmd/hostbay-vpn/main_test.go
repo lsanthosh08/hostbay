@@ -243,3 +243,15 @@ func TestOpenConnectTypesRegistered(t *testing.T) {
 		}
 	}
 }
+
+// Tailscale and Headscale run, with the folder Hostbay gives the profile.
+func TestTailscaleRegistered(t *testing.T) {
+	newEngine, ok := engines[proto.TypeTailscale]
+	if !ok {
+		t.Fatal("tailscale is not registered")
+	}
+	conf, _ := json.Marshal(map[string]string{"dir": t.TempDir(), "controlURL": "https://hs.example.test"})
+	if _, err := newEngine(string(conf), map[string]string{"authKey": "k"}); err != nil {
+		t.Error(err)
+	}
+}

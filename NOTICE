@@ -135,3 +135,29 @@ The Windows installer ships wintun.dll from Wintun 0.14.1
 for system-wide VPN tunnels. It is distributed under the Prebuilt Binaries
 License, which permits redistributing the unmodified DLL with software that
 uses it; that licence is installed beside it as wintun-LICENSE.txt.
+
+Tailscale and Headscale profiles run Tailscale's tsnet, tailscale.com
+(https://github.com/tailscale/tailscale), shipped unmodified and licensed under
+the BSD 3-Clause License, Copyright (c) 2020 Tailscale Inc & contributors, with
+its own modules github.com/tailscale/wireguard-go (MIT License, Copyright (C)
+2017-2025 WireGuard LLC), github.com/tailscale/hujson,
+github.com/tailscale/peercred, github.com/tailscale/web-client-prebuilt and
+github.com/dblohm7/wingoes (BSD 3-Clause License, Copyright Tailscale Inc.),
+github.com/tailscale/certstore (MIT License, Copyright (c) 2017 Ben Toews) and
+github.com/tailscale/go-winio (MIT License, Copyright (c) 2015 Microsoft). It
+also uses go4.org/netipx (BSD 3-Clause License, Copyright (c) 2020 The Inet.af
+AUTHORS), go4.org/mem (Apache License, Version 2.0, Copyright 2020 The Go4
+AUTHORS), github.com/gaissmai/bart (MIT License, Copyright (c) Karl
+Gaissmaier), github.com/fxamacker/cbor and github.com/x448/float16 (MIT
+License, Copyright Faye Amacker and Montgomery Edwards⁴⁴⁸),
+github.com/hdevalence/ed25519consensus and github.com/go-json-experiment/json
+(BSD 3-Clause License, Copyright The Go Authors), github.com/creachadair/msync
+(BSD 3-Clause License, Copyright (C) 2022 Michael J. Fromberger),
+github.com/huin/goupnp (BSD 2-Clause License, Copyright (c) 2013 John Beisley),
+github.com/mdlayher/netlink and github.com/mdlayher/socket (MIT License,
+Copyright Matt Layher), github.com/jsimonetti/rtnetlink (MIT License, Copyright
+(C) 2016 Jeroen Simonetti), github.com/mitchellh/go-ps (MIT License, Copyright
+(c) 2014 Mitchell Hashimoto), github.com/pires/go-proxyproto and
+github.com/safchain/ethtool (Apache License, Version 2.0), and on Windows
+golang.zx2c4.com/wireguard/windows (MIT License, Copyright (C) 2018-2026
+WireGuard LLC).

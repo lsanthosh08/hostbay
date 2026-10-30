@@ -6,7 +6,9 @@
 // carries the profile's secrets and the per-run SOCKS login: stdin is the
 // only place they go. The helper then sends state as the tunnel comes up,
 // changes or ends, and need when the engine waits on the user, which Hostbay
-// meets with answer. Closing the helper's stdin disconnects the profile and
+// meets with answer. A Tailscale helper also sends nodeState whenever its
+// node's keys change, for Hostbay to seal and send back in the next start's
+// secrets. Closing the helper's stdin disconnects the profile and
 // the helper exits.
 //
 // This package is imported by the main binary, so it uses only the standard
@@ -23,6 +25,9 @@ const (
 	State  = "state"  // helper: State, Reason, Address, Routes, SocksPort, Code, ServerCert
 	Need   = "need"   // helper: Need, URL
 	Answer = "answer" // Hostbay: OTP
+	// NodeState carries secrets, unlike every other helper message: Hostbay
+	// seals it, keeps it on this device only and never logs it.
+	NodeState = "nodeState" // helper: NodeState
 )
 
 // Engine types. The OpenConnect ones run the openconnect program; their
@@ -36,6 +41,7 @@ const (
 	TypeNetworkConnect = "nc" // Pulse's older Network Connect protocol
 	TypeF5             = "f5"
 	TypeArray          = "array"
+	TypeTailscale      = "tailscale" // Tailscale, or Headscale through its control URL
 )
 
 // Tunnel states.
@@ -70,7 +76,7 @@ type Msg struct {
 	// Type is the engine; Config is the profile's non-secret configuration in
 	// that engine's own format (a wg-quick .conf for WireGuard); Secrets are
 	// the sealed profile secrets by name (WireGuard: privateKey,
-	// presharedKey).
+	// presharedKey; Tailscale: authKey, nodeState).
 	Type      string            `json:"type,omitempty"`
 	Config    string            `json:"config,omitempty"`
 	Secrets   map[string]string `json:"secrets,omitempty"`
@@ -91,4 +97,8 @@ type Msg struct {
 	Need string `json:"need,omitempty"`
 	URL  string `json:"url,omitempty"`
 	OTP  string `json:"otp,omitempty"`
+
+	// NodeState is a Tailscale node's whole state store, keys included,
+	// base64. Hostbay passes it back unchanged as secrets["nodeState"].
+	NodeState string `json:"nodeState,omitempty"`
 }

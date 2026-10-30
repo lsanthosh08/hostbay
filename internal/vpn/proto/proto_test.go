@@ -22,6 +22,7 @@ func TestWireNames(t *testing.T) {
 			`{"t":"state","state":"failed","reason":"r","code":"cert-changed","serverCert":"pin-sha256:x"}`},
 		{Msg{T: Need, Need: NeedBrowser, URL: "https://sso.example"}, `{"t":"need","need":"browser","url":"https://sso.example"}`},
 		{Msg{T: Answer, OTP: "123456"}, `{"t":"answer","otp":"123456"}`},
+		{Msg{T: NodeState, NodeState: "e30="}, `{"t":"nodeState","nodeState":"e30="}`},
 	} {
 		b, err := json.Marshal(c.m)
 		if err != nil {
