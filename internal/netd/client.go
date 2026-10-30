@@ -21,6 +21,7 @@ type Client struct {
 	mu      sync.Mutex
 	nextID  uint64
 	pending map[uint64]chan Msg
+	tunnels map[string]func(Msg) // handle: its events' receiver
 
 	events chan struct{}
 	done   chan struct{}
@@ -66,6 +67,7 @@ func newClient(conn net.Conn) (*Client, error) {
 		conn:    conn,
 		enc:     json.NewEncoder(conn),
 		pending: map[uint64]chan Msg{},
+		tunnels: map[string]func(Msg){},
 		events:  make(chan struct{}, 1),
 		done:    make(chan struct{}),
 	}
@@ -94,6 +96,16 @@ func (c *Client) read(dec *json.Decoder) {
 			case c.events <- struct{}{}:
 			default:
 			}
+		case TunnelEvent:
+			c.mu.Lock()
+			on := c.tunnels[m.Tunnel]
+			if m.State == TunnelEnded {
+				delete(c.tunnels, m.Tunnel)
+			}
+			c.mu.Unlock()
+			if on != nil {
+				on(m)
+			}
 		case Reply:
 			c.mu.Lock()
 			ch := c.pending[m.ID]
@@ -121,12 +133,18 @@ func (c *Client) Done() <-chan struct{} { return c.done }
 func (c *Client) Close() error { return c.conn.Close() }
 
 func (c *Client) call(ctx context.Context, m Msg) error {
+	_, err := c.request(ctx, m)
+	return err
+}
+
+// request sends m and returns the helper's reply.
+func (c *Client) request(ctx context.Context, m Msg) (Msg, error) {
 	ch := make(chan Msg, 1)
 	c.mu.Lock()
 	select {
 	case <-c.done:
 		c.mu.Unlock()
-		return ErrClosed
+		return Msg{}, ErrClosed
 	default:
 	}
 	c.nextID++
@@ -135,23 +153,45 @@ func (c *Client) call(ctx context.Context, m Msg) error {
 	err := c.enc.Encode(m)
 	c.mu.Unlock()
 	if err != nil {
-		return ErrClosed
+		return Msg{}, ErrClosed
 	}
 	select {
 	case r, ok := <-ch:
 		if !ok {
-			return ErrClosed
+			return Msg{}, ErrClosed
 		}
 		if r.Code != "" {
-			return &Error{r.Code, r.Reason}
+			return r, &Error{r.Code, r.Reason}
 		}
-		return nil
+		return r, nil
 	case <-ctx.Done():
 		c.mu.Lock()
 		delete(c.pending, m.ID)
 		c.mu.Unlock()
-		return ctx.Err()
+		return Msg{}, ctx.Err()
 	}
+}
+
+// Tunnel starts a system-wide tunnel: m is an OpenVPNStart, OpenConnectStart
+// or WireGuardStart naming its handle in m.Tunnel. on receives the tunnel's
+// events, from the read loop, until one says it ended; when the connection
+// ends instead (Done), the helper has stopped the tunnel.
+func (c *Client) Tunnel(ctx context.Context, m Msg, on func(Msg)) (Msg, error) {
+	c.mu.Lock()
+	c.tunnels[m.Tunnel] = on
+	c.mu.Unlock()
+	r, err := c.request(ctx, m)
+	if err != nil {
+		c.mu.Lock()
+		delete(c.tunnels, m.Tunnel)
+		c.mu.Unlock()
+	}
+	return r, err
+}
+
+// StopTunnel stops the tunnel with handle h.
+func (c *Client) StopTunnel(ctx context.Context, h string) error {
+	return c.call(ctx, Msg{T: StopTunnel, Tunnel: h})
 }
 
 // Add adds a route through a tunnel interface, or with r.Gateway through the

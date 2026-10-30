@@ -124,7 +124,11 @@ type VPNService struct {
 	// checkConnect refuses a system-wide connect the routing plan cannot
 	// place (R13); RoutingService sets it.
 	checkConnect func(id string) error
-	stopDetect   context.CancelFunc // ends the detection loop
+	// tunnels is the helper connection system-wide tunnels run through, or
+	// nil while there is none; RoutingService sets it.
+	tunnels    func() tunnelClient
+	osvpn      osVPN              // the system's own VPN service, for IKEv2 and L2TP
+	stopDetect context.CancelFunc // ends the detection loop
 
 	refreshing sync.Mutex // one detection at a time, so states apply in order
 
@@ -153,11 +157,23 @@ type vpnAttempt struct {
 	exited     chan struct{} // closed once the helper has exited, or never started
 	nodeAAD    []byte        // Tailscale: what the node's state is sealed to, as the profile was at start
 	pinned     string        // OpenConnect: the gateway pin the start carried
+	sys        systemRun     // a system-wide run, in place of a helper
+	iface      string        // a system-wide run's tunnel interface, once up
+}
+
+// close ends the attempt's helper or system-wide run, without waiting.
+func (a *vpnAttempt) close() {
+	if a.h != nil {
+		a.h.Close()
+	}
+	if a.sys != nil {
+		a.sys.Close()
+	}
 }
 
 func NewVPNService(st *store.Store, vault *secrets.Vault) *VPNService {
 	return &VPNService{
-		st: st, vault: vault, helper: vpn.HelperPath, detect: detect.Detect, emit: emitEvent, openURL: openInBrowser,
+		st: st, vault: vault, helper: vpn.HelperPath, detect: detect.Detect, emit: emitEvent, openURL: openInBrowser, osvpn: systemOSVPN,
 		runs: map[string]*vpnRun{}, states: map[string]VPNState{}, changed: make(chan struct{}), exited: map[string]chan struct{}{},
 	}
 }
@@ -444,7 +460,7 @@ func (s *VPNService) connectAs(ctx context.Context, id, by string) (VPNState, er
 		return st, apperr.New(apperr.VPNFailed, fmt.Sprintf("VPN %s connects in its own app; open it there", d.VPN(id).Name)).
 			With("vpnId", id).With("reason", "external")
 	}
-	if d, err := s.st.Data(); err == nil && d.VPN(id) != nil && d.VPN(id).Tier == store.VPNTierSystem && s.checkConnect != nil {
+	if d, err := s.st.Data(); err == nil && d.VPN(id) != nil && vpnTier(*d.VPN(id)) == store.VPNTierSystem && s.checkConnect != nil {
 		if err := s.checkConnect(id); err != nil {
 			return VPNState{ID: id}, apperr.New(apperr.VPNFailed, err.Error()).With("vpnId", id).With("reason", "conflict")
 		}
@@ -493,9 +509,9 @@ func (s *VPNService) run(id string, r *vpnRun) {
 			select {
 			case m = <-end:
 				s.mu.Lock()
-				h := r.att.h
+				att := r.att
 				s.mu.Unlock()
-				h.Close() // one that reported its end but lingers must not hold up the next
+				att.close() // one that reported its end but lingers must not hold up the next
 			case <-r.stop:
 				return
 			}
@@ -557,7 +573,7 @@ func (s *VPNService) run(id string, r *vpnRun) {
 func codedFailure(id, pinned string, m proto.Msg) VPNState {
 	st := VPNState{ID: id, Status: VPNFailed, Reason: m.Reason, Code: m.Code, ServerCert: m.ServerCert}
 	if m.Code == proto.CodeNeedsSystemWide {
-		st.Reason = "This VPN type needs system-wide mode on Windows, which Hostbay does not offer yet."
+		st.Reason = "This VPN type needs system-wide mode on Windows, which runs through Hostbay's network helper."
 	}
 	e := apperr.New(apperr.VPNFailed, "VPN: "+st.Reason).With("vpnId", id).With("reason", m.Code)
 	if m.ServerCert != "" {
@@ -579,13 +595,13 @@ func (s *VPNService) attempt(id string, r *vpnRun) (<-chan proto.Msg, error) {
 	prev := s.exited[id]
 	s.exited[id], r.att = a.exited, a
 	s.mu.Unlock()
-	h, err := s.launch(id, r, a, prev)
+	done, err := s.launch(id, r, a, prev)
 	if err != nil {
 		close(a.exited)
 		return nil, err
 	}
 	go func() {
-		<-h.Done()
+		<-done
 		close(a.exited)
 	}()
 	return a.end, nil
@@ -593,14 +609,19 @@ func (s *VPNService) attempt(id string, r *vpnRun) (<-chan proto.Msg, error) {
 
 // launch starts a's helper once the profile's previous one has exited, so
 // two never run on one profile's state (a Tailscale node's), and the start
-// carries what the last one wrote as it closed.
-func (s *VPNService) launch(id string, r *vpnRun, a *vpnAttempt, prev <-chan struct{}) (*vpn.Helper, error) {
+// carries what the last one wrote as it closed; a system-wide profile
+// starts its system-wide run instead. It returns a channel closed once the
+// helper or run has ended.
+func (s *VPNService) launch(id string, r *vpnRun, a *vpnAttempt, prev <-chan struct{}) (<-chan struct{}, error) {
 	if prev != nil {
 		select {
 		case <-prev:
 		case <-r.stop:
 			return nil, errors.New("the VPN profile was disconnected")
 		}
+	}
+	if d, err := s.st.Data(); err == nil && d.VPN(id) != nil && vpnTier(*d.VPN(id)) == store.VPNTierSystem {
+		return s.launchSystem(id, r, a, d.VPN(id))
 	}
 	start, v, err := s.startMsg(id)
 	if err != nil {
@@ -625,7 +646,7 @@ func (s *VPNService) launch(id string, r *vpnRun, a *vpnAttempt, prev <-chan str
 	if stopped {
 		h.Close()
 	}
-	return h, nil
+	return h.Done(), nil
 }
 
 // report applies one helper message to the profile's state.
@@ -659,7 +680,7 @@ func (s *VPNService) report(id string, r *vpnRun, a *vpnAttempt, m proto.Msg) {
 		s.set(VPNState{ID: id, Status: VPNConnecting})
 	case m.State == proto.Connected:
 		a.port = m.SocksPort
-		s.set(VPNState{ID: id, Status: VPNConnected, Address: m.Address, Routes: m.Routes, Since: time.Now().UnixMilli()})
+		s.set(VPNState{ID: id, Status: VPNConnected, Address: m.Address, Routes: m.Routes, Iface: a.iface, Since: time.Now().UnixMilli()})
 	}
 	s.mu.Unlock()
 	if open != "" {
@@ -743,19 +764,9 @@ func (s *VPNService) startMsg(id string) (proto.Msg, *store.VPN, error) {
 		return proto.Msg{}, nil, apperr.New(apperr.VPNFailed, "Hostbay cannot sign in to this VPN with a client certificate yet; choose another sign-in in the profile").
 			With("vpnId", id).With("reason", "unsupported")
 	}
-	var sec store.VPNSecrets
-	if v.Secret != "" {
-		b, err := s.vault.Open(v.Secret, v.SecretAAD())
-		if err != nil {
-			var ae *apperr.Error
-			if errors.As(err, &ae) {
-				ae.With("vpnId", id)
-			}
-			return proto.Msg{}, nil, err
-		}
-		if err := json.Unmarshal(b, &sec); err != nil {
-			return proto.Msg{}, nil, err
-		}
+	sec, err := s.openSecrets(v)
+	if err != nil {
+		return proto.Msg{}, nil, err
 	}
 	m := proto.Msg{T: proto.Start, Type: v.Type, SocksUser: rand.Text(), SocksPass: rand.Text()}
 	switch v.Type {
@@ -787,6 +798,23 @@ func (s *VPNService) startMsg(id string) (proto.Msg, *store.VPN, error) {
 		m.Secrets = map[string]string{"password": pass}
 	}
 	return m, v, nil
+}
+
+// openSecrets opens v's saved secrets.
+func (s *VPNService) openSecrets(v *store.VPN) (store.VPNSecrets, error) {
+	var sec store.VPNSecrets
+	if v.Secret == "" {
+		return sec, nil
+	}
+	b, err := s.vault.Open(v.Secret, v.SecretAAD())
+	if err != nil {
+		var ae *apperr.Error
+		if errors.As(err, &ae) {
+			ae.With("vpnId", v.ID)
+		}
+		return sec, err
+	}
+	return sec, json.Unmarshal(b, &sec)
 }
 
 // nodeState opens the Tailscale profile's saved node. One that no longer
@@ -957,6 +985,28 @@ func (s *VPNService) socks(id string) (addr, user, pass string, err error) {
 	return net.JoinHostPort("127.0.0.1", strconv.Itoa(r.att.port)), r.att.user, r.att.pass, nil
 }
 
+// connected reports whether profile id's run is up.
+func (s *VPNService) connected(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.runs[id] != nil && s.states[id].Status == VPNConnected
+}
+
+// systemIface is the tunnel interface of system-wide profile id's run.
+func (s *VPNService) systemIface(id, name string) (string, error) {
+	s.mu.Lock()
+	st, running := s.states[id], s.runs[id] != nil
+	s.mu.Unlock()
+	switch {
+	case !running || st.Status != VPNConnected:
+		return "", apperr.New(apperr.VPNDown, fmt.Sprintf("VPN %s is not connected; connect it, then try again", name)).With("vpnId", id)
+	case st.Iface == "":
+		return "", apperr.New(apperr.VPNFailed, fmt.Sprintf("VPN %s is connected, but Hostbay cannot tell which interface is its tunnel", name)).
+			With("vpnId", id).With("reason", "iface")
+	}
+	return st.Iface, nil
+}
+
 // DisconnectVPN stops the profile's helper. Disconnecting a profile that is
 // not connected clears a failed or dropped state.
 func (s *VPNService) DisconnectVPN(id string) error {
@@ -990,15 +1040,17 @@ func (s *VPNService) connectedBy(id string) (string, bool) {
 
 // stop ends the profile's run; s.mu is held.
 func (s *VPNService) stop(id string) {
-	if r := s.runs[id]; r != nil {
+	r := s.runs[id]
+	if r != nil {
 		delete(s.runs, id)
 		close(r.stop)
-		if r.att != nil && r.att.h != nil {
-			r.att.h.Close()
+		if r.att != nil {
+			r.att.close()
 		}
 	}
-	// An external profile's state is its tunnel's, which this cannot end.
-	if st, known := s.states[id]; known && st.Iface == "" && st.Status != VPNDisconnected {
+	// An external profile's state is its tunnel's, which this cannot end;
+	// a system-wide run's tunnel ends with it.
+	if st, known := s.states[id]; known && (st.Iface == "" || r != nil) && st.Status != VPNDisconnected {
 		s.set(VPNState{ID: id, Status: VPNDisconnected})
 	}
 }
@@ -1108,9 +1160,10 @@ func (s *VPNService) labelNow(ctx context.Context) (detect.Snapshot, []detect.La
 		}
 		s.set(st)
 	}
-	// A profile moved off the external tier keeps no tunnel.
+	// A profile moved off the external tier keeps no tunnel; a system-wide
+	// run's tunnel is its own.
 	for id, st := range s.states {
-		if v := d.VPN(id); st.Iface != "" && (v == nil || v.Tier != store.VPNTierExternal) {
+		if v := d.VPN(id); st.Iface != "" && s.runs[id] == nil && (v == nil || v.Tier != store.VPNTierExternal) {
 			s.set(VPNState{ID: id, Status: VPNDisconnected})
 		}
 	}

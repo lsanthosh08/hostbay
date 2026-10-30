@@ -40,6 +40,10 @@ type Proxy struct {
 	VPN   string
 	Socks func() (addr, user, pass string, err error)
 	Iface func(ctx context.Context) (iface string, dns []string, err error)
+	// Route, for a system-wide profile, checks that the system sends addr
+	// through the profile's tunnel; the dial then goes direct, on the
+	// system's routes.
+	Route func(ctx context.Context, addr string) error
 }
 
 // maxProxyReply caps an HTTP proxy's reply headers.
@@ -56,6 +60,9 @@ func DialTCP(ctx context.Context, p *Proxy, addr string) (net.Conn, error) {
 	}
 	if p.Type == "vpn" && p.Iface != nil {
 		return p.dialBound(ctx, "tcp", addr)
+	}
+	if p.Type == "vpn" && p.Route != nil {
+		return p.dialRouted(ctx, "tcp", addr)
 	}
 	if p.Type == "vpn" {
 		paddr, user, pass, err := p.Socks()
@@ -131,6 +138,19 @@ func (p *Proxy) dialBound(ctx context.Context, network, addr string) (net.Conn, 
 		}}
 	}
 	c, err := d.DialContext(ctx, network, addr)
+	if err != nil {
+		return nil, p.vpnErr(addr, err)
+	}
+	return c, nil
+}
+
+// dialRouted dials addr directly once Route has found the system sends it
+// through the system-wide profile's tunnel.
+func (p *Proxy) dialRouted(ctx context.Context, network, addr string) (net.Conn, error) {
+	if err := p.Route(ctx, addr); err != nil {
+		return nil, err
+	}
+	c, err := (&net.Dialer{}).DialContext(ctx, network, addr)
 	if err != nil {
 		return nil, p.vpnErr(addr, err)
 	}
@@ -227,6 +247,9 @@ func (p *Proxy) DialUDP(ctx context.Context, addr *net.UDPAddr) (net.Conn, error
 	}
 	if p.Iface != nil {
 		return p.dialBound(ctx, "udp", addr.String())
+	}
+	if p.Route != nil {
+		return p.dialRouted(ctx, "udp", addr.String())
 	}
 	paddr, user, pass, err := p.Socks()
 	if err != nil {

@@ -84,6 +84,9 @@ WireGuard LLC. Its userspace network stack is gVisor, gvisor.dev/gvisor
 Version 2.0, Copyright The gVisor Authors, which uses github.com/google/btree
 (Apache License, Version 2.0, Copyright Google Inc.). On Windows it also uses
 golang.zx2c4.com/wintun (MIT License, Copyright (C) 2017-2025 WireGuard LLC).
+The network helper (hostbay-netd) runs system-wide WireGuard tunnels with the
+same wireguard-go and, on Windows, Wintun and golang.zx2c4.com/wireguard/windows
+(MIT License, Copyright (C) 2018-2026 WireGuard LLC).
 
 OpenConnect profiles run OpenConnect (https://www.infradead.org/openconnect/),
 the openconnect program, Copyright David Woodhouse and the OpenConnect

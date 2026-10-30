@@ -2,6 +2,9 @@ package netd
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
 	"slices"
 	"testing"
 )
@@ -109,5 +112,81 @@ func TestWindowsInstallRefusesBadSID(t *testing.T) {
 	defer func() { elevate = old }()
 	if err := installWindows(`C:\Hostbay\hostbay-netd.exe`, "S-1-5 & calc"); errCode(err) != CodeInvalid {
 		t.Errorf("err = %v", err)
+	}
+}
+
+// Install copies each VPN client beside Hostbay with its libraries: on
+// macOS into bin beside Frameworks, the layout the bundled install names
+// (@executable_path/../Frameworks) expect, on Windows beside the helper.
+func TestCopyClientsKeepsTheirLibraries(t *testing.T) {
+	for goos, want := range map[string][]string{
+		"darwin":  {"bin/openvpn", "bin/openconnect", "Frameworks/libgnutls.30.dylib"},
+		"windows": {"openvpn.exe", "openconnect.exe", "wintun.dll", "libopenconnect-5.dll"},
+		"linux":   {"openvpn", "openconnect"},
+	} {
+		app := t.TempDir()
+		contents := filepath.Join(app, "Contents")
+		appDir := filepath.Join(contents, "MacOS")
+		os.MkdirAll(filepath.Join(contents, "Frameworks"), 0o755)
+		os.MkdirAll(appDir, 0o755)
+		for _, f := range []string{"MacOS/openvpn", "MacOS/openconnect", "MacOS/openvpn.exe", "MacOS/openconnect.exe", "MacOS/wintun.dll",
+			"MacOS/libopenconnect-5.dll", "Frameworks/libgnutls.30.dylib", "Frameworks/README"} {
+			os.WriteFile(filepath.Join(contents, f), []byte(f), 0o644)
+		}
+		dir := t.TempDir()
+		os.MkdirAll(filepath.Join(dir, "Frameworks"), 0o755)
+		os.WriteFile(filepath.Join(dir, "Frameworks", "libstale.dylib"), nil, 0o644)
+		if err := copyClients(dir, appDir, goos); err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range want {
+			if b, err := os.ReadFile(filepath.Join(dir, f)); err != nil || len(b) == 0 {
+				t.Errorf("%s: %s not copied: %v", goos, f, err)
+			}
+		}
+		if goos == "darwin" {
+			if _, err := os.Stat(filepath.Join(dir, "Frameworks", "libstale.dylib")); err == nil {
+				t.Error("a reinstall kept a library the new Hostbay no longer ships")
+			}
+			if _, err := os.Stat(filepath.Join(dir, "Frameworks", "README")); err == nil {
+				t.Error("a file that is no library was copied")
+			}
+		}
+	}
+}
+
+// A client whose copy or any library beside it another user can replace is
+// never started.
+func TestCheckClientChecksItsLibraries(t *testing.T) {
+	dir := t.TempDir()
+	os.Chmod(dir, 0o755)
+	app := filepath.Join(t.TempDir(), "MacOS")
+	os.MkdirAll(app, 0o755)
+	os.MkdirAll(filepath.Join(app, "..", "Frameworks"), 0o755)
+	os.WriteFile(filepath.Join(app, exeName("openvpn")), []byte("x"), 0o755)
+	lib := "libssl.3.dylib"
+	if runtime.GOOS == "windows" {
+		lib = "libssl-3.dll"
+	}
+	os.WriteFile(filepath.Join(app, "..", "Frameworks", lib), []byte("x"), 0o644)
+	os.WriteFile(filepath.Join(app, lib), []byte("x"), 0o644)
+	if err := copyClients(dir, app, runtime.GOOS); err != nil {
+		t.Fatal(err)
+	}
+	me := os.Getuid()
+	if err := CheckClient(dir, "openvpn", me); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS == "windows" {
+		return // mode bits mean nothing there
+	}
+	if err := CheckClient(dir, "openvpn", me+1); err == nil {
+		t.Error("a copy owned by someone else passed")
+	}
+	if src, libs, _ := libDir(dir, app, runtime.GOOS); src != "" {
+		os.Chmod(filepath.Join(libs, lib), 0o666)
+		if err := CheckClient(dir, "openvpn", me); err == nil {
+			t.Error("a library anyone can write passed")
+		}
 	}
 }

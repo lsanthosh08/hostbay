@@ -86,6 +86,24 @@ func New(conf string, secrets map[string]string) (*Engine, error) {
 	return &Engine{cfg: cfg, tun: t, net: n}, nil
 }
 
+// NewSystem is New for a system-wide tunnel (U12): the privileged helper
+// gives create the tunnel's MTU and gets back a real TUN, whose addresses
+// it sets from Addresses. Dial is not used: the system routes to the TUN.
+func NewSystem(conf string, secrets map[string]string, create func(mtu int) (tun.Device, error)) (*Engine, error) {
+	cfg, err := parse(conf, secrets)
+	if err != nil {
+		return nil, err
+	}
+	t, err := create(cfg.mtu)
+	if err != nil {
+		return nil, err
+	}
+	return &Engine{cfg: cfg, tun: t}, nil
+}
+
+// Addresses are the tunnel's own addresses.
+func (e *Engine) Addresses() []netip.Prefix { return e.cfg.addresses }
+
 func parse(conf string, secrets map[string]string) (*config, error) {
 	cfg := &config{mtu: defaultMTU}
 	section := ""

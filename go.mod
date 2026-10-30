@@ -39,7 +39,9 @@ require (
 	golang.org/x/crypto v0.58.0
 	golang.org/x/net v0.61.0
 	golang.org/x/sys v0.49.0
+	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2
 	golang.zx2c4.com/wireguard v0.0.0-20261024220952-b3bc704ef0ee
+	golang.zx2c4.com/wireguard/windows v1.0.1
 	modernc.org/sqlite v1.61.0
 	mvdan.cc/sh/v3 v3.12.0
 	tailscale.com v1.104.4
@@ -187,8 +189,6 @@ require (
 	golang.org/x/text v0.43.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
 	golang.org/x/tools v0.52.0 // indirect
-	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
-	golang.zx2c4.com/wireguard/windows v1.0.1 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gvisor.dev/gvisor v0.0.0-20260915211658-a6f909f08a72 // indirect
 	honnef.co/go/tools v0.8.1 // indirect
