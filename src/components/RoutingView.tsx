@@ -47,8 +47,11 @@ const modeOf = (v?: Vpn): Mode => (v?.routingMode as Mode) || (isFullTunnel(v?.r
 const routed = (vpns: Vpn[]) => vpns.filter((v) => v.tier === "system" || v.tier === "external");
 
 /** Why routes cannot apply, or undefined when they can (R30). */
-export const blockedReason = (h: HelperStatus | null) =>
-  !h || h.state === "ready" ? undefined : h.state === "unavailable" ? (h.reason ?? "") : t(HELPER[h.state] ?? "routing.helper.missing");
+function blockedReason(h: HelperStatus | null) {
+  if (!h || h.state === "ready") return undefined;
+  if (h.state === "unavailable") return h.reason ?? "";
+  return t(HELPER[h.state] ?? "routing.helper.missing");
+}
 
 const target = (c: RouteChange) =>
   c.kind === "mtu"

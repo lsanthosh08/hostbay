@@ -1,11 +1,11 @@
-import type { Host, Vpn } from "../api";
+import type { Host, Vpn, VpnAuth, VpnTier } from "../api";
 import { t, type MessageKey } from "../i18n";
 
 /** The supported-types table (R2): each type's UI name and tier. The SSL VPN
  *  type never shows its vendor's name. App-scoped types connect inside
  *  Hostbay; system-wide ones through Hostbay's network helper or the
  *  system's own VPN service. */
-export const VPN_TYPES: { id: string; label: MessageKey; tier: "app" | "system" | "external" }[] = [
+export const VPN_TYPES: { id: string; label: MessageKey; tier: VpnTier }[] = [
   { id: "wireguard", label: "vpn.type.wireguard", tier: "app" },
   { id: "tailscale", label: "vpn.type.tailscale", tier: "app" },
   { id: "anyconnect", label: "vpn.type.anyconnect", tier: "app" },
@@ -31,7 +31,7 @@ export const tierFor = (id: string) => typeOf(id)?.tier ?? "external";
 // The OpenConnect protocols (internal/vpn/openconnect/launch.go).
 const OPENCONNECT = ["anyconnect", "sslvpn", "globalprotect", "pulse", "nc", "f5", "array"];
 
-export type VpnAuth = "password" | "certificate" | "otp" | "browser";
+export type { VpnAuth };
 export const AUTH_LABEL: Record<VpnAuth, MessageKey> = {
   password: "vpnForm.auth.password",
   certificate: "vpnForm.auth.certificate",
@@ -47,6 +47,15 @@ export function authsFor(type: string): VpnAuth[] {
   if (type === "openvpn" || type === "ipsec") return ["password", "certificate"];
   return [];
 }
+
+/** `auth` if `type` offers it, else the type's first sign-in, or "" when it offers none. */
+export const pickAuth = (type: string, auth?: VpnAuth | "") => {
+  const auths = authsFor(type);
+  return auth && auths.includes(auth) ? auth : (auths[0] ?? "");
+};
+
+/** Whether a type's profiles have routing settings; Tailscale's and ZeroTier's do not. */
+export const hasRouting = (type: string) => type !== "tailscale" && type !== "zerotier";
 
 /** A gateway Hostbay dials; Tailscale's control server is optional and an
  *  external client needs none. */

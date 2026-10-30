@@ -30,6 +30,7 @@ type VpnStates = Record<string, VpnState>;
 let snap: { vpns: Vpn[]; states: VpnStates } = { vpns: [], states: {} };
 const subs = new Set<() => void>();
 let started = false;
+let loaded = false;
 const emit = (next: typeof snap) => {
   snap = next;
   subs.forEach((f) => f());
@@ -38,7 +39,12 @@ const emit = (next: typeof snap) => {
 export const reloadVpns = () =>
   api
     .listVpns()
-    .then((vpns) => emit({ ...snap, vpns }))
+    .then((vpns) => {
+      // An unchanged list keeps its array, so its readers do not refetch.
+      if (loaded && JSON.stringify(vpns) === JSON.stringify(snap.vpns)) return;
+      loaded = true;
+      emit({ ...snap, vpns });
+    })
     .catch(() => {});
 function subscribe(cb: () => void) {
   subs.add(cb);
@@ -72,14 +78,15 @@ const STATUS: Record<api.VpnStatus, MessageKey> = {
 };
 export const vpnStatusText = (s?: VpnState) => t(STATUS[s?.status ?? "disconnected"] ?? "vpn.status.disconnected");
 
-const dot = (s?: VpnState): ConnStatus | undefined =>
-  s?.status === "connected"
-    ? "live"
-    : s?.status === "connecting" || s?.status === "signing_in"
-      ? "connecting"
-      : s?.status === "failed" || s?.status === "dropped"
-        ? "error"
-        : undefined;
+const DOT: Record<api.VpnStatus, ConnStatus | undefined> = {
+  disconnected: undefined,
+  connecting: "connecting",
+  signing_in: "connecting",
+  connected: "live",
+  failed: "error",
+  dropped: "error",
+};
+const dot = (s?: VpnState) => DOT[s?.status ?? "disconnected"];
 
 /** How long a profile has been up, from its since time. */
 export function uptime(since: number, now: number) {
@@ -421,10 +428,9 @@ export function VpnPanel() {
   const [editing, setEditing] = useState<Vpn | null>(null);
   const [detected, setDetected] = useState<DetectedVpn[]>();
   const { push } = useToast();
-  // Import dialogs, one at a time: a dropped file's path each, or "" to pick one.
-  const [importing, setImporting] = useState<{ id: number; path: string }[]>([]);
+  const [importing, setImporting] = useState<{ id: number; path?: string }[]>([]);
   const nextImport = useRef(0);
-  const queueImport = (paths: string[]) => setImporting((q) => [...q, ...paths.map((path) => ({ id: nextImport.current++, path }))]);
+  const queueImport = (paths: (string | undefined)[]) => setImporting((q) => [...q, ...paths.map((path) => ({ id: nextImport.current++, path }))]);
   useEffect(() => onFilesDropped(queueImport), []);
   const [now, setNow] = useState(() => Date.now());
   const [announce, setAnnounce] = useState("");
@@ -462,7 +468,7 @@ export function VpnPanel() {
         onTag={setTag}
         onText={setText}
         onNew={() => setEditing({ ...NEW_VPN })}
-        onImport={() => queueImport([""])}
+        onImport={() => queueImport([undefined])}
         onEdit={(v) => setEditing(v)}
         // Failures show on the row through the failed state.
         onConnect={(id) => connect(id, true)}
@@ -490,7 +496,7 @@ export function VpnPanel() {
         onLaunch={(id) => api.launchVpnClient(id).catch((e) => push("error", api.errorInfo(e).message))}
       />
       <BrowserMappings vpns={vpns} />
-      {importing.length > 0 && <VpnImport key={importing[0].id} path={importing[0].path || undefined} onClose={() => setImporting((q) => q.slice(1))} />}
+      {importing.length > 0 && <VpnImport key={importing[0].id} path={importing[0].path} onClose={() => setImporting((q) => q.slice(1))} />}
       {editing && (
         <VpnForm
           initial={editing}

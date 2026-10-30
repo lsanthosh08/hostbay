@@ -4,7 +4,7 @@ import { open, openFolder } from "../dialogs";
 import { t } from "../i18n";
 import { commitVpnImport, previewVpnImport, scanVpnConfigs, type FoundVpnConfig, type VpnDraft, type VpnImportPreview } from "../importApi";
 import { RouteEditor } from "../shell/settings/Vpns";
-import { AUTH_LABEL, typeLabel, validateVpn, type VpnAuth, type VpnField } from "../shell/vpnForm";
+import { AUTH_LABEL, hasRouting, typeLabel, validateVpn, type VpnField } from "../shell/vpnForm";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 import { Field, Input } from "../ui/Field";
@@ -53,7 +53,7 @@ export function VpnDraftView({ draft, value, tried, onChange }: { draft: VpnDraf
         )}
         <dt className="text-muted">{t("vpnForm.auth")}</dt>
         <dd>
-          {p.auth ? t(AUTH_LABEL[p.auth as VpnAuth] ?? "vpnImport.signInNone") : t("vpnImport.signInNone")}
+          {p.auth ? t(AUTH_LABEL[p.auth] ?? "vpnImport.signInNone") : t("vpnImport.signInNone")}
           {p.user ? ` · ${p.user}` : ""}
         </dd>
       </dl>
@@ -61,7 +61,7 @@ export function VpnDraftView({ draft, value, tried, onChange }: { draft: VpnDraf
       <Field label={t("vpnForm.tags")} hint={t("vpnForm.tagsHint")}>
         <TagEditor tags={value.tags ?? []} onChange={(tags) => set({ tags })} />
       </Field>
-      {p.type !== "tailscale" && p.type !== "zerotier" && (
+      {hasRouting(p.type) && (
         <section className="flex flex-col gap-3 pt-2 border-t border-line">
           <h3 className="text-sm font-semibold">{t("vpnForm.routing")}</h3>
           <RouteEditor v={value} set={set} err={err} />

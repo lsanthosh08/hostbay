@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Host, Vpn } from "../api";
 import { en } from "../i18n/en";
 import { addTag } from "../components/TagEditor";
-import { FULL_TUNNEL, VPN_TYPES, filterVpns, isFullTunnel, tagCounts, tierFor, typeLabel, validateVpn, vpnAsksSecretAgain, authsFor } from "./vpnForm";
+import { FULL_TUNNEL, VPN_TYPES, filterVpns, isFullTunnel, tagCounts, tierFor, typeLabel, validateVpn, vpnAsksSecretAgain, authsFor, pickAuth } from "./vpnForm";
 
 const vpn = (over: Partial<Vpn> = {}): Vpn => ({
   id: "v1",
@@ -44,6 +44,13 @@ describe("VPN types", () => {
   it("offers no certificate sign-in for OpenConnect types, which Hostbay cannot send yet", () => {
     for (const ty of ["anyconnect", "sslvpn", "globalprotect", "pulse", "nc", "f5", "array"]) expect(authsFor(ty)).not.toContain("certificate");
     expect(authsFor("openvpn")).toContain("certificate");
+  });
+
+  it("keeps a sign-in the type offers, else falls back to its first or none", () => {
+    expect(pickAuth("anyconnect", "browser")).toBe("browser");
+    expect(pickAuth("sslvpn", "certificate")).toBe("password");
+    expect(pickAuth("openvpn", undefined)).toBe("password");
+    expect(pickAuth("wireguard", "password")).toBe("");
   });
 });
 
