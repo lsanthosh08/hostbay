@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -65,6 +66,18 @@ func addVPNs(t *testing.T, r *rig) {
 		d.AddVPN(store.VPN{Meta: store.Meta{ID: "atlas-b"}, Name: "Atlas B", Type: "openvpn", Tier: store.VPNTierApp, Gateway: "b.example.test", Tags: []string{"ATLAS"}})
 		d.AddVPN(store.VPN{Meta: store.Meta{ID: "solo"}, Name: "Solo", Type: "wireguard", Tier: store.VPNTierApp, Gateway: "s.example.test", Tags: []string{"beta"}})
 		d.AddVPN(store.VPN{Meta: store.Meta{ID: "whole"}, Name: "Whole", Type: "openvpn", Tier: store.VPNTierSystem, Gateway: "w.example.test", Tags: []string{"gamma"}})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// addExternalVPN saves ext, a profile that connects in its own app.
+func addExternalVPN(t *testing.T, r *rig) {
+	t.Helper()
+	err := r.st.Edit(func(d *store.Data) error {
+		d.AddVPN(store.VPN{Meta: store.Meta{ID: "ext"}, Name: "Ext", Type: "other", Tier: store.VPNTierExternal, Gateway: "x.example.test"})
 		return nil
 	})
 	if err != nil {
@@ -328,5 +341,92 @@ func TestListConnectionsTagsAndVPN(t *testing.T) {
 	}
 	if strings.Contains(strings.ToLower(text), "socks") {
 		t.Fatalf("list_connections = %s", text)
+	}
+}
+
+// An external profile connects in its own app: down, connect_vpn fails
+// telling the agent so, with no card and no connect; up, it returns the
+// connected view with no card even though no run of ours holds it.
+func TestConnectVPNExternal(t *testing.T) {
+	r := newRig(t)
+	addExternalVPN(t, r)
+	cs := r.session(t, mcptest.V20260728)
+	res, text := call(t, cs, ToolConnectVPN, map[string]any{"profileId": "ext"})
+	if !res.IsError || !strings.Contains(text, "VPNFailed") || !strings.Contains(text, "own app") {
+		t.Fatalf("external down = %v %s", res.IsError, text)
+	}
+	trayEmpty(t, r)
+
+	r.vpns.live["ext"] = VPNLive{Status: "connected"}
+	res, text = call(t, cs, ToolConnectVPN, map[string]any{"profileId": "ext"})
+	if res.IsError || !strings.Contains(text, `"state":"connected"`) {
+		t.Fatalf("external up = %v %s", res.IsError, text)
+	}
+	trayEmpty(t, r)
+	if c, _ := r.vpns.calls(); len(c) != 0 {
+		t.Fatalf("connected %v", c)
+	}
+}
+
+// The card showed the profile as it was: a change to its gateway, type or
+// tier while it waited refuses the connect.
+func TestConnectVPNRefusesChangeWhileWaiting(t *testing.T) {
+	for _, c := range []struct {
+		field string
+		edit  func(*store.VPN)
+	}{
+		{"gateway", func(v *store.VPN) { v.Gateway = "elsewhere.example.test" }},
+		{"type", func(v *store.VPN) { v.Type = "openvpn" }},
+		{"tier", func(v *store.VPN) { v.Tier = store.VPNTierSystem }},
+	} {
+		t.Run(c.field, func(t *testing.T) {
+			r := newRig(t)
+			addVPNs(t, r)
+			cs := r.session(t, mcptest.V20260728)
+			done := background(t, cs, ToolConnectVPN, map[string]any{"profileId": "solo"})
+			for range 400 {
+				if len(r.srv.Jobs.Approvals.List()) > 0 {
+					break
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+			if err := r.st.Edit(func(d *store.Data) error { c.edit(d.VPN("solo")); return nil }); err != nil {
+				t.Fatal(err)
+			}
+			r.approveNext(t, true)
+			if text := <-done; !strings.HasPrefix(text, "error:") || !strings.Contains(text, "changed while the request waited") {
+				t.Fatalf("connect = %s", text)
+			}
+			if c, _ := r.vpns.calls(); len(c) != 0 {
+				t.Fatalf("connected %v", c)
+			}
+		})
+	}
+}
+
+// A host reached through a jump host's VPN lists that VPN, found by walking
+// up the chain; its own VPN wins.
+func TestListConnectionsShowsJumpHostVPN(t *testing.T) {
+	r := newRig(t)
+	addVPNs(t, r)
+	err := r.st.Edit(func(d *store.Data) error {
+		a, j := "atlas-a", "h2"
+		d.EditHost("h2", func(h *store.Host) { h.VPNID = &a })
+		d.EditHost("h1", func(h *store.Host) { h.JumpHostID = &j })
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs := r.session(t, mcptest.V20260728)
+	_, text := call(t, cs, "list_connections", nil)
+	var l connections
+	if err := json.Unmarshal([]byte(text), &l); err != nil || len(l.Connections) < 2 {
+		t.Fatalf("list = %s", text)
+	}
+	for _, c := range l.Connections[:2] {
+		if c.VPN == nil || c.VPN.ID != "atlas-a" {
+			t.Fatalf("%s vpn = %+v", c.ID, c.VPN)
+		}
 	}
 }

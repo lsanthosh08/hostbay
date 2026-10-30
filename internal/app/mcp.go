@@ -373,8 +373,8 @@ func (s *MCPService) RemoveAllowEntry(tokenID, hostID, command string) error {
 }
 
 // MCPVPNAllow is Settings > MCP's VPN entries, and the profiles one can
-// name: app-scoped and external ones, since a system-wide profile always
-// asks (KTD6).
+// name: app-scoped ones, since a system-wide profile always asks (KTD6) and
+// an external one connects in its own app, so a card never gates it.
 type MCPVPNAllow struct {
 	Entries  []MCPVPNAllowEntry `json:"entries"`
 	Profiles []MCPVPNChoice     `json:"profiles"`
@@ -421,15 +421,14 @@ func (s *MCPService) ListVPNAllow() (MCPVPNAllow, error) {
 		out.Entries = append(out.Entries, MCPVPNAllowEntry{TokenID: e.Token, TokenName: tokens[i].Name, VPNID: v.ID, VPNName: v.Name, Stale: !e.Matches(e.Token, v)})
 	}
 	for _, v := range d.VPNs.Items {
-		if v.Tier != store.VPNTierSystem {
+		if v.Tier != store.VPNTierSystem && v.Tier != store.VPNTierExternal {
 			out.Profiles = append(out.Profiles, MCPVPNChoice{ID: v.ID, Name: v.Name})
 		}
 	}
 	return out, nil
 }
 
-// AddVPNAllow lets one token connect and disconnect one app-scoped or
-// external VPN profile without a card, after the dialog and verification.
+// AddVPNAllow lets one token connect and disconnect one app-scoped VPN profile without a card, after the dialog and verification.
 // The entry holds while the profile keeps its type, gateway and tier; a
 // system-wide profile is refused, since it always asks (KTD6).
 func (s *MCPService) AddVPNAllow(ctx context.Context, tokenID, vpnID string) error {
@@ -451,6 +450,8 @@ func (s *MCPService) AddVPNAllow(ctx context.Context, tokenID, vpnID string) err
 		return errors.New("VPN profile not found")
 	case v.Tier == store.VPNTierSystem:
 		return errors.New("a system-wide VPN profile changes the whole computer's network, so an MCP client always asks before it connects one")
+	case v.Tier == store.VPNTierExternal:
+		return errors.New("an external VPN profile connects in its own app, so an MCP client cannot connect it")
 	}
 	if err := s.widen(ctx, "Let "+tokens[i].Name+" connect "+v.Name+" without asking?",
 		fmt.Sprintf("The MCP client %s will connect and disconnect the VPN profile %s (%s) without asking, until the profile's type, gateway or tier changes.", tokens[i].Name, v.Name, v.Gateway)); err != nil {

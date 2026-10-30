@@ -339,10 +339,14 @@ func TestMCPVPNAllowSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	whole, _ := vpns.SaveVPN(VPN{Name: "whole", Type: "openvpn", Tier: "system", Gateway: "w.example.test"})
+	ext, _ := vpns.SaveVPN(VPN{Name: "forti", Type: "other", Tier: "external", Gateway: "f.example.test"})
 
 	dialogs := e.dialogs
 	if err := e.s.AddVPNAllow(t.Context(), nt.Token.ID, whole.ID); err == nil || e.dialogs != dialogs {
 		t.Fatalf("system-wide entry: %v, %d dialogs", err, e.dialogs-dialogs)
+	}
+	if err := e.s.AddVPNAllow(t.Context(), nt.Token.ID, ext.ID); err == nil || e.dialogs != dialogs {
+		t.Fatalf("external entry: %v, %d dialogs", err, e.dialogs-dialogs)
 	}
 	e.confirm = false
 	if err := e.s.AddVPNAllow(t.Context(), nt.Token.ID, app.ID); err == nil {
