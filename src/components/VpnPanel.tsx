@@ -20,6 +20,7 @@ import { useToast } from "../ui/toast";
 import { onFilesDropped } from "../importApi";
 import { Fingerprint } from "./TrustDialog";
 import { VpnImport } from "./VpnImport";
+import { BrowserMappings } from "./BrowserMappings";
 
 type VpnStates = Record<string, VpnState>;
 
@@ -488,6 +489,7 @@ export function VpnPanel() {
         }
         onLaunch={(id) => api.launchVpnClient(id).catch((e) => push("error", api.errorInfo(e).message))}
       />
+      <BrowserMappings vpns={vpns} />
       {importing.length > 0 && <VpnImport key={importing[0].id} path={importing[0].path || undefined} onClose={() => setImporting((q) => q.slice(1))} />}
       {editing && (
         <VpnForm

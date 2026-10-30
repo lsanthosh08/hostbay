@@ -40,8 +40,8 @@ export interface Report {
     "vpns": VPNImport[] | null;
 
     /**
-     * Browsers are browser-profile mappings the file holds. Browser routing
-     * is not built yet, so they are reported and not saved.
+     * Browsers are browser-profile mappings the file holds. A VPN import's
+     * commit saves those of the VPNs kept and reports only them.
      */
     "browsers": BrowserMapping[] | null;
 }

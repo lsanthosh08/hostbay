@@ -85,7 +85,7 @@ export function VpnDraftView({ draft, value, tried, onChange }: { draft: VpnDraf
 }
 
 /** What the file held besides profiles: entries not imported, notes, and
- *  browser mappings that are not saved yet. */
+ *  browser mappings, saved with the profiles kept. */
 function PreviewNotes({ pre }: { pre: VpnImportPreview }) {
   const skipped = pre.skipped ?? [];
   const notes = pre.notes ?? [];
