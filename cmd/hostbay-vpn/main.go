@@ -55,8 +55,7 @@ var engines = map[string]func(config string, secrets map[string]string) (engine,
 }
 
 func init() {
-	for _, typ := range []string{proto.TypeAnyConnect, proto.TypeSSLVPN, proto.TypeGlobalProtect, proto.TypePulse,
-		proto.TypeNetworkConnect, proto.TypeF5, proto.TypeArray} {
+	for typ := range proto.OpenConnectTypes {
 		engines[typ] = func(c string, s map[string]string) (engine, error) { return openconnect.New(typ, c, s) }
 	}
 }

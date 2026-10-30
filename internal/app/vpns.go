@@ -774,13 +774,6 @@ func (s *VPNService) keepNodeState(id string, a *vpnAttempt, state string) {
 	})
 }
 
-// The engine for each of these runs the openconnect program
-// (internal/vpn/openconnect).
-var openConnectTypes = map[string]bool{
-	proto.TypeAnyConnect: true, proto.TypeSSLVPN: true, proto.TypeGlobalProtect: true, proto.TypePulse: true,
-	proto.TypeNetworkConnect: true, proto.TypeF5: true, proto.TypeArray: true,
-}
-
 // openConnectConfig and tailnetConfig are the engines' Config, field for
 // field: each refuses or ignores anything else.
 type openConnectConfig struct {
@@ -821,11 +814,11 @@ func (s *VPNService) startMsgFor(id string, v *store.VPN) (proto.Msg, error) {
 	if err := checkSaved(v); err != nil {
 		return proto.Msg{}, err
 	}
-	if v.Tier != store.VPNTierApp || v.Type != proto.TypeWireGuard && v.Type != proto.TypeTailscale && !openConnectTypes[v.Type] {
+	if v.Tier != store.VPNTierApp || v.Type != proto.TypeWireGuard && v.Type != proto.TypeTailscale && !proto.IsOpenConnect(v.Type) {
 		return proto.Msg{}, apperr.New(apperr.VPNFailed, fmt.Sprintf("Hostbay cannot connect %s profiles (tier %s) yet", v.Type, v.Tier)).
 			With("vpnId", id).With("reason", "unsupported")
 	}
-	if openConnectTypes[v.Type] && v.Auth == "certificate" {
+	if proto.IsOpenConnect(v.Type) && v.Auth == "certificate" {
 		return proto.Msg{}, apperr.New(apperr.VPNFailed, "Hostbay cannot sign in to this VPN with a client certificate yet; choose another sign-in in the profile").
 			With("vpnId", id).With("reason", "unsupported")
 	}
@@ -1012,7 +1005,7 @@ func (s *VPNService) ForgetVPNCert(ctx context.Context, id string) error {
 func (s *VPNService) repin(id, pin string) error {
 	return s.st.Edit(func(d *store.Data) error {
 		v := d.VPN(id)
-		if v == nil || !openConnectTypes[v.Type] {
+		if v == nil || !proto.IsOpenConnect(v.Type) {
 			return errors.New("this VPN profile has no gateway certificate")
 		}
 		var plain []byte
