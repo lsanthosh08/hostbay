@@ -13,7 +13,9 @@ import * as KubernetesService from "./kubernetesservice.js";
 import * as MCPService from "./mcpservice.js";
 import * as MasterPasswordService from "./masterpasswordservice.js";
 import * as MonitorService from "./monitorservice.js";
+import * as NetdService from "./netdservice.js";
 import * as RdpService from "./rdpservice.js";
+import * as RoutingService from "./routingservice.js";
 import * as SettingsService from "./settingsservice.js";
 import * as SpiceService from "./spiceservice.js";
 import * as SyncService from "./syncservice.js";
@@ -39,7 +41,9 @@ export {
     MCPService,
     MasterPasswordService,
     MonitorService,
+    NetdService,
     RdpService,
+    RoutingService,
     SettingsService,
     SpiceService,
     SyncService,
@@ -61,6 +65,7 @@ export type {
     AIProvider,
     AISkill,
     AITarget,
+    ChangeResult,
     ClaudeCodeCandidate,
     ClaudeCodeStatus,
     ClusterInfo,
@@ -80,6 +85,7 @@ export type {
     ExecResult,
     FilePick,
     Folder,
+    HelperStatus,
     Host,
     IisPool,
     IisSite,
@@ -94,6 +100,8 @@ export type {
     MonitorStart,
     PostLoginRule,
     Proxy,
+    RoutingReport,
+    RoutingState,
     SSHConfigImport,
     Script,
     StoreImport,

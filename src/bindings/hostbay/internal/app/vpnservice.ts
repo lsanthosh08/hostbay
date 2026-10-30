@@ -73,6 +73,16 @@ export function DisconnectVPN(id: string): $CancellablePromise<void> {
 }
 
 /**
+ * ForgetVPNCert removes an OpenConnect profile's pinned gateway certificate
+ * after OS verification, as removing a changed host key or certificate
+ * does (KTD25); the next connect asks to trust whatever the gateway
+ * presents.
+ */
+export function ForgetVPNCert(id: string): $CancellablePromise<void> {
+    return $Call.ByID(1968480275, id);
+}
+
+/**
  * LaunchVPNClient opens external profile id's client program, the one saved
  * on this computer: a synced name never chooses what Hostbay runs (KTD4).
  */
@@ -96,6 +106,25 @@ export function ListVPNs(): $CancellablePromise<$models.VPN[] | null> {
  */
 export function SaveVPN(profile: $models.VPN): $CancellablePromise<$models.VPN> {
     return $Call.ByID(3666308353, profile);
+}
+
+/**
+ * SignInAgainVPN disconnects a Tailscale profile and forgets its node, so
+ * the next connect signs in afresh (R20).
+ */
+export function SignInAgainVPN(id: string): $CancellablePromise<void> {
+    return $Call.ByID(3735153396, id);
+}
+
+/**
+ * TrustVPNCert pins the gateway certificate an OpenConnect profile's last
+ * connect found untrusted, once the user accepted it (R21): only the pin
+ * the gateway presented. A changed certificate is refused, never trusted in
+ * place of the pinned one (AE8): ForgetVPNCert first, and the next connect
+ * asks again.
+ */
+export function TrustVPNCert(id: string, pin: string): $CancellablePromise<void> {
+    return $Call.ByID(3398243662, id, pin);
 }
 
 /**

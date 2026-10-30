@@ -38,7 +38,12 @@ describe("VPN types", () => {
   it("offers browser sign-in only where the engine supports it", () => {
     expect(authsFor("anyconnect")).toContain("browser");
     expect(authsFor("sslvpn")).not.toContain("browser");
-    expect(authsFor("sslvpn")).toEqual(["password", "certificate", "otp"]);
+    expect(authsFor("sslvpn")).toEqual(["password", "otp"]);
+  });
+
+  it("offers no certificate sign-in for OpenConnect types, which Hostbay cannot send yet", () => {
+    for (const ty of ["anyconnect", "sslvpn", "globalprotect", "pulse", "nc", "f5", "array"]) expect(authsFor(ty)).not.toContain("certificate");
+    expect(authsFor("openvpn")).toContain("certificate");
   });
 });
 

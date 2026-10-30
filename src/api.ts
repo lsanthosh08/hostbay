@@ -27,6 +27,8 @@ import {
   ZmodemService,
   MCPService,
   VPNService,
+  NetdService,
+  RoutingService,
 } from "./bindings/hostbay/internal/app";
 
 export type UnlistenFn = () => void;
@@ -931,6 +933,9 @@ export type VpnState = {
   routes?: string[] | null;
   since?: number;
   iface?: string; // a connected external profile's tunnel interface
+  url?: string; // signing_in at a browser: the sign-in page, always http or https
+  code?: string; // failed: "needs-system-wide", "cert-unknown" or "cert-changed"
+  serverCert?: string; // cert-unknown, cert-changed: the pin the gateway presented
 };
 export const listVpns = () => list(VPNService.ListVPNs()) as Promise<Vpn[]>;
 export const saveVpn = (v: Vpn) => unlocking(() => VPNService.SaveVPN(v) as Promise<Vpn>);
@@ -940,6 +945,16 @@ export const deleteVpn = (id: string) => VPNService.DeleteVPN(id);
 export const connectVpn = (id: string) => unlocking(() => VPNService.ConnectVPN(id) as Promise<VpnState>);
 export const disconnectVpn = (id: string) => VPNService.DisconnectVPN(id);
 export const answerVpn = (id: string, code: string) => VPNService.AnswerVPN(id, code);
+// Pins the certificate an untrusted gateway presented (its last connect's
+// serverCert, cert-unknown only), keeping the saved password (R21).
+export const trustVpnCert = (id: string, pin: string) => unlocking(() => VPNService.TrustVPNCert(id, pin));
+// Removes a profile's pinned gateway certificate after OS verification,
+// keeping the saved password; the next connect asks to trust the gateway's.
+// A changed certificate is never trusted in place (R21, AE8).
+export const forgetVpnCert = (id: string) => unlocking(() => VPNService.ForgetVPNCert(id));
+// Disconnects a Tailscale profile and forgets this computer's node, so the
+// next connect signs in afresh.
+export const signInAgainVpn = (id: string) => VPNService.SignInAgainVPN(id);
 export const vpnStates = () => list(VPNService.VPNStates()) as Promise<VpnState[]>;
 export const onVpnState = (cb: (s: VpnState) => void) => on<VpnState>("vpn-state", cb);
 // A VPN found on this computer that no profile names yet (R22).
@@ -950,6 +965,37 @@ export const launchVpnClient = (id: string) => VPNService.LaunchVPNClient(id);
 // Go asks for the VPN panel when a profile waits on a one-time code or a
 // browser sign-in, or a connect from the tray failed.
 export const onShowVpns = (cb: () => void) => on<null>("show-vpns", cb);
+
+// ---- System routes for system-wide and external VPNs (R25 to R30) ----
+// The privileged helper: every state but ready says why routes cannot apply;
+// missing, repair and reinstall are fixed by installHelper (one admin prompt).
+export type HelperState = "unavailable" | "missing" | "repair" | "stopped" | "reinstall" | "ready";
+export type HelperStatus = { state: HelperState; reason?: string };
+export const helperStatus = () => NetdService.Status() as Promise<HelperStatus>;
+export const installHelper = () => NetdService.Install() as Promise<HelperStatus>;
+export const uninstallHelper = () => NetdService.Uninstall() as Promise<HelperStatus>;
+// A planned change; gateway routes through the local network. profile is the
+// VPN profile it is for, if any.
+export type RouteKind = "add" | "delete" | "narrow" | "pin" | "mtu";
+export type RouteChange = { kind: RouteKind; op?: string; dst?: string; iface?: string; gateway?: boolean; mtu?: number; profile?: string; reason: string };
+export type RouteSkip = { dst: string; profile?: string; reason: string };
+// A broad vendor route offered for narrowing, keep being the suggested subnets.
+export type GreedyRoute = { dst: string; iface: string; profile: string; keep: string[] };
+export type RoutePlan = { changes: RouteChange[]; skipped: RouteSkip[]; greedy: GreedyRoute[]; unlabeled: string[] };
+export type RouteResult = RouteChange & { error?: string };
+export type RoutingReport = { results: RouteResult[]; skipped: RouteSkip[]; partly: string[] };
+// profiles: profile ID to "applied", "partly applied" or "fighting".
+export type RoutingState = { profiles: Record<string, string>; reset: boolean; notice?: string };
+// With id, previews or applies (and saves) that profile in mode: "" per destination, "full" or "split".
+export const previewRoutes = (id = "", mode = "") => RoutingService.Preview(id, mode) as Promise<RoutePlan>;
+export const applyRoutes = (id = "", mode = "") => RoutingService.Apply(id, mode) as Promise<RoutingReport>;
+export const resetRoutes = () => RoutingService.Reset() as Promise<RoutingReport>;
+export const narrowRoute = (id: string, greedy: string, keep: string[]) => RoutingService.Narrow(id, greedy, keep);
+export const localRoutes = () => list(RoutingService.LocalRoutes()) as Promise<string[]>;
+export const setLocalRoutes = (dsts: string[]) => RoutingService.SetLocalRoutes(dsts);
+export const pinInterface = (id: string, iface: string) => RoutingService.PinInterface(id, iface);
+export const routingState = () => RoutingService.State() as Promise<RoutingState>;
+export const onRoutingState = (cb: (s: RoutingState) => void) => on<RoutingState>("routing-state", cb);
 
 // ---- Server monitor (R59): one sampler per Linux host, shared by its Monitor tabs ----
 // Sizes are bytes, rates bytes per second. Every string came from the host:

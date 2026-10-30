@@ -80,6 +80,22 @@ export interface Local {
     "vpnIfaces"?: { [_ in string]?: string } | null;
 
     /**
+     * VPNNodeStates are Tailscale profiles' node keys, keyed by profile ID
+     * and sealed to VPN.NodeStateAAD. A node is this computer's own: another
+     * computer using it would take over its place in the tailnet (KTD3).
+     */
+    "vpnNodeStates"?: { [_ in string]?: string } | null;
+
+    /**
+     * RoutingLocal is the destinations per-destination routing sends to the
+     * local network instead of a VPN (R25); VPNNarrow is, by profile ID, the
+     * subnets to keep of each greedy route its VPN pushes (R27). Both follow
+     * this computer's network and VPN agents, so they stay here.
+     */
+    "routingLocal"?: string[] | null;
+    "vpnNarrow"?: { [_ in string]?: { [_ in string]?: string[] | null } | null } | null;
+
+    /**
      * KeepRunning hides the window when it closes instead of quitting, so
      * Hostbay and its VPNs stay up in the menu bar (KTD10).
      */
