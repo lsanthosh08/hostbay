@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { HelperStatus, RoutePlan, RoutingReport, RoutingState, Vpn } from "../api";
 import { en } from "../i18n/en";
-import { RoutingPanel, type RoutingPanelProps } from "./RoutingView";
+import { latestOnly, RoutingPanel, type RoutingPanelProps } from "./RoutingView";
 
 const noop = () => {};
 const harmony: Vpn = {
@@ -127,5 +127,25 @@ describe("Routing view", () => {
     expect(button(html, en["routing.narrow"])).toBeTruthy();
     expect(html).toContain("10.0.0.0/8 on utun4 is broad");
     expect(html).toContain("Pin utun6 to");
+  });
+});
+
+describe("route preview", () => {
+  it("ignores a slow older response that lands after a newer one", async () => {
+    const seq = { current: 0 };
+    let resolveOlder!: (p: RoutePlan) => void;
+    let resolveNewer!: (p: RoutePlan) => void;
+    const older = new Promise<RoutePlan>((r) => (resolveOlder = r));
+    const newer = new Promise<RoutePlan>((r) => (resolveNewer = r));
+    const seen: (RoutePlan | null)[] = [];
+    latestOnly(seq, older, (p) => seen.push(p));
+    latestOnly(seq, newer, (p) => seen.push(p));
+    const fresh = { ...plan, changes: [] };
+    resolveNewer(fresh);
+    await newer;
+    resolveOlder(plan);
+    await older;
+    await Promise.resolve();
+    expect(seen).toEqual([fresh]);
   });
 });

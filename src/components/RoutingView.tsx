@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import * as api from "../api";
 import type { GreedyRoute, HelperStatus, RouteChange, RoutePlan, RoutingReport, RoutingState, Vpn } from "../api";
 import { t, type MessageKey } from "../i18n";
@@ -236,6 +236,12 @@ function NarrowDialog({ g, onClose, onSave }: { g: GreedyRoute; onClose: () => v
   );
 }
 
+/** Hands a response to `set` only if no newer request began since: a slow older one is stale. */
+export function latestOnly(seq: { current: number }, req: Promise<RoutePlan>, set: (p: RoutePlan | null) => void) {
+  const mine = ++seq.current;
+  req.then((p) => mine === seq.current && set(p)).catch(() => mine === seq.current && set(null));
+}
+
 /** System routes in Settings, beside the VPN profiles. */
 export function RoutingView() {
   const run = useAsyncToast();
@@ -255,12 +261,12 @@ export function RoutingView() {
 
   const first = routed(vpns)[0];
   const id = profile || first?.id || "";
+  const previewSeq = useRef(0);
   const preview = useCallback(() => {
-    api
-      .previewRoutes(id, id ? mode : "")
-      .then(setPlan)
-      .catch(() => setPlan(null));
+    latestOnly(previewSeq, api.previewRoutes(id, id ? mode : ""), setPlan);
   }, [id, mode]);
+  const previewRef = useRef(preview);
+  previewRef.current = preview;
 
   useEffect(() => {
     api
@@ -295,7 +301,7 @@ export function RoutingView() {
     setBusy(true);
     const r = await run(fn, ok);
     setBusy(false);
-    preview();
+    previewRef.current();
     return r;
   };
 

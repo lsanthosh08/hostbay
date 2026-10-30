@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { DetectedVpn, Host, Vpn, VpnState } from "../api";
 import { en } from "../i18n/en";
-import { VpnCertBody, VpnPanelView, vpnCertPrompt } from "./VpnPanel";
+import { VpnCertBody, VpnPanelView, vpnCancelled, vpnCertPrompt } from "./VpnPanel";
 
 const noop = () => {};
 const vpn = (over: Partial<Vpn> = {}): Vpn => ({ id: "v1", name: "Atlas VPN", type: "wireguard", tier: "app", tags: ["atlas"], ...over });
@@ -126,5 +126,15 @@ describe("VPN gateway certificate", () => {
 
   it("treats a changed certificate as changed even without the saved pin", () => {
     expect(vpnCertPrompt(fail({ reason: "cert-changed", serverCert: pin }))).toEqual({ pin, pinned: "" });
+  });
+});
+
+describe("VPN cancelled connect", () => {
+  const fail = (reason: string) => ({ cause: { code: "VPNFailed", message: "VPN: stopped", details: { reason } } });
+
+  it("recognises a deliberate disconnect, and nothing else", () => {
+    expect(vpnCancelled(fail("disconnected"))).toBe(true);
+    expect(vpnCancelled(fail("cert-unknown"))).toBe(false);
+    expect(vpnCancelled(new Error("boom"))).toBe(false);
   });
 });

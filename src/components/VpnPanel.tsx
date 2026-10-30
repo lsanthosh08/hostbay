@@ -107,6 +107,12 @@ export function vpnCertPrompt(e: unknown): VpnCert | undefined {
   return reason === "cert-changed" ? { pin: details.serverCert, pinned: details.pinned ?? "" } : { pin: details.serverCert };
 }
 
+/** A connect the user ended on purpose (disconnect while connecting) is not a failure to report. */
+export function vpnCancelled(e: unknown): boolean {
+  const { code, details } = api.errorInfo(e);
+  return code === "VPNFailed" && details?.reason === "disconnected";
+}
+
 /** What the dialog says about a gateway certificate: a changed one shows
  *  the saved pin beside the new one, with a warning. */
 export function VpnCertBody({ name, cert }: { name: string; cert: VpnCert }) {
@@ -138,7 +144,7 @@ export function useVpnConnect() {
     } catch (e) {
       const cert = vpnCertPrompt(e);
       if (cert) setTrust({ id, cert, quiet });
-      else fail(e, () => connect(id, quiet), quiet ? { onStep: () => {} } : {});
+      else if (!vpnCancelled(e)) fail(e, () => connect(id, quiet), quiet ? { onStep: () => {} } : {});
     }
   };
   const disconnect = (id: string) => api.disconnectVpn(id).catch((e) => push("error", api.errorInfo(e).message));
