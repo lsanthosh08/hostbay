@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/netip"
 	"os"
-	"runtime"
 	"strconv"
 
 	"golang.org/x/net/route"
@@ -19,17 +18,7 @@ type darwinTable struct{}
 
 func newTable() Table { return darwinTable{} }
 
-func (darwinTable) Interfaces() ([]Iface, error) {
-	nis, err := net.Interfaces()
-	if err != nil {
-		return nil, err
-	}
-	out := make([]Iface, len(nis))
-	for i, ni := range nis {
-		out[i] = Iface{ni.Name, isTunnel(runtime.GOOS, ni.Name, ni.Flags&net.FlagPointToPoint != 0, 0, "")}
-	}
-	return out, nil
-}
+func (darwinTable) Interfaces() ([]Iface, error) { return unixInterfaces() }
 
 func (darwinTable) Routes() ([]SysRoute, error) {
 	rib, err := route.FetchRIB(unix.AF_UNSPEC, route.RIBTypeRoute, 0)

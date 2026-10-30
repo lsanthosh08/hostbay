@@ -81,7 +81,7 @@ func (s *VPNService) launchSystem(id string, r *vpnRun, a *vpnAttempt, v *store.
 		rep(proto.Msg{T: proto.State, State: proto.Connected, Address: addrs, Routes: v.Routes})
 	}
 	var run systemRun
-	if v.Type == "ipsec" {
+	if v.Type == proto.TypeIPsec {
 		run, err = s.startOSVPN(v, up, rep)
 	} else {
 		run, err = s.startTunnel(v, sec, up, rep)
@@ -140,7 +140,7 @@ func (s *VPNService) startTunnel(v *store.VPN, sec store.VPNSecrets, up func(str
 	}
 	m := netd.Msg{Tunnel: rand.Text()[:16]}
 	switch {
-	case v.Type == "openvpn":
+	case v.Type == proto.TypeOpenVPN:
 		m.T, m.OpenVPN = netd.OpenVPNStart, &openvpn.Profile{Remote: v.Gateway, Port: v.Port, Routes: v.Routes, MTU: v.MTU,
 			UserPass: v.Auth == "password", Extra: sec.OpenVPN, Key: sec.PrivateKey}
 	case v.Type == proto.TypeWireGuard:

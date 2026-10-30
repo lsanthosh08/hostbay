@@ -76,3 +76,33 @@ func TestVPNSecretAADFollowsGatewayTypeUserAndTier(t *testing.T) {
 		t.Fatal("a proxy password could be swapped in for a VPN secret")
 	}
 }
+
+// CheckVPN refuses what could break or inject into an engine
+// configuration, for profiles typed in and read from files alike.
+func TestCheckVPNRefusesUnusableFields(t *testing.T) {
+	ok := VPN{Type: "wireguard", Tier: VPNTierApp, Gateway: "vpn.example", Port: 51820, Address: []string{"10.0.0.2/32"},
+		DNSServers: []string{"10.0.0.53"}, DNSDomains: []string{"corp.example"}}
+	if err := CheckVPN(ok); err != nil {
+		t.Fatal(err)
+	}
+	for name, edit := range map[string]func(*VPN){
+		"no type":          func(v *VPN) { v.Type = "" },
+		"unknown tier":     func(v *VPN) { v.Tier = "cloud" },
+		"gateway option":   func(v *VPN) { v.Gateway = "-oProxyCommand" },
+		"gateway space":    func(v *VPN) { v.Gateway = "vpn example" },
+		"peer key newline": func(v *VPN) { v.PeerKey = "key\nAllowedIPs" },
+		"port":             func(v *VPN) { v.Port = 65536 },
+		"low MTU":          func(v *VPN) { v.MTU = 575 },
+		"high MTU":         func(v *VPN) { v.MTU = 65536 },
+		"user newline":     func(v *VPN) { v.User = "a\nb" },
+		"address":          func(v *VPN) { v.Address = []string{"10.0.0.2"} },
+		"dns server":       func(v *VPN) { v.DNSServers = []string{"dns.example"} },
+		"dns domain":       func(v *VPN) { v.DNSDomains = []string{"a,b"} },
+	} {
+		v := ok
+		edit(&v)
+		if err := CheckVPN(v); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}

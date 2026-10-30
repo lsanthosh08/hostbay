@@ -111,10 +111,7 @@ func (s *TransferService) dial(ctx context.Context, c Credentials) (transfer.Sou
 	if err != nil {
 		return nil, "", err
 	}
-	p, err := s.creds.dialVia(d, &h, "")
-	if err == nil {
-		err = s.creds.vpnUp(ctx, p)
-	}
+	p, err := s.creds.dialUp(ctx, d, &h)
 	if err != nil {
 		return nil, "", err
 	}

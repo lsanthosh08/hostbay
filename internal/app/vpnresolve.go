@@ -192,6 +192,16 @@ func (c *HostCredentials) vpnUp(ctx context.Context, p *sshx.Proxy) error {
 	return apperr.New(apperr.VPNFailed, fmt.Sprintf("VPN %s could not connect: %s", p.Host, reason)).With("vpnId", p.VPN).With("reason", st.Status)
 }
 
+// dialUp is dialVia for h alone, with its VPN profile connected first: the
+// UI's direct dials.
+func (c *HostCredentials) dialUp(ctx context.Context, d *store.Data, h *store.Host) (*sshx.Proxy, error) {
+	p, err := c.dialVia(d, h, "")
+	if err != nil {
+		return nil, err
+	}
+	return p, c.vpnUp(ctx, p)
+}
+
 // vpnKey names the revision of the VPN profile p dials through in a
 // connection key, so editing the profile opens a fresh connection (KTD5).
 func vpnKey(d *store.Data, p *sshx.Proxy) string {

@@ -58,22 +58,10 @@ func DialTCP(ctx context.Context, p *Proxy, addr string) (net.Conn, error) {
 	if p == nil {
 		return (&net.Dialer{}).DialContext(ctx, "tcp", addr)
 	}
-	if p.Type == "vpn" && p.Iface != nil {
-		return p.dialBound(ctx, "tcp", addr)
-	}
-	if p.Type == "vpn" && p.Route != nil {
-		return p.dialRouted(ctx, "tcp", addr)
-	}
 	if p.Type == "vpn" {
-		paddr, user, pass, err := p.Socks()
-		if err != nil {
-			return nil, err
-		}
-		c, err := dialSOCKS5(ctx, paddr, user, pass, addr)
-		if err != nil {
-			return nil, p.vpnErr(addr, err)
-		}
-		return c, nil
+		return p.dialVPN(ctx, "tcp", addr, func(paddr, user, pass string) (net.Conn, error) {
+			return dialSOCKS5(ctx, paddr, user, pass, addr)
+		})
 	}
 	c, err := p.dial(ctx, addr)
 	if err != nil {
@@ -108,6 +96,27 @@ func dialSOCKS5(ctx context.Context, paddr, user, pass, addr string) (net.Conn, 
 	return d.(proxy.ContextDialer).DialContext(ctx, "tcp", addr)
 }
 
+// dialVPN dials addr through the VPN profile p: pinned to an external
+// profile's interface, on a system-wide profile's routes, or else through
+// its helper's SOCKS5 server with socks.
+func (p *Proxy) dialVPN(ctx context.Context, network, addr string, socks func(paddr, user, pass string) (net.Conn, error)) (net.Conn, error) {
+	switch {
+	case p.Iface != nil:
+		return p.dialBound(ctx, network, addr)
+	case p.Route != nil:
+		return p.dialRouted(ctx, network, addr)
+	}
+	paddr, user, pass, err := p.Socks()
+	if err != nil {
+		return nil, err
+	}
+	c, err := socks(paddr, user, pass)
+	if err != nil {
+		return nil, p.vpnErr(addr, err)
+	}
+	return c, nil
+}
+
 // dnsPort is where an external profile's DNS servers listen.
 var dnsPort = "53"
 
@@ -137,11 +146,7 @@ func (p *Proxy) dialBound(ctx context.Context, network, addr string) (net.Conn, 
 			return nil, err
 		}}
 	}
-	c, err := d.DialContext(ctx, network, addr)
-	if err != nil {
-		return nil, p.vpnErr(addr, err)
-	}
-	return c, nil
+	return p.dialVPNWith(ctx, d, network, addr)
 }
 
 // dialRouted dials addr directly once Route has found the system sends it
@@ -150,7 +155,12 @@ func (p *Proxy) dialRouted(ctx context.Context, network, addr string) (net.Conn,
 	if err := p.Route(ctx, addr); err != nil {
 		return nil, err
 	}
-	c, err := (&net.Dialer{}).DialContext(ctx, network, addr)
+	return p.dialVPNWith(ctx, &net.Dialer{}, network, addr)
+}
+
+// dialVPNWith dials addr with d, as a dial through the VPN.
+func (p *Proxy) dialVPNWith(ctx context.Context, d *net.Dialer, network, addr string) (net.Conn, error) {
+	c, err := d.DialContext(ctx, network, addr)
 	if err != nil {
 		return nil, p.vpnErr(addr, err)
 	}
@@ -245,21 +255,9 @@ func (p *Proxy) DialUDP(ctx context.Context, addr *net.UDPAddr) (net.Conn, error
 	if p.Type != "vpn" {
 		return nil, errors.New("only a VPN profile carries UDP")
 	}
-	if p.Iface != nil {
-		return p.dialBound(ctx, "udp", addr.String())
-	}
-	if p.Route != nil {
-		return p.dialRouted(ctx, "udp", addr.String())
-	}
-	paddr, user, pass, err := p.Socks()
-	if err != nil {
-		return nil, err
-	}
-	c, err := associate(ctx, paddr, user, pass, addr)
-	if err != nil {
-		return nil, p.vpnErr(addr.String(), err)
-	}
-	return c, nil
+	return p.dialVPN(ctx, "udp", addr.String(), func(paddr, user, pass string) (net.Conn, error) {
+		return associate(ctx, paddr, user, pass, addr)
+	})
 }
 
 // associate asks the SOCKS5 server at paddr to relay datagrams between a

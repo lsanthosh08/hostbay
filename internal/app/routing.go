@@ -16,6 +16,7 @@ import (
 	"hostbay/internal/netd"
 	"hostbay/internal/store"
 	"hostbay/internal/vpn/detect"
+	"hostbay/internal/vpn/proto"
 	"hostbay/internal/vpn/routing"
 )
 
@@ -207,11 +208,11 @@ func (s *RoutingService) reapply(ctx context.Context) time.Duration {
 	if err != nil {
 		return 0
 	}
-	auto := map[string]bool{}
+	auto, anyAuto := map[string]bool{}, false
 	for _, v := range d.VPNs.Items {
 		auto[v.ID] = v.AutoApply
+		anyAuto = anyAuto || v.AutoApply
 	}
-	anyAuto := slices.Contains(slices.Collect(maps.Values(auto)), true)
 	s.applying.Lock()
 	defer s.applying.Unlock()
 	plan, err := s.plan(ctx, "", "")
@@ -269,15 +270,15 @@ func (s *RoutingService) plan(ctx context.Context, id, mode string) (routing.Pla
 	if id != "" && mode != routing.PerDestination && mode != routing.Full && mode != routing.Split {
 		return routing.Plan{}, fmt.Errorf("unknown routing mode %q", mode)
 	}
-	_, labels, err := s.vpns.labelNow(ctx)
-	if err != nil {
-		return routing.Plan{}, err
-	}
 	d, err := s.st.Data()
 	if err != nil {
 		return routing.Plan{}, err
 	}
 	l, err := s.st.Local()
+	if err != nil {
+		return routing.Plan{}, err
+	}
+	_, labels, err := s.vpns.labelNow(ctx, d, l)
 	if err != nil {
 		return routing.Plan{}, err
 	}
@@ -310,7 +311,7 @@ func (s *RoutingService) plan(ctx context.Context, id, mode string) (routing.Pla
 		switch {
 		case vpnTier(*v) == store.VPNTierSystem && st.Iface != "":
 			in.Labels = append(in.Labels, detect.Labeled{Tunnel: detect.Tunnel{Iface: st.Iface}, Profile: v.ID})
-		case vpnTier(*v) == store.VPNTierApp && v.Gateway != "" && v.Type != "tailscale" && v.Type != "headscale":
+		case vpnTier(*v) == store.VPNTierApp && v.Gateway != "" && v.Type != proto.TypeTailscale:
 			as, _ := s.resolve(ctx, v.Gateway)
 			for _, a := range as {
 				in.Endpoints = append(in.Endpoints, routing.Endpoint{Profile: v.ID, Name: v.Name, Addr: a.Unmap()})
@@ -372,20 +373,22 @@ func (s *RoutingService) execute(ctx context.Context, changes []routing.Change, 
 	return rep
 }
 
+// snapshot is st with its own copy of Profiles, safe to hand out.
+func (st RoutingState) snapshot() RoutingState {
+	st.Profiles = maps.Clone(st.Profiles)
+	return st
+}
+
 // announce emits the state; call it with s.mu held.
 func (s *RoutingService) announce() {
-	st := s.state
-	st.Profiles = maps.Clone(s.state.Profiles)
-	s.emit(RoutingStateEvent, st)
+	s.emit(RoutingStateEvent, s.state.snapshot())
 }
 
 // State is routing's state now.
 func (s *RoutingService) State() RoutingState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	st := s.state
-	st.Profiles = maps.Clone(s.state.Profiles)
-	return st
+	return s.state.snapshot()
 }
 
 // Preview is the plan Apply would run (R26), with profile id in mode when

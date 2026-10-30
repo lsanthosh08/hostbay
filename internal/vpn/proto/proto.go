@@ -52,6 +52,13 @@ const (
 	TypeTailscale      = "tailscale" // Tailscale, or Headscale through its control URL
 )
 
+// Types that connect only system-wide, through hostbay-netd or the
+// operating system, never inside hostbay-vpn.
+const (
+	TypeOpenVPN = "openvpn"
+	TypeIPsec   = "ipsec" // IKEv2 and L2TP
+)
+
 // Tunnel states.
 const (
 	Connecting = "connecting"
@@ -69,9 +76,10 @@ const (
 // Codes on a failed state, for a reason the app acts on rather than only
 // shows.
 const (
-	CodeNeedsSystemWide = "needs-system-wide" // this platform cannot run the type app-scoped
-	CodeCertUnknown     = "cert-unknown"      // the system does not trust the gateway; ServerCert is its pin
-	CodeCertChanged     = "cert-changed"      // the gateway is not the pinned one; ServerCert is what it presented
+	CodeNeedsSystemWide = "needs-system-wide"   // this platform cannot run the type app-scoped
+	CodeCertUnknown     = "cert-unknown"        // the system does not trust the gateway; ServerCert is its pin
+	CodeCertChanged     = "cert-changed"        // the gateway is not the pinned one; ServerCert is what it presented
+	CodeOpenConnect     = "openconnect-version" // the openconnect found is too old, or its version cannot be read
 )
 
 // Msg is any message in either direction. State messages never carry a

@@ -12,12 +12,12 @@ import (
 	"net"
 	"net/netip"
 	"os"
-	"strconv"
-	"strings"
 	"sync"
 
 	"golang.zx2c4.com/wireguard/tun"
 	"golang.zx2c4.com/wireguard/tun/netstack"
+
+	"hostbay/internal/vpn/stackdial"
 )
 
 // Stack is a network stack whose packets travel over one datagram socket.
@@ -52,13 +52,14 @@ func New(f *os.File, addrs, dns []netip.Addr, search []string, mtu int) (*Stack,
 // in hands each datagram from the socket to the stack.
 func (s *Stack) in() {
 	defer s.Close()
-	buf := make([]byte, 65535)
+	buf, bufs := make([]byte, 65535), [][]byte{nil}
 	for {
 		n, err := s.conn.Read(buf)
 		if err != nil {
 			return
 		}
-		s.dev.Write([][]byte{buf[:n]}, 0) // a packet that is not IP is dropped
+		bufs[0] = buf[:n]
+		s.dev.Write(bufs, 0) // a packet that is not IP is dropped
 	}
 }
 
@@ -89,56 +90,5 @@ func (s *Stack) Close() error {
 // through the stack. Names resolve through the stack's DNS servers with its
 // search domains, never the system resolver.
 func (s *Stack) Dial(ctx context.Context, network, address string) (net.Conn, error) {
-	host, port, err := net.SplitHostPort(address)
-	if err != nil {
-		return nil, err
-	}
-	p, err := strconv.ParseUint(port, 10, 16)
-	if err != nil {
-		return nil, fmt.Errorf("port %q is not a number", port)
-	}
-	addr, err := s.resolve(ctx, host)
-	if err != nil {
-		return nil, err
-	}
-	to := netip.AddrPortFrom(addr, uint16(p))
-	switch network {
-	case "tcp":
-		return s.net.DialContextTCPAddrPort(ctx, to)
-	case "udp":
-		return s.net.DialUDPAddrPort(netip.AddrPort{}, to)
-	}
-	return nil, fmt.Errorf("network %q is not supported", network)
-}
-
-// shortcut: resolve and searchNames copy internal/vpn/wg's, have wg use these when it is next changed.
-func (s *Stack) resolve(ctx context.Context, host string) (netip.Addr, error) {
-	if a, err := netip.ParseAddr(host); err == nil {
-		return a, nil
-	}
-	var err error
-	for _, name := range searchNames(host, s.search) {
-		var addrs []string
-		if addrs, err = s.net.LookupContextHost(ctx, name); err == nil {
-			return netip.ParseAddr(addrs[0])
-		}
-	}
-	return netip.Addr{}, err
-}
-
-// searchNames lists the names to try for name, as a resolver with ndots 1
-// does: a name with a dot is tried as given first, a single label after the
-// search domains, and a name ending in a dot only as given.
-func searchNames(name string, search []string) []string {
-	if abs, ok := strings.CutSuffix(name, "."); ok {
-		return []string{abs} // netstack adds the root dot itself
-	}
-	var names []string
-	for _, d := range search {
-		names = append(names, name+"."+d)
-	}
-	if strings.Contains(name, ".") {
-		return append([]string{name}, names...)
-	}
-	return append(names, name)
+	return stackdial.Dialer{Net: s.net, Search: s.search}.Dial(ctx, network, address)
 }

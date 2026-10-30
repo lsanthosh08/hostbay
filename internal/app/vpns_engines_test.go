@@ -329,7 +329,7 @@ func TestUntrustedGatewayAsksAndTrustKeepsThePassword(t *testing.T) {
 	v := e.saveProfile(t, VPN{Type: proto.TypeAnyConnect, Gateway: "vpn.example.test", Port: 443, User: "alice", Auth: "password", Password: strp("s3cret")})
 	st, err := e.svc.ConnectVPN(context.Background(), v.ID)
 	var ae *apperr.Error
-	if !asAppErr(err, &ae) || ae.Details["reason"] != proto.CodeCertUnknown || ae.Details["serverCert"] != vpntest.Pin {
+	if !errors.As(err, &ae) || ae.Details["reason"] != proto.CodeCertUnknown || ae.Details["serverCert"] != vpntest.Pin {
 		t.Fatalf("connect: %v", err)
 	}
 	if st.Status != VPNFailed || st.Code != proto.CodeCertUnknown || st.ServerCert != vpntest.Pin {
@@ -364,7 +364,7 @@ func TestChangedGatewayCertificateIsRefusedAndOnlyForgotten(t *testing.T) {
 	v := e.saveProfile(t, VPN{Type: proto.TypeAnyConnect, Gateway: "vpn.example.test", Auth: "password", PeerKey: otherPin, Password: strp("s3cret")})
 	st, err := e.svc.ConnectVPN(context.Background(), v.ID)
 	var ae *apperr.Error
-	if !asAppErr(err, &ae) || ae.Details["reason"] != proto.CodeCertChanged || ae.Details["serverCert"] != vpntest.Pin || ae.Details["pinned"] != otherPin {
+	if !errors.As(err, &ae) || ae.Details["reason"] != proto.CodeCertChanged || ae.Details["serverCert"] != vpntest.Pin || ae.Details["pinned"] != otherPin {
 		t.Fatalf("connect: %v %+v", err, ae)
 	}
 	if st.Code != proto.CodeCertChanged || st.ServerCert != vpntest.Pin {
@@ -384,7 +384,7 @@ func TestChangedGatewayCertificateIsRefusedAndOnlyForgotten(t *testing.T) {
 		t.Fatalf("pin %q after forgetting", p.PeerKey)
 	}
 	st, err = e.svc.ConnectVPN(context.Background(), v.ID)
-	if !asAppErr(err, &ae) || ae.Details["reason"] != proto.CodeCertUnknown || st.Code != proto.CodeCertUnknown {
+	if !errors.As(err, &ae) || ae.Details["reason"] != proto.CodeCertUnknown || st.Code != proto.CodeCertUnknown {
 		t.Fatalf("connect after forgetting: %v %+v", err, st)
 	}
 	if starts := e.fake.Starts(t); starts[len(starts)-1].Secrets["password"] != "s3cret" {
@@ -422,8 +422,6 @@ func TestForgetVPNCertOnALockedVaultChangesNothing(t *testing.T) {
 		t.Fatalf("pin %q", p.PeerKey)
 	}
 }
-
-func asAppErr(err error, ae **apperr.Error) bool { return errors.As(err, ae) }
 
 // A coded failure needs the user, so auto-reconnect does not retry it.
 func TestCodedFailureEndsAutoReconnect(t *testing.T) {

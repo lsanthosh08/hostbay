@@ -115,10 +115,6 @@ func MissingProxy() *string {
 	return &id
 }
 
-// MissingVPN stands in for a VPN profile an import or backup names but
-// does not carry, like MissingProxy.
-func MissingVPN() *string { return MissingProxy() }
-
 // FileKinds are the kinds that only browse and transfer files.
 var FileKinds = []string{"ftp", "smb", "webdav", "s3"}
 

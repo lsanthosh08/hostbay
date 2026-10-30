@@ -937,7 +937,7 @@ export type VpnState = {
   since?: number;
   iface?: string; // a connected external profile's tunnel interface
   url?: string; // signing_in at a browser: the sign-in page, always http or https
-  code?: string; // failed: "needs-system-wide", "cert-unknown" or "cert-changed"
+  code?: string; // failed: "needs-system-wide", "cert-unknown", "cert-changed" or "openconnect-version"
   serverCert?: string; // cert-unknown, cert-changed: the pin the gateway presented
 };
 export const listVpns = () => list(VPNService.ListVPNs()) as Promise<Vpn[]>;

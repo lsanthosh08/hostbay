@@ -90,7 +90,7 @@ func (e *Engine) Run(ctx context.Context, report func(proto.Msg)) {
 	}
 	out, _ := exec.CommandContext(ctx, bin, "--version").CombinedOutput()
 	if err := checkVersion(bin, string(out)); err != nil {
-		fail(proto.Msg{Reason: err.Error()})
+		fail(proto.Msg{Code: proto.CodeOpenConnect, Reason: err.Error()})
 		return
 	}
 
@@ -179,7 +179,7 @@ func (e *Engine) Run(ctx context.Context, report func(proto.Msg)) {
 		})
 	}()
 	lines := make(chan output, 1)
-	go func() { lines <- e.watch(outR, report) }()
+	go func() { lines <- watch(outR, report) }()
 
 	werr := cmd.Wait()
 	hc.Close()
@@ -225,7 +225,7 @@ type output struct {
 // --servercert carries the refused certificate's pin. Text left waiting
 // without a newline and ending in a colon is a prompt, which only comes
 // after --passwd-on-stdin's line is used: a one-time code.
-func (e *Engine) watch(r io.Reader, report func(proto.Msg)) output {
+func watch(r io.Reader, report func(proto.Msg)) output {
 	var o output
 	var pending []byte
 	buf := make([]byte, 4096)

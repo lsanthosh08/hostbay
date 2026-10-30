@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 
 	"hostbay/internal/container"
+	"hostbay/internal/netd"
 )
 
 // Outcomes of TunnelHubService.Remove.
@@ -129,12 +129,6 @@ func (s *TunnelHubService) Detect() TunnelHubFound {
 	return f
 }
 
-// tunnelHubPathSafe admits paths that need no escaping inside a single-quoted shell
-// word inside an AppleScript string (as netd's osascriptSafe).
-func tunnelHubPathSafe(p string) bool {
-	return path.IsAbs(p) && !strings.ContainsAny(p, `'"\`) && !strings.ContainsFunc(p, func(r rune) bool { return r < 0x20 || r == 0x7f })
-}
-
 // Remove asks in a native dialog, then removes TunnelHub's helper (its
 // LaunchDaemon, binary and socket) through one administrator prompt, and
 // its launch-at-login agent without one. The config and the app bundle
@@ -151,7 +145,7 @@ func (s *TunnelHubService) Remove(ctx context.Context) (TunnelHubRemoval, error)
 	for i, it := range items {
 		lines[i] = "• " + it.Path
 		if it.Admin {
-			if !tunnelHubPathSafe(it.Path) {
+			if !netd.ShellSafePath(it.Path) {
 				return r, fmt.Errorf("Hostbay cannot remove %q: its path has a quote or backslash", it.Path)
 			}
 			root = append(root, "'"+it.Path+"'")

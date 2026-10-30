@@ -228,11 +228,11 @@ func (s *Server) associate(c net.Conn, declared string) {
 			continue
 		}
 		data := buf[n-r.Len() : n]
-		head := slices.Clone(buf[:n-r.Len()])
 		mu.Lock()
 		up := conns[dest]
 		mu.Unlock()
 		if up == nil {
+			head := slices.Clone(buf[:n-r.Len()])
 			dctx, dcancel := context.WithTimeout(ctx, dialWait)
 			up, err = s.Dial(dctx, "udp", dest)
 			dcancel()

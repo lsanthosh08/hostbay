@@ -579,11 +579,8 @@ func (s *ConnService) dialHost(ctx context.Context, h *store.Host, port int) (ne
 		if err != nil {
 			return nil, err
 		}
-		p, err := s.creds.dialVia(d, h, "")
+		p, err := s.creds.dialUp(ctx, d, h)
 		if err != nil {
-			return nil, err
-		}
-		if err := s.creds.vpnUp(ctx, p); err != nil {
 			return nil, err
 		}
 		ctx, cancel := context.WithTimeout(ctx, tcpDialTimeout)
@@ -739,11 +736,8 @@ func (s *ConnService) TestConnection(ctx context.Context, host Host) (ConnTest, 
 func (s *ConnService) testTCP(ctx context.Context, d *store.Data, h *store.Host, port int) (net.Conn, error) {
 	addr := net.JoinHostPort(h.Hostname, strconv.Itoa(port))
 	if !h.Jumped() {
-		p, err := s.creds.dialVia(d, h, "")
+		p, err := s.creds.dialUp(ctx, d, h)
 		if err != nil {
-			return nil, err
-		}
-		if err := s.creds.vpnUp(ctx, p); err != nil {
 			return nil, err
 		}
 		ctx, cancel := context.WithTimeout(ctx, tcpDialTimeout)

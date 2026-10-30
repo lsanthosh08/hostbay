@@ -228,7 +228,7 @@ func (s *Server) add(req Route, tunnel, exists map[string]bool) *Error {
 		if err != nil {
 			return failed("reading routes: %v", err)
 		}
-		gw, ok := defaultGateway(routes, tunnel, dst)
+		gw, ok := DefaultGateway(routes, tunnel, dst)
 		if !ok {
 			return refused("There is no local default gateway for %s.", dst)
 		}

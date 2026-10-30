@@ -1,6 +1,13 @@
 package store
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+	"net/netip"
+	"slices"
+	"strings"
+	"unicode"
+)
 
 // VPN is a VPN profile hosts reach their servers through (R1, R2). Profiles
 // are their own collection so sync carries their one sealed field, Secret,
@@ -37,6 +44,45 @@ type VPN struct {
 	// Secret is every profile secret as one VPNSecrets JSON object, sealed
 	// ("enc:v1:...").
 	Secret string `json:"secret,omitempty"`
+}
+
+// CheckVPN refuses a profile whose fields could not work or could add lines
+// to the engine configuration Hostbay writes from them. Its name and routing
+// mode, and the fields kept in Local, are the caller's to check.
+func CheckVPN(v VPN) error {
+	bad := func(s string, spaces bool) bool {
+		return strings.IndexFunc(s, func(r rune) bool { return unicode.IsControl(r) || spaces && unicode.IsSpace(r) }) >= 0
+	}
+	switch {
+	case v.Type == "" || bad(v.Type, true):
+		return errors.New("no VPN type")
+	case v.Tier != VPNTierApp && v.Tier != VPNTierSystem && v.Tier != VPNTierExternal:
+		return fmt.Errorf("tier %q is not app, system or external", v.Tier)
+	case len(v.Gateway) > 253 || bad(v.Gateway, true) || strings.HasPrefix(v.Gateway, "-") || bad(v.PeerKey, true):
+		return fmt.Errorf("the gateway %q is not a valid address", v.Gateway)
+	case v.Port < 0 || v.Port > 65535:
+		return fmt.Errorf("port %d is out of range", v.Port)
+	case v.MTU != 0 && (v.MTU < 576 || v.MTU > 65535):
+		return fmt.Errorf("MTU %d is out of range", v.MTU)
+	case bad(v.User, false) || bad(v.Auth, true) || bad(v.Client, false):
+		return errors.New("a field contains a line break or control character")
+	}
+	for _, p := range append(slices.Clone(v.Address), v.Routes...) {
+		if _, err := netip.ParsePrefix(p); err != nil {
+			return fmt.Errorf("%q is not a network such as 10.0.0.0/24", p)
+		}
+	}
+	for _, a := range v.DNSServers {
+		if _, err := netip.ParseAddr(a); err != nil {
+			return fmt.Errorf("DNS server %q is not an IP address", a)
+		}
+	}
+	for _, n := range v.DNSDomains {
+		if n == "" || bad(n, true) || strings.Contains(n, ",") {
+			return fmt.Errorf("DNS domain %q is not a domain name", n)
+		}
+	}
+	return nil
 }
 
 // VPNSecrets is what a VPN's Secret holds once opened: sync carries one

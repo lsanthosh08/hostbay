@@ -14,6 +14,7 @@ import (
 	"slices"
 
 	"hostbay/internal/netd"
+	"hostbay/internal/store"
 	"hostbay/internal/vpn/detect"
 )
 
@@ -144,7 +145,7 @@ func Build(in Input) Plan {
 	skip := func(dst, profile, reason string) { p.Skipped = append(p.Skipped, Skip{dst, profile, reason}) }
 
 	for _, pr := range in.Profiles {
-		if pr.Tier == "app" {
+		if pr.Tier == store.VPNTierApp {
 			continue
 		}
 		mode, nets, bad := modeOf(pr)
@@ -246,7 +247,7 @@ func Build(in Input) Plan {
 	// alone; one on another tunnel moves.
 	var adds []Change
 	for _, w := range wants {
-		gw, hasGW := defaultGateway(in.Routes, in.Tunnels, w.dst)
+		gw, hasGW := netd.DefaultGateway(in.Routes, in.Tunnels, w.dst)
 		if w.gateway && !hasGW {
 			skip(w.dst.String(), w.profile, "no local gateway")
 			continue
@@ -275,7 +276,7 @@ func Build(in Input) Plan {
 	for _, c := range adds {
 		r := netd.SysRoute{Dst: netip.MustParsePrefix(c.Dst), Iface: c.Iface}
 		if c.Gateway {
-			gw, _ := defaultGateway(in.Routes, in.Tunnels, r.Dst)
+			gw, _ := netd.DefaultGateway(in.Routes, in.Tunnels, r.Dst)
 			r.Iface = gw.Iface
 		}
 		after = append(after, r)
@@ -286,7 +287,7 @@ func Build(in Input) Plan {
 		if !in.Tunnels[lookup(after, e.Addr)] {
 			continue
 		}
-		if _, ok := defaultGateway(in.Routes, in.Tunnels, host); !ok {
+		if _, ok := netd.DefaultGateway(in.Routes, in.Tunnels, host); !ok {
 			skip(host.String(), e.Profile, "no local gateway to keep "+e.Name+"'s gateway on")
 			continue
 		}
@@ -362,12 +363,12 @@ func Narrow(greedy, iface string, keep []string) ([]Change, error) {
 // another system-wide or external VPN already routes, is refused naming
 // that VPN. App-scoped profiles use no system routes and never conflict.
 func Conflict(connected []Profile, p Profile) error {
-	if p.Tier == "app" {
+	if p.Tier == store.VPNTierApp {
 		return nil
 	}
 	mode, nets, _ := modeOf(p)
 	for _, c := range connected {
-		if c.Tier == "app" || c.ID == p.ID {
+		if c.Tier == store.VPNTierApp || c.ID == p.ID {
 			continue
 		}
 		cmode, cnets, _ := modeOf(c)
@@ -417,17 +418,6 @@ func ParseDst(s string) (netip.Prefix, error) {
 		return netip.Prefix{}, err
 	}
 	return n.Masked(), nil
-}
-
-// defaultGateway is the local default route for dst's family: a default
-// route with a next hop on an interface that is not a tunnel.
-func defaultGateway(routes []netd.SysRoute, tunnels map[string]bool, dst netip.Prefix) (netd.SysRoute, bool) {
-	for _, r := range routes {
-		if r.Dst.Bits() == 0 && r.Dst.Addr().Is4() == dst.Addr().Is4() && r.Gateway.IsValid() && !tunnels[r.Iface] {
-			return r, true
-		}
-	}
-	return netd.SysRoute{}, false
 }
 
 // lookup is the interface the longest matching route sends a out of.
