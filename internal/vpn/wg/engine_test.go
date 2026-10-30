@@ -370,3 +370,26 @@ func fmtAll(ps []netip.Prefix) []string {
 	}
 	return s
 }
+
+func TestHandshakeWatchSurvivesWake(t *testing.T) {
+	var w handshakeWatch
+	t0 := time.Now()
+	if w.stale(time.Time{}, t0) {
+		t.Fatal("no handshake yet must not read as stale")
+	}
+	hs := t0.Add(-time.Second)
+	if w.stale(hs, t0) {
+		t.Fatal("fresh handshake read as stale")
+	}
+	// Wake from sleep: the wall-clock handshake is hours old, but the
+	// monotonic clock barely moved, so no drop.
+	if w.stale(hs, t0.Add(pollEvery)) {
+		t.Fatal("wake from sleep reported a drop before keepalive re-handshaked")
+	}
+	if !w.stale(hs, t0.Add(dropAfter+time.Second)) {
+		t.Fatal("no new handshake for dropAfter must be stale")
+	}
+	if w.stale(hs.Add(time.Minute), t0.Add(dropAfter+time.Second)) {
+		t.Fatal("a newer handshake must reset the clock")
+	}
+}
