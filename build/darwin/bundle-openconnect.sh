@@ -7,6 +7,9 @@
 #
 # Usage: bundle-openconnect.sh <App.app/Contents> [openconnect binary]
 #
+# The same steps bundle openvpn for system-wide profiles: pass its path as
+# the second argument.
+#
 # The binary defaults to the openconnect on PATH (Homebrew's in release CI).
 # Without one, the app is built without it and OpenConnect profiles report
 # it missing. A bundle that cannot be made self-contained fails the build:
@@ -112,7 +115,11 @@ fi
 # The LGPL source offer in NOTICE names exact versions: keep the path of each
 # file bundled (Homebrew's Cellar/<formula>/<version>) and its keg's licence
 # texts in the app, since build logs expire.
-notices="$contents/Resources/OpenConnect"
+# One folder per bundled program, so bundling openvpn keeps openconnect's.
+case $name in
+openconnect) notices="$contents/Resources/OpenConnect" ;;
+*) notices="$contents/Resources/$name" ;;
+esac
 rm -rf "$notices"
 mkdir -p "$notices"
 awk '{ print $1 }' "$queue" >"$notices/versions.txt"

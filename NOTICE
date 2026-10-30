@@ -133,6 +133,17 @@ above under the LGPL or GPL, in the exact versions that release ships, for no
 more than the cost of physically delivering it. Ask through
 https://github.com/lsanthosh08/hostbay/issues, naming the release.
 
+System-wide OpenVPN profiles run OpenVPN (https://openvpn.net/community/), the
+openvpn program, Copyright OpenVPN Inc., licensed under the GNU General Public
+License, version 2, with its linking exception for OpenSSL. The macOS app
+bundles Homebrew's openvpn unmodified as a separate program in
+Hostbay.app/Contents/MacOS, with the libraries it links (OpenSSL, Apache
+License 2.0; LZO, GPL-2.0; LZ4, BSD 2-Clause; pkcs11-helper, BSD 3-Clause)
+in Contents/Frameworks and their exact versions and licence texts in
+Contents/Resources/openvpn. Hostbay only starts it through hostbay-netd. The
+written source offer above covers openvpn and these libraries in the same
+way.
+
 The Windows installer ships wintun.dll from Wintun 0.14.1
 (https://www.wintun.net), Copyright WireGuard LLC, unmodified,
 for system-wide VPN tunnels. It is distributed under the Prebuilt Binaries
