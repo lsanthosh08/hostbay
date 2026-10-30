@@ -20,13 +20,23 @@ const Version = 1
 const (
 	Hello  = "hello"  // helper: Version
 	Start  = "start"  // Hostbay: Type, Config, Secrets, SocksUser, SocksPass
-	State  = "state"  // helper: State, Reason, Address, Routes, SocksPort
+	State  = "state"  // helper: State, Reason, Address, Routes, SocksPort, Code, ServerCert
 	Need   = "need"   // helper: Need, URL
 	Answer = "answer" // Hostbay: OTP
 )
 
-// Engine types.
-const TypeWireGuard = "wireguard"
+// Engine types. The OpenConnect ones run the openconnect program; their
+// names are neutral, since the UI never names the SSL VPN's vendor.
+const (
+	TypeWireGuard      = "wireguard"
+	TypeAnyConnect     = "anyconnect"
+	TypeSSLVPN         = "sslvpn" // "SSL VPN (PPP over TLS)"
+	TypeGlobalProtect  = "globalprotect"
+	TypePulse          = "pulse"
+	TypeNetworkConnect = "nc" // Pulse's older Network Connect protocol
+	TypeF5             = "f5"
+	TypeArray          = "array"
+)
 
 // Tunnel states.
 const (
@@ -40,6 +50,14 @@ const (
 const (
 	NeedOTP     = "otp"     // a one-time code, sent back as answer
 	NeedBrowser = "browser" // the user signs in at URL
+)
+
+// Codes on a failed state, for a reason the app acts on rather than only
+// shows.
+const (
+	CodeNeedsSystemWide = "needs-system-wide" // this platform cannot run the type app-scoped
+	CodeCertUnknown     = "cert-unknown"      // the system does not trust the gateway; ServerCert is its pin
+	CodeCertChanged     = "cert-changed"      // the gateway is not the pinned one; ServerCert is what it presented
 )
 
 // Msg is any message in either direction. State messages never carry a
@@ -64,6 +82,11 @@ type Msg struct {
 	Address   []string `json:"address,omitempty"` // the tunnel's own addresses, CIDR
 	Routes    []string `json:"routes,omitempty"`  // networks reached through it, CIDR
 	SocksPort int      `json:"socksPort,omitempty"`
+	Code      string   `json:"code,omitempty"`
+	// ServerCert is the gateway certificate's pin ("pin-sha256:..."), set
+	// with CodeCertUnknown and CodeCertChanged. Hostbay pins it only after
+	// the user accepts it (R21).
+	ServerCert string `json:"serverCert,omitempty"`
 
 	Need string `json:"need,omitempty"`
 	URL  string `json:"url,omitempty"`

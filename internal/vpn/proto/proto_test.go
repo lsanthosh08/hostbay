@@ -18,6 +18,8 @@ func TestWireNames(t *testing.T) {
 		{Msg{T: State, State: Connected, Address: []string{"10.0.0.1/32"}, Routes: []string{"10.0.0.0/24"}, SocksPort: 1080},
 			`{"t":"state","state":"connected","address":["10.0.0.1/32"],"routes":["10.0.0.0/24"],"socksPort":1080}`},
 		{Msg{T: State, State: Failed, Reason: "r"}, `{"t":"state","state":"failed","reason":"r"}`},
+		{Msg{T: State, State: Failed, Reason: "r", Code: CodeCertChanged, ServerCert: "pin-sha256:x"},
+			`{"t":"state","state":"failed","reason":"r","code":"cert-changed","serverCert":"pin-sha256:x"}`},
 		{Msg{T: Need, Need: NeedBrowser, URL: "https://sso.example"}, `{"t":"need","need":"browser","url":"https://sso.example"}`},
 		{Msg{T: Answer, OTP: "123456"}, `{"t":"answer","otp":"123456"}`},
 	} {
