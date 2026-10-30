@@ -117,10 +117,11 @@ tasks:
       - rm -f "{{.BIN_DIR}}/{{.APP_NAME}}-amd64" "{{.BIN_DIR}}/{{.APP_NAME}}-arm64"
 
   package:
-    summary: Packages a universal (arm64 + amd64) `.app` bundle with the RDP helper inside
+    summary: Packages a universal (arm64 + amd64) `.app` bundle with the RDP and network helpers inside
     deps:
       - task: build:universal
       - task: build:rdp-helper:universal
+      - task: build:netd:universal
     cmds:
       - task: create:app:bundle
 
@@ -135,6 +136,28 @@ tasks:
       - lipo -create -output ../{{.BIN_DIR}}/hostbay-rdp-helper target/aarch64-apple-darwin/release/hostbay-rdp-helper target/x86_64-apple-darwin/release/hostbay-rdp-helper
     env:
       MACOSX_DEPLOYMENT_TARGET: "13.0"
+
+  build:netd:universal:
+    summary: Builds hostbay-netd for arm64 and amd64 and joins them into one universal binary in bin/
+    deps:
+      - task: :build:netd
+        vars: { GOOS: darwin, ARCH: amd64, OUTPUT: "{{.BIN_DIR}}/hostbay-netd-amd64" }
+      - task: :build:netd
+        vars: { GOOS: darwin, ARCH: arm64, OUTPUT: "{{.BIN_DIR}}/hostbay-netd-arm64" }
+    cmds:
+      - task: '{{if eq OS "darwin"}}build:netd:lipo:native{{else}}build:netd:lipo:go{{end}}'
+
+  build:netd:lipo:native:
+    internal: true
+    cmds:
+      - lipo -create -output "{{.BIN_DIR}}/hostbay-netd" "{{.BIN_DIR}}/hostbay-netd-amd64" "{{.BIN_DIR}}/hostbay-netd-arm64"
+      - rm "{{.BIN_DIR}}/hostbay-netd-amd64" "{{.BIN_DIR}}/hostbay-netd-arm64"
+
+  build:netd:lipo:go:
+    internal: true
+    cmds:
+      - wails3 tool lipo -output "{{.BIN_DIR}}/hostbay-netd" -input "{{.BIN_DIR}}/hostbay-netd-amd64" -input "{{.BIN_DIR}}/hostbay-netd-arm64"
+      - rm -f "{{.BIN_DIR}}/hostbay-netd-amd64" "{{.BIN_DIR}}/hostbay-netd-arm64"
 
   package:dmg:
     summary: Packages the application into a styled `.dmg`
@@ -177,6 +200,8 @@ tasks:
       - cp "{{.BIN_DIR}}/{{.APP_NAME}}" "{{.BIN_DIR}}/{{.APP_BUNDLE}}.app/Contents/MacOS"
       # internal/rdp.HelperPath looks for the helper beside the running executable.
       - cp "{{.BIN_DIR}}/hostbay-rdp-helper" "{{.BIN_DIR}}/{{.APP_BUNDLE}}.app/Contents/MacOS"
+      # internal/netd installs the helper from beside the running executable.
+      - cp "{{.BIN_DIR}}/hostbay-netd" "{{.BIN_DIR}}/{{.APP_BUNDLE}}.app/Contents/MacOS"
       - cp build/darwin/Info.plist "{{.BIN_DIR}}/{{.APP_BUNDLE}}.app/Contents"
       - task: '{{if eq OS "darwin"}}codesign:adhoc{{else}}codesign:skip{{end}}'
 
@@ -206,6 +231,11 @@ tasks:
       - |
         if [ -f "{{.BIN_DIR}}/hostbay-rdp-helper" ]; then
           cp "{{.BIN_DIR}}/hostbay-rdp-helper" "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/MacOS"
+        fi
+      # The network helper comes from `task build:netd`; without it the helper cannot be installed.
+      - |
+        if [ -f "{{.BIN_DIR}}/hostbay-netd" ]; then
+          cp "{{.BIN_DIR}}/hostbay-netd" "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/MacOS"
         fi
       - cp "build/darwin/Info.dev.plist" "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/Info.plist"
       - codesign --force --deep --sign - "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app"
