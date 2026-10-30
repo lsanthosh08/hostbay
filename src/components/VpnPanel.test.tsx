@@ -3,7 +3,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { DetectedVpn, Host, Vpn, VpnState } from "../api";
 import { en } from "../i18n/en";
-import { VpnCertBody, VpnPanelView, vpnCancelled, vpnCertPrompt } from "./VpnPanel";
+import { vpnCertPrompt } from "../connect/vpnCert";
+import { VpnCertBody, VpnPanelView, vpnCancelled } from "./VpnPanel";
 
 const noop = () => {};
 const vpn = (over: Partial<Vpn> = {}): Vpn => ({ id: "v1", name: "Atlas VPN", type: "wireguard", tier: "app", tags: ["atlas"], ...over });

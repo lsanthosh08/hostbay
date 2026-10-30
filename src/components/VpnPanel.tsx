@@ -3,6 +3,7 @@ import { Browser } from "@wailsio/runtime";
 import * as api from "../api";
 import type { DetectedVpn, Host, Vpn, VpnState } from "../api";
 import { useConnect } from "../connect/useConnect";
+import { vpnCertPrompt, type VpnCert } from "../connect/vpnCert";
 import { t, type MessageKey } from "../i18n";
 import { PanelHeader } from "../shell/SidePanel";
 import { VpnForm, NEW_VPN } from "../shell/settings/Vpns";
@@ -92,19 +93,6 @@ const dot = (s?: VpnState) => DOT[s?.status ?? "disconnected"];
 export function uptime(since: number, now: number) {
   const m = Math.max(0, Math.floor((now - since) / 60000));
   return m >= 60 ? t("vpn.duration.hm", { h: Math.floor(m / 60), m: m % 60 }) : t("vpn.duration.m", { m });
-}
-
-/** A gateway certificate a failed connect asks about (R21): the pin
- *  presented and, for a changed one, the saved pin it does not match (AE8),
- *  which is refused and can only be forgotten. */
-export type VpnCert = { pin: string; pinned?: string };
-
-/** The certificate a rejected connectVpn asks about, if it does. */
-export function vpnCertPrompt(e: unknown): VpnCert | undefined {
-  const { code, details } = api.errorInfo(e);
-  const reason = details?.reason;
-  if (code !== "VPNFailed" || (reason !== "cert-unknown" && reason !== "cert-changed") || !details?.serverCert) return undefined;
-  return reason === "cert-changed" ? { pin: details.serverCert, pinned: details.pinned ?? "" } : { pin: details.serverCert };
 }
 
 /** A connect the user ended on purpose (disconnect while connecting) is not a failure to report. */

@@ -1,4 +1,5 @@
 import { isFileHost, type AppError, type Host, type HostKeyChange, type HostKeyPrompt } from "../api";
+import { vpnCertOf, type VpnCert } from "./vpnCert";
 
 /** What a failed connect asks of the user next. Every step carries the
  *  backend's message, so none ends in a silent close. */
@@ -24,6 +25,11 @@ export type Step =
   // and the user names one on the host (R16, R17, AE2).
   | { kind: "vpnHeld"; message: string }
   | { kind: "vpnChoose"; message: string }
+  // The VPN gateway's certificate is not trusted yet: trust it, then retry.
+  | { kind: "vpnCert"; message: string; vpnId: string; cert: VpnCert }
+  // A changed gateway certificate is refused (R21, AE8): it can only be
+  // forgotten, never accepted here.
+  | { kind: "vpnCertChanged"; message: string; vpnId: string; cert: VpnCert }
   | { kind: "unlock"; message: string }
   | { kind: "wake"; message: string }
   | { kind: "verify"; message: string }
@@ -74,10 +80,13 @@ export function route(err: AppError, ctx: { host?: Host; hosts?: Host[]; wasLive
       if (details?.reason === "held") return { kind: "proxyHeld", message };
       if (details?.reason === "missing") return { kind: "proxyMissing", message };
       return { kind: "failure", message, proxy: true };
-    case "VPNFailed":
+    case "VPNFailed": {
+      const cert = vpnCertOf(err);
+      if (cert && details?.vpnId) return { kind: cert.pinned === undefined ? "vpnCert" : "vpnCertChanged", message, vpnId: details.vpnId, cert };
       if (details?.reason === "held") return { kind: "vpnHeld", message };
       if (details?.reason === "missing") return { kind: "vpnChoose", message };
       break;
+    }
     case "VPNAmbiguous":
       return { kind: "vpnChoose", message };
     case "VerifyFailed":
