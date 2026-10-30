@@ -4,7 +4,8 @@
 // openconnect in its no-admin mode (--script-tun), takes the tunnel's packet
 // socket from the short-lived "hostbay-vpn tun-fd" child openconnect starts,
 // and puts a gVisor stack on it (internal/vpn/tunfd), so the tunnel serves
-// Hostbay only (R14). Only cmd/hostbay-vpn imports it.
+// Hostbay only (R14). Only the helpers (cmd/hostbay-vpn, and cmd/hostbay-netd
+// for system-wide tunnels) import it, never the main binary.
 package openconnect
 
 import (
