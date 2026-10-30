@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"hostbay/internal/apperr"
@@ -128,5 +129,89 @@ func TestHTTPProxyKeepsBytesSentWithTheReply(t *testing.T) {
 	}
 	if _, ok := c.RemoteAddr().(*net.TCPAddr); !ok {
 		t.Fatal("RemoteAddr is not a TCP address; FTP needs one")
+	}
+}
+
+// A VPN proxy looks up its helper's SOCKS endpoint and login at each dial,
+// so a shared connection rebuilt after the VPN reconnected on a new port
+// dials the new one (KTD2).
+func TestVPNProxyDialsTheLiveSOCKSEndpoint(t *testing.T) {
+	s := newTestServer(t, serverOpts{})
+	a := proxytest.SOCKS5(t, "u1", "p1")
+	b := proxytest.SOCKS5(t, "u2", "p2")
+	var mu sync.Mutex
+	live, user, pass := a, "u1", "p1"
+	hop := s.hop()
+	hop.Proxy = &Proxy{Type: "vpn", Host: "office", VPN: "v1", Socks: func() (string, string, string, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		return net.JoinHostPort(live.Host, strconv.Itoa(live.Port)), user, pass, nil
+	}}
+	m := NewManager(&Dialer{KnownHostsPath: writeKnownHosts(t, s.knownLine(t))})
+	ctx := context.Background()
+	l, err := m.Acquire(ctx, Target{Key: "k", Hops: []Hop{hop}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Release()
+	want := net.JoinHostPort(s.host, strconv.Itoa(s.port))
+	if !slices.Equal(a.Targets(), []string{want}) {
+		t.Fatalf("first endpoint carried %v, want %s", a.Targets(), want)
+	}
+
+	mu.Lock()
+	live, user, pass = b, "u2", "p2"
+	mu.Unlock()
+	s.dropAll()
+	cl, err := l.Reconnect(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := run(t, cl, "echo hi"); got != "hi\n" {
+		t.Fatalf("exec = %q", got)
+	}
+	if !slices.Equal(b.Targets(), []string{want}) || len(a.Targets()) != 1 {
+		t.Fatalf("after the reconnect: first carried %v, second %v", a.Targets(), b.Targets())
+	}
+}
+
+// A VPN that is down, or whose endpoint fails, fails the connect with a VPN
+// code naming the profile, never ProxyFailed, and the target never sees a
+// direct connection (KTD2, KTD22).
+func TestFailedVPNNeverFallsBackToDirect(t *testing.T) {
+	downHost, downPort := proxytest.Down(t)
+	refusing := proxytest.SOCKS5(t, "u", "p")
+	for _, tc := range []struct {
+		name  string
+		socks func() (string, string, string, error)
+		code  apperr.Code
+	}{
+		{"not connected", func() (string, string, string, error) {
+			return "", "", "", apperr.New(apperr.VPNDown, "VPN office is not connected").With("vpnId", "v1")
+		}, apperr.VPNDown},
+		{"endpoint gone", func() (string, string, string, error) {
+			return net.JoinHostPort(downHost, strconv.Itoa(downPort)), "u", "p", nil
+		}, apperr.VPNFailed},
+		{"stale login", func() (string, string, string, error) {
+			return net.JoinHostPort(refusing.Host, strconv.Itoa(refusing.Port)), "u", "old", nil
+		}, apperr.VPNFailed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestServer(t, serverOpts{})
+			hop := s.hop()
+			hop.Proxy = &Proxy{Type: "vpn", Host: "office", VPN: "v1", Socks: tc.socks}
+			d := &Dialer{KnownHostsPath: writeKnownHosts(t, s.knownLine(t))}
+			_, err := d.Dial(context.Background(), Target{Key: "k", Hops: []Hop{hop}})
+			var ae *apperr.Error
+			if !errors.As(err, &ae) || ae.Code != tc.code || ae.Details["vpnId"] != "v1" || !strings.Contains(err.Error(), "office") {
+				t.Fatalf("err = %v (%+v), want %s naming the profile", err, ae, tc.code)
+			}
+			if strings.Contains(err.Error(), strconv.Itoa(downPort)) || strings.Contains(err.Error(), strconv.Itoa(refusing.Port)) {
+				t.Fatalf("err = %v names the helper's port", err)
+			}
+			if n := s.conns.Load(); n != 0 {
+				t.Fatalf("target saw %d direct connections", n)
+			}
+		})
 	}
 }

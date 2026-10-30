@@ -33,6 +33,7 @@ export function Connect(hostID: string): $CancellablePromise<string> {
 /**
  * ConnectAdhoc connects to a host that is not saved, authenticating with
  * identityFile.
+ * It goes through the connected VPN profile that reaches hostname (R17).
  */
 export function ConnectAdhoc(hostname: string, port: number, user: string, identityFile: string): $CancellablePromise<string> {
     return $Call.ByID(1693147481, hostname, port, user, identityFile);
@@ -167,8 +168,9 @@ export function PtyWrite(ptyID: string, data: string): $CancellablePromise<void>
 
 /**
  * Reconnect rebuilds a dropped session's shared connection (KTD5) with fresh
- * host-key checks; each view then reopens its own channel. A live connection
- * is returned as it is.
+ * host-key checks, connecting its VPN profile first when that is down too
+ * (R15); each view then reopens its own channel. A live connection is
+ * returned as it is.
  */
 export function Reconnect(sessionID: string): $CancellablePromise<void> {
     return $Call.ByID(4232956667, sessionID);

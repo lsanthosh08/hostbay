@@ -46,24 +46,65 @@ const moshServerCmd = "MOSH_SERVER_NETWORK_TMOUT=86400 mosh-server new -s -c 256
 var moshReplyTimeout = 10 * time.Second
 
 // OpenMosh starts mosh-server over l's connection and connects to it over
-// UDP at the address that connection reached. It needs a direct connection:
-// mosh's UDP cannot pass through SSH jump hosts, which the caller checks.
+// UDP at the address that connection reached. It needs a direct connection,
+// or one through a VPN profile, whose helper carries the UDP: mosh's UDP
+// cannot pass through SSH jump hosts or proxies, which the caller checks.
 // The session key never leaves this function except into the cipher.
 func OpenMosh(ctx context.Context, l *sshx.Lease, cols, rows int) (Transport, error) {
 	cl, err := l.Reconnect(ctx)
 	if err != nil {
 		return nil, err
 	}
-	port, key, err := startMoshServer(ctx, cl.Client)
+	return openMosh(ctx, cl.Client, l.Proxy(), cols, rows)
+}
+
+// openMosh is OpenMosh on c, which was dialled through vpn, or directly when
+// vpn is nil. Through a VPN, c's remote address is the helper's loopback
+// SOCKS endpoint, so the server's address comes from $SSH_CONNECTION, the
+// one mosh-server -s binds to.
+func openMosh(ctx context.Context, c *ssh.Client, vpn *sshx.Proxy, cols, rows int) (Transport, error) {
+	port, key, err := startMoshServer(ctx, c)
 	if err != nil {
 		return nil, err
 	}
-	host, _, _ := net.SplitHostPort(cl.RemoteAddr().String())
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return nil, errors.New("mosh needs a direct connection to the host")
+	if vpn == nil {
+		host, _, _ := net.SplitHostPort(c.RemoteAddr().String())
+		ip := net.ParseIP(host)
+		if ip == nil {
+			return nil, errors.New("mosh needs a direct connection to the host")
+		}
+		return dialMosh(ctx, &net.UDPAddr{IP: ip, Port: port}, key, cols, rows)
 	}
-	return dialMosh(ctx, &net.UDPAddr{IP: ip, Port: port}, key, cols, rows)
+	ip, err := sshServerIP(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+	server := &net.UDPAddr{IP: ip, Port: port}
+	uc, err := vpn.DialUDP(ctx, server)
+	if err != nil {
+		return nil, err
+	}
+	return dialMoshOn(ctx, uc, server, key, cols, rows)
+}
+
+// sshServerIP is the server's own address on c's connection: the third
+// field of $SSH_CONNECTION ("client_ip client_port server_ip server_port").
+func sshServerIP(ctx context.Context, c *ssh.Client) (net.IP, error) {
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	sess, err := c.NewSession()
+	if err != nil {
+		return nil, err
+	}
+	defer sess.Close()
+	stop := context.AfterFunc(ctx, func() { sess.Close() })
+	out, err := sess.Output(`printf '%s' "$SSH_CONNECTION"`)
+	stop()
+	f := strings.Fields(string(out))
+	if err != nil || len(f) != 4 || net.ParseIP(f[2]) == nil {
+		return nil, errors.New("mosh cannot tell the host's address inside the VPN: the server did not report $SSH_CONNECTION")
+	}
+	return net.ParseIP(f[2]), nil
 }
 
 // startMoshServer runs mosh-server and returns its UDP port and raw key.
@@ -150,17 +191,24 @@ func parseMoshConnect(s string) (int, []byte, bool) {
 
 // dialMosh connects to a mosh server and waits for its first reply.
 func dialMosh(ctx context.Context, server *net.UDPAddr, key []byte, cols, rows int) (Transport, error) {
-	ocb, err := mosh.NewOCB(key)
-	if err != nil {
-		return nil, err
-	}
 	uc, err := net.ListenUDP("udp", nil)
 	if err != nil {
 		return nil, err
 	}
-	c, err := mosh.DialConnRaw(&udpConn{UDPConn: uc, server: server}, ocb)
+	return dialMoshOn(ctx, &udpConn{UDPConn: uc, server: server}, server, key, cols, rows)
+}
+
+// dialMoshOn is dialMosh over conn, which carries datagrams to server and
+// is closed on failure.
+func dialMoshOn(ctx context.Context, conn mosh.Conn, server *net.UDPAddr, key []byte, cols, rows int) (Transport, error) {
+	ocb, err := mosh.NewOCB(key)
 	if err != nil {
-		uc.Close()
+		conn.Close()
+		return nil, err
+	}
+	c, err := mosh.DialConnRaw(conn, ocb)
+	if err != nil {
+		conn.Close()
 		return nil, err
 	}
 	c.Resize(uint16(cols), uint16(rows))

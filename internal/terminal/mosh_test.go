@@ -2,11 +2,13 @@ package terminal
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -17,6 +19,8 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"hostbay/internal/sftp/sftptest"
+	"hostbay/internal/sshx"
+	"hostbay/internal/vpn/socks"
 )
 
 const testKey = "4NeCCgvZFe2RnPgrcU1PQw" // 16 bytes, as mosh-server prints it
@@ -260,5 +264,73 @@ func TestMoshScreenAppliesDiffToItsOwnBase(t *testing.T) {
 	screen.Write(scr.apply(msg("abc"), 0, 2, 0)) // a repeat changes nothing
 	if got := strings.TrimSpace(strings.SplitN(screen.String(), "\n", 2)[0]); got != "abc" {
 		t.Fatalf("screen shows %q, want %q", got, "abc")
+	}
+}
+
+// Over a VPN the SSH client's remote address is the helper's loopback SOCKS
+// endpoint, so mosh takes the server's address from $SSH_CONNECTION and
+// sends its UDP through the helper's UDP ASSOCIATE (KTD2).
+func TestMoshOverVPNUsesSSHConnectionAndTheHelpersUDP(t *testing.T) {
+	srv, err := mosh.NewServer("", 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	echo := newEcho()
+	go srv.ServeRW(echo, func(uint16, uint16) {})
+	t.Cleanup(func() { echo.Close() })
+	port, _, ok := parseMoshConnect(srv.ConnectLine())
+	if !ok {
+		t.Fatalf("cannot parse %q", srv.ConnectLine())
+	}
+	// 10.77.0.5 is the server's address inside the VPN, reached only through it.
+	t.Setenv("SSH_CONNECTION", "10.77.0.2 50022 10.77.0.5 22")
+	c := moshHost(t, `echo "`+srv.ConnectLine()+`"`)
+
+	var mu sync.Mutex
+	var asked []string
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	inside := net.JoinHostPort("10.77.0.5", strconv.Itoa(port))
+	go (&socks.Server{User: "vu", Pass: "vp", Dial: func(ctx context.Context, network, addr string) (net.Conn, error) {
+		mu.Lock()
+		asked = append(asked, network+" "+addr)
+		mu.Unlock()
+		if addr != inside {
+			return nil, errors.New("not inside the VPN")
+		}
+		return (&net.Dialer{}).DialContext(ctx, network, net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	}}).Serve(ln)
+	p := &sshx.Proxy{Type: "vpn", Host: "office", VPN: "v1", Socks: func() (string, string, string, error) {
+		return ln.Addr().String(), "vu", "vp", nil
+	}}
+
+	tr, err := openMosh(context.Background(), c, p, 80, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tr.Close()
+	out := make(chan []byte)
+	go func() {
+		defer close(out)
+		for {
+			b := make([]byte, 4096)
+			n, err := tr.Read(b)
+			if n > 0 {
+				out <- b[:n]
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	tr.Write([]byte("hello"))
+	waitScreen(t, out, newShadow(80, 24), "hello")
+	mu.Lock()
+	defer mu.Unlock()
+	if len(asked) == 0 || asked[0] != "udp "+inside {
+		t.Fatalf("the helper was asked for %v, want udp %s", asked, inside)
 	}
 }

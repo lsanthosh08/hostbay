@@ -203,13 +203,17 @@ export function ConnectionStatusView({ c }: { c: Connection }) {
       break;
     case "kerberos":
     case "proxyHeld":
-    case "proxyMissing": {
-      // None of these offers to connect around the proxy (KTD22).
+    case "proxyMissing":
+    case "vpnHeld":
+    case "vpnChoose": {
+      // None of these offers to connect around the proxy or VPN (KTD22).
       const [titleKey, hintKey] = (
         {
           kerberos: ["connect.kerberos.title", "connect.kerberos.hint"],
           proxyHeld: ["connect.proxyHeld.title", "connect.proxyHeld.hint"],
           proxyMissing: ["connect.proxyMissing.title", "connect.proxyMissing.hint"],
+          vpnHeld: ["connect.vpnHeld.title", "connect.vpnHeld.hint"],
+          vpnChoose: ["connect.vpnChoose.title", "connect.vpnChoose.hint"],
         } satisfies Record<string, [MessageKey, MessageKey]>
       )[step.kind];
       title = t(titleKey);
@@ -221,12 +225,12 @@ export function ConnectionStatusView({ c }: { c: Connection }) {
       );
       actions = (
         <>
-          {step.kind === "proxyHeld" && (
+          {(step.kind === "proxyHeld" || step.kind === "vpnHeld") && (
             <Button variant="primary" onClick={() => showSettings("sync")}>
               {t("connect.proxyHeld.open")}
             </Button>
           )}
-          {step.kind === "proxyMissing" ? (
+          {step.kind === "proxyMissing" || step.kind === "vpnChoose" ? (
             <Button variant="primary" onClick={() => manager.editHost(host)}>
               {t("connect.editHost")}
             </Button>

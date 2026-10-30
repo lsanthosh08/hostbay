@@ -69,16 +69,9 @@ func (s *RdpService) RdpConnect(ctx context.Context, hostID string, width, heigh
 		return "", err
 	}
 
-	dialHost, dialPort, release := h.Hostname, port, func() {}
-	target := net.JoinHostPort(h.Hostname, strconv.Itoa(port))
-	if h.Jumped() {
-		if dialHost, dialPort, release, err = s.forward(ctx, *h.JumpHostID, target); err != nil {
-			return "", err
-		}
-	} else if h.Proxied() {
-		if dialHost, dialPort, release, err = s.viaProxy(h, target); err != nil {
-			return "", err
-		}
+	dialHost, dialPort, release, err := s.dialAddr(ctx, h, port)
+	if err != nil {
+		return "", err
 	}
 
 	id := newRequestID()
@@ -106,10 +99,35 @@ func (s *RdpService) RdpConnect(ctx context.Context, hostID string, width, heigh
 	return id, nil
 }
 
-// forward opens a local port carried to target through jumpHostID's shared
-// connection, and returns where to dial and how to let go of both.
-func (s *RdpService) forward(ctx context.Context, jumpHostID, target string) (string, int, func(), error) {
-	t, err := s.conns.target(jumpHostID)
+// dialAddr is where the helper dials to reach h's port, and how to let go
+// of it: h itself, or a local forward through its jump host, VPN profile or
+// proxy (KTD5, KTD22).
+func (s *RdpService) dialAddr(ctx context.Context, h store.Host, port int) (string, int, func(), error) {
+	target := net.JoinHostPort(h.Hostname, strconv.Itoa(port))
+	if h.Jumped() {
+		return s.forward(ctx, h, target)
+	}
+	d, err := s.creds.st.Data()
+	if err != nil {
+		return "", 0, nil, err
+	}
+	p, err := s.creds.dialVia(d, &h, "")
+	if err == nil {
+		err = s.creds.vpnUp(ctx, p)
+	}
+	if err != nil {
+		return "", 0, nil, err
+	}
+	if p == nil {
+		return h.Hostname, port, func() {}, nil
+	}
+	return viaProxy(p, target)
+}
+
+// forward opens a local port carried to target through h's jump host's
+// shared connection, and returns where to dial and how to let go of both.
+func (s *RdpService) forward(ctx context.Context, h store.Host, target string) (string, int, func(), error) {
+	t, err := s.conns.targetVia(*h.JumpHostID, store.Deref(h.VPNID))
 	if err != nil {
 		return "", 0, nil, err
 	}
@@ -129,18 +147,10 @@ func (s *RdpService) forward(ctx context.Context, jumpHostID, target string) (st
 	return "127.0.0.1", f.Addr().(*net.TCPAddr).Port, func() { f.Close(); s.conns.Disconnect(lease) }, nil
 }
 
-// viaProxy opens a local port carried to target through h's proxy, since
-// the helper dials only plain addresses; a failed proxy fails each
-// connection and never falls back to a direct one (KTD22).
-func (s *RdpService) viaProxy(h store.Host, target string) (string, int, func(), error) {
-	d, err := s.creds.st.Data()
-	if err != nil {
-		return "", 0, nil, err
-	}
-	p, err := s.creds.proxyFor(d, &h)
-	if err != nil {
-		return "", 0, nil, err
-	}
+// viaProxy opens a local port carried to target through p, a proxy or VPN
+// profile, since the helper dials only plain addresses; a failed proxy or
+// VPN fails each connection and never falls back to a direct one (KTD22).
+func viaProxy(p *sshx.Proxy, target string) (string, int, func(), error) {
 	f, err := sshx.ForwardFunc(func() (net.Conn, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), sshx.DefaultTimeout)
 		defer cancel()

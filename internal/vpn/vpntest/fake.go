@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -28,6 +29,7 @@ const (
 	Crash      = "crash"      // the first start connects, then exits 1 without a word; later starts are OK
 	Silent     = "silent"     // never says hello
 	BadVersion = "badversion" // says hello with another protocol version
+	Down       = "down"       // never connects: the gateway does not answer
 )
 
 // What the fake reports once connected.
@@ -41,6 +43,7 @@ const (
 const (
 	name     = "hostbay-vpn" // internal/vpn.HelperName, which this package cannot import
 	modeFile = "mode"
+	portFile = "socksport"
 	startDir = "starts"
 )
 
@@ -85,6 +88,15 @@ func Install(t testing.TB, mode string) *Fake {
 		t.Fatal(err)
 	}
 	return f
+}
+
+// SetSocksPort makes the fake report port, where a test serves SOCKS5, in
+// place of Port.
+func (f *Fake) SetSocksPort(t testing.TB, port int) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(f.Dir, portFile), []byte(strconv.Itoa(port)), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // Starts returns every start message the fake was sent, in order.
@@ -134,9 +146,16 @@ func run() int {
 	n := len(starts) + 1
 	os.WriteFile(filepath.Join(dir, startDir, fmt.Sprintf("%04d.json", n)), in.Bytes(), 0o600)
 
-	connected := proto.Msg{T: proto.State, State: proto.Connected, Address: []string{Address}, Routes: []string{Route}, SocksPort: Port}
+	port := Port
+	if b, err := os.ReadFile(filepath.Join(dir, portFile)); err == nil {
+		port, _ = strconv.Atoi(string(b))
+	}
+	connected := proto.Msg{T: proto.State, State: proto.Connected, Address: []string{Address}, Routes: []string{Route}, SocksPort: port}
 	send(proto.Msg{T: proto.State, State: proto.Connecting})
 	switch mode {
+	case Down:
+		send(proto.Msg{T: proto.State, State: proto.Failed, Reason: "The gateway did not answer."})
+		return 1
 	case OTP:
 		send(proto.Msg{T: proto.Need, Need: proto.NeedOTP})
 		var a proto.Msg

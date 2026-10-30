@@ -70,7 +70,7 @@ func toUI(h store.Host) Host {
 		AuthType: h.AuthType, Kind: h.Kind, RdpPort: h.RdpPort, RdpSecurity: h.RdpSecurity, Mac: h.Mac,
 		JumpHostID: h.JumpHostID,
 		TLS:        h.TLS, URL: h.URL, Domain: h.Domain, Bucket: h.Bucket, Region: h.Region, PathStyle: h.PathStyle,
-		ProxyID: h.ProxyID, ForwardAgent: h.ForwardAgent, Algorithms: h.Algorithms, Keepalive: h.Keepalive, LocalEcho: h.LocalEcho,
+		ProxyID: h.ProxyID, VPNID: h.VPNID, ForwardAgent: h.ForwardAgent, Algorithms: h.Algorithms, Keepalive: h.Keepalive, LocalEcho: h.LocalEcho,
 		X11: h.X11, X11Desktop: h.X11Desktop, Database: h.Database, File: h.File,
 		Namespace: h.Namespace,
 	}
@@ -125,7 +125,7 @@ func (s *HostService) SaveHost(host Host) (Host, error) {
 		} else if h.ID == "" {
 			h.ID = store.NewID()
 		}
-		if err := checkExtras(d, host, h.ProxyID); err != nil {
+		if err := checkExtras(d, host, h.ProxyID, h.VPNID); err != nil {
 			return err
 		}
 		fromForm(d, &h, host)
@@ -165,7 +165,7 @@ func fromForm(d *store.Data, h *store.Host, host Host) {
 	h.Kind, h.RdpPort, h.RdpSecurity, h.Mac, h.JumpHostID = host.Kind, host.RdpPort, host.RdpSecurity, host.Mac, host.JumpHostID
 	h.TLS, h.URL, h.Domain, h.Bucket, h.Region, h.PathStyle = host.TLS, host.URL, host.Domain, host.Bucket, host.Region, host.PathStyle
 	h.ProxyID, h.ForwardAgent, h.Algorithms, h.Keepalive, h.LocalEcho = host.ProxyID, host.ForwardAgent, host.Algorithms, host.Keepalive, host.LocalEcho
-	h.X11, h.X11Desktop = host.X11, host.X11Desktop
+	h.VPNID, h.X11, h.X11Desktop = host.VPNID, host.X11, host.X11Desktop
 	h.Database = host.Database // File is never the page's to set
 	// A cluster's CA and TLS server name are never the page's to set, and
 	// it dials the host and port of its URL, which its token is bound to.
@@ -253,8 +253,8 @@ func checkDatabaseHost(h Host) error {
 			return errors.New("the user and database names cannot contain control characters")
 		}
 	case "sqlite":
-		if (h.JumpHostID != nil && *h.JumpHostID != "") || (h.ProxyID != nil && *h.ProxyID != "") {
-			return errors.New("a SQLite host is a file on this computer; it cannot use a jump host or proxy")
+		if (h.JumpHostID != nil && *h.JumpHostID != "") || (h.ProxyID != nil && *h.ProxyID != "") || store.Deref(h.VPNID) != "" {
+			return errors.New("a SQLite host is a file on this computer; it cannot use a jump host, proxy or VPN")
 		}
 		if store.Deref(h.TLS) != "" {
 			return errors.New("a SQLite host is a file on this computer; it has no TLS mode")
@@ -295,10 +295,11 @@ func checkFileHost(h Host) error {
 }
 
 // checkExtras refuses connection extras that could not work, or that would
-// connect another way than the form showed (R48–R52). saved is the host's
-// stored proxy: keeping it unchanged passes even when sync left it pointing
-// at a proxy this computer lacks, which then fails at connect.
-func checkExtras(d *store.Data, h Host, saved *string) error {
+// connect another way than the form showed (R48–R52, KTD5). saved and
+// savedVPN are the host's stored proxy and VPN profile: keeping either
+// unchanged passes even when sync left it pointing at one this computer
+// lacks, which then fails at connect.
+func checkExtras(d *store.Data, h Host, saved, savedVPN *string) error {
 	kind := ""
 	if h.Kind != nil {
 		kind = *h.Kind
@@ -320,16 +321,42 @@ func checkExtras(d *store.Data, h Host, saved *string) error {
 	if slices.Contains(store.FileKinds, kind) && h.JumpHostID != nil && *h.JumpHostID != "" {
 		return errors.New("a file host cannot be reached through a jump host; remove its jump host or connect it through a proxy")
 	}
+	if err := checkHostVPN(d, h, savedVPN); err != nil {
+		return err
+	}
 	if h.ProxyID == nil || *h.ProxyID == "" {
 		return nil
 	}
 	switch {
+	case store.Deref(h.VPNID) != "":
+		return errors.New("a host reached through a VPN profile cannot also use a proxy; choose one of them")
 	case h.JumpHostID != nil && *h.JumpHostID != "":
 		return errors.New("a host reached through a jump host cannot also use a proxy; set the proxy on the jump host")
 	case kind == "mosh":
 		return errors.New("mosh cannot use a proxy, because its UDP traffic would bypass it")
 	case d.Proxy(*h.ProxyID) == nil && (saved == nil || *saved != *h.ProxyID):
 		return errors.New("the chosen proxy no longer exists")
+	}
+	return nil
+}
+
+// checkHostVPN refuses a host's VPN profile that no longer exists, or one
+// other than a jump host on its way names: a jump chain goes through one
+// VPN (KTD5).
+func checkHostVPN(d *store.Data, h Host, saved *string) error {
+	id := store.Deref(h.VPNID)
+	if id == "" {
+		return nil
+	}
+	if d.VPN(id) == nil && store.Deref(saved) != id {
+		return errors.New("the chosen VPN profile no longer exists")
+	}
+	j := d.Host(store.Deref(h.JumpHostID))
+	for i := 0; j != nil && i < maxHops; i++ {
+		if j.UsesVPN() && *j.VPNID != id {
+			return fmt.Errorf("the jump host %s names another VPN profile; a jump chain goes through one VPN", j.Alias)
+		}
+		j = d.Host(store.Deref(j.JumpHostID))
 	}
 	return nil
 }
@@ -688,6 +715,7 @@ func (s *HostService) SaveBookmarks(bookmarks []string) error {
 type HostCredentials struct {
 	st    *store.Store
 	vault *secrets.Vault
+	vpns  *VPNService // set by LinkVPNs
 }
 
 func NewHostCredentials(st *store.Store, vault *secrets.Vault) *HostCredentials {

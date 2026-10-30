@@ -153,10 +153,19 @@ func (c *HostCredentials) touch(hostID string) {
 
 // ConnectAdhoc connects to a host that is not saved, authenticating with
 // identityFile.
+// It goes through the connected VPN profile that reaches hostname (R17).
 func (s *ConnService) ConnectAdhoc(ctx context.Context, hostname string, port int, user, identityFile string) (string, error) {
+	d, err := s.creds.st.Data()
+	if err != nil {
+		return "", err
+	}
+	p, err := s.creds.routed(d, hostname)
+	if err != nil {
+		return "", err
+	}
 	return s.acquire(ctx, sshx.Target{
-		Key:  "adhoc:" + user + "@" + hostname + ":" + strconv.Itoa(port) + ":" + identityFile,
-		Hops: []sshx.Hop{{Host: hostname, Port: port, User: user, Auth: sshx.Auth{KeyPath: identityFile}}},
+		Key:  "adhoc:" + user + "@" + hostname + ":" + strconv.Itoa(port) + ":" + identityFile + vpnKey(d, p),
+		Hops: []sshx.Hop{{Host: hostname, Port: port, User: user, Auth: sshx.Auth{KeyPath: identityFile}, Proxy: p}},
 	})
 }
 
@@ -173,7 +182,12 @@ func (s *ConnService) acquire(ctx context.Context, t sshx.Target) (string, error
 	return l.ID(), nil
 }
 
+// acquireLease is the UI's acquire: it connects the target's VPN profile
+// first when it is down (R15).
 func (s *ConnService) acquireLease(ctx context.Context, t sshx.Target) (*sshx.Lease, error) {
+	if err := s.creds.vpnUp(ctx, t.Hops[0].Proxy); err != nil {
+		return nil, err
+	}
 	l, err := s.mgr.Acquire(ctx, t)
 	if err != nil {
 		return nil, s.hostKeyPrompt(err)
@@ -196,7 +210,11 @@ func (s *ConnService) hostKeyPrompt(err error) error {
 }
 
 // target resolves a saved host and its jump hosts into hops.
-func (s *ConnService) target(hostID string) (sshx.Target, error) {
+func (s *ConnService) target(hostID string) (sshx.Target, error) { return s.targetVia(hostID, "") }
+
+// targetVia is target for a chain that also carries a non-SSH host behind
+// it, which names VPN profile vpnID, or "".
+func (s *ConnService) targetVia(hostID, vpnID string) (sshx.Target, error) {
 	d, err := s.creds.st.Data()
 	if err != nil {
 		return sshx.Target{}, err
@@ -205,15 +223,18 @@ func (s *ConnService) target(hostID string) (sshx.Target, error) {
 	if err != nil {
 		return sshx.Target{}, err
 	}
-	return s.chain(d, c)
+	return s.chain(d, c, vpnID)
 }
 
 // chain builds the hops to last through its saved jump hosts, outermost
-// first. The outermost host's proxy carries the first hop; a host behind a
-// jump host may not name one, since it would be bypassed. The key covers
-// every hop's revision and the proxy's, so editing any of them opens a
-// fresh connection instead of reusing one dialled with the old settings.
-func (s *ConnService) chain(d *store.Data, last Credentials) (sshx.Target, error) {
+// first. The outermost host's proxy, or the VPN profile any hop names,
+// carries the first hop (KTD5); a host behind a jump host may not name a
+// proxy, since it would be bypassed, and every hop that names a VPN must
+// name the same one, which vpnID, when set, also names. The key covers
+// every hop's revision and the proxy's or VPN's, so editing any of them
+// opens a fresh connection instead of reusing one dialled with the old
+// settings.
+func (s *ConnService) chain(d *store.Data, last Credentials, vpnID string) (sshx.Target, error) {
 	var hops []sshx.Hop
 	var key []string
 	seen := map[string]bool{}
@@ -226,6 +247,12 @@ func (s *ConnService) chain(d *store.Data, last Credentials) (sshx.Target, error
 		seen[h.ID] = true
 		hops = append([]sshx.Hop{hopFor(c)}, hops...)
 		key = append(key, h.ID+"@"+strconv.FormatInt(h.Revision, 10))
+		if h.UsesVPN() {
+			if vpnID != "" && vpnID != *h.VPNID {
+				return sshx.Target{}, errors.New(h.Alias + " names another VPN profile than a host reached through it; a jump chain goes through one VPN")
+			}
+			vpnID = *h.VPNID
+		}
 		if !h.Jumped() {
 			break
 		}
@@ -237,12 +264,12 @@ func (s *ConnService) chain(d *store.Data, last Credentials) (sshx.Target, error
 			return sshx.Target{}, err
 		}
 	}
-	p, err := s.creds.proxyFor(d, &c.Host)
+	p, err := s.creds.dialVia(d, &c.Host, vpnID)
 	if err != nil {
 		return sshx.Target{}, err
 	}
 	hops[0].Proxy = p
-	key[len(key)-1] += proxyKey(d, &c.Host)
+	key[len(key)-1] += proxyKey(d, &c.Host) + vpnKey(d, p)
 	t := sshx.Target{Key: strings.Join(key, ">"), Hops: hops}
 	if k := last.Host.Keepalive; k != nil {
 		t.Keepalive = time.Duration(*k) * time.Second
@@ -305,11 +332,15 @@ func (s *ConnService) RemoveKnownHost(ctx context.Context, host string, port int
 }
 
 // Reconnect rebuilds a dropped session's shared connection (KTD5) with fresh
-// host-key checks; each view then reopens its own channel. A live connection
-// is returned as it is.
+// host-key checks, connecting its VPN profile first when that is down too
+// (R15); each view then reopens its own channel. A live connection is
+// returned as it is.
 func (s *ConnService) Reconnect(ctx context.Context, sessionID string) error {
 	l, err := s.lease(sessionID)
 	if err != nil {
+		return err
+	}
+	if err := s.creds.vpnUp(ctx, l.Proxy()); err != nil {
 		return err
 	}
 	cl, err := l.Reconnect(ctx)
@@ -415,7 +446,9 @@ func (s *ConnService) ExecCommand(ctx context.Context, sessionID, command string
 // promptlessLease dials a saved host for an approved MCP request (KTD36),
 // or joins its live connection. It never registers a trust prompt: an
 // unknown or changed key fails as HostKeyUnknown or HostKeyChanged with no
-// request ID, and a secret Hostbay lacks fails as SecretNeeded.
+// request ID, and a secret Hostbay lacks fails as SecretNeeded. Nor does it
+// connect a VPN profile: one that is down fails as VPNDown naming it, and
+// the agent calls connect_vpn (KTD6).
 func (s *ConnService) promptlessLease(ctx context.Context, hostID string) (*sshx.Lease, error) {
 	t, err := s.target(hostID)
 	if err != nil {
@@ -536,30 +569,39 @@ const tcpDialTimeout = 15 * time.Second
 
 // dialHost opens a TCP connection to h's port the way every non-SSH
 // session to h must go: through its jump host's shared SSH connection when
-// it has one, else through its proxy (KTD22). Closing the connection
-// releases the jump connection.
+// it has one, else through its VPN profile or proxy (KTD5, KTD22). A VPN
+// profile that is down is connected first, outside the dial's timeout.
+// Closing the connection releases the jump connection.
 func (s *ConnService) dialHost(ctx context.Context, h *store.Host, port int) (net.Conn, error) {
-	ctx, cancel := context.WithTimeout(ctx, tcpDialTimeout)
-	defer cancel()
 	addr := net.JoinHostPort(h.Hostname, strconv.Itoa(port))
 	if !h.Jumped() {
 		d, err := s.creds.st.Data()
 		if err != nil {
 			return nil, err
 		}
-		p, err := s.creds.proxyFor(d, h)
+		p, err := s.creds.dialVia(d, h, "")
 		if err != nil {
 			return nil, err
 		}
+		if err := s.creds.vpnUp(ctx, p); err != nil {
+			return nil, err
+		}
+		ctx, cancel := context.WithTimeout(ctx, tcpDialTimeout)
+		defer cancel()
 		return sshx.DialTCP(ctx, p, addr)
 	}
 	if h.Proxied() {
 		return nil, jumpAndProxyErr(h.Alias)
 	}
-	t, err := s.target(*h.JumpHostID)
+	t, err := s.targetVia(*h.JumpHostID, store.Deref(h.VPNID))
 	if err != nil {
 		return nil, err
 	}
+	if err := s.creds.vpnUp(ctx, t.Hops[0].Proxy); err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, tcpDialTimeout)
+	defer cancel()
 	l, err := s.acquireLease(ctx, t)
 	if err != nil {
 		return nil, err
@@ -625,7 +667,7 @@ func testHost(d *store.Data, host Host) (store.Host, error) {
 	if saved != nil {
 		h = *saved
 	}
-	if err := checkExtras(d, host, h.ProxyID); err != nil {
+	if err := checkExtras(d, host, h.ProxyID, h.VPNID); err != nil {
 		return store.Host{}, err
 	}
 	fromForm(d, &h, host)
@@ -664,7 +706,10 @@ func (s *ConnService) TestConnection(ctx context.Context, host Host) (ConnTest, 
 		if err != nil {
 			return testResult(err), nil
 		}
-		t, err := s.chain(d, c)
+		t, err := s.chain(d, c, "")
+		if err == nil {
+			err = s.creds.vpnUp(ctx, t.Hops[0].Proxy)
+		}
 		if err != nil {
 			return testResult(err), nil
 		}
@@ -692,14 +737,17 @@ func (s *ConnService) TestConnection(ctx context.Context, host Host) (ConnTest, 
 // testTCP is dialHost for TestConnection: the jump chain is dialled on its
 // own rather than shared.
 func (s *ConnService) testTCP(ctx context.Context, d *store.Data, h *store.Host, port int) (net.Conn, error) {
-	ctx, cancel := context.WithTimeout(ctx, tcpDialTimeout)
-	defer cancel()
 	addr := net.JoinHostPort(h.Hostname, strconv.Itoa(port))
 	if !h.Jumped() {
-		p, err := s.creds.proxyFor(d, h)
+		p, err := s.creds.dialVia(d, h, "")
 		if err != nil {
 			return nil, err
 		}
+		if err := s.creds.vpnUp(ctx, p); err != nil {
+			return nil, err
+		}
+		ctx, cancel := context.WithTimeout(ctx, tcpDialTimeout)
+		defer cancel()
 		c, err := sshx.DialTCP(ctx, p, addr)
 		if err != nil && apperr.CodeOf(err) == "" {
 			err = apperr.New(apperr.Unreachable, "Cannot reach "+h.Hostname+" port "+strconv.Itoa(port)+": "+err.Error())
@@ -709,10 +757,15 @@ func (s *ConnService) testTCP(ctx context.Context, d *store.Data, h *store.Host,
 	if h.Proxied() {
 		return nil, jumpAndProxyErr(h.Alias)
 	}
-	t, err := s.target(*h.JumpHostID)
+	t, err := s.targetVia(*h.JumpHostID, store.Deref(h.VPNID))
 	if err != nil {
 		return nil, err
 	}
+	if err := s.creds.vpnUp(ctx, t.Hops[0].Proxy); err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, tcpDialTimeout)
+	defer cancel()
 	cl, err := s.mgr.Dialer().Dial(ctx, t)
 	if err != nil {
 		return nil, s.hostKeyPrompt(err)
@@ -739,6 +792,8 @@ func testResult(err error) ConnTest {
 	switch {
 	case ae != nil && ae.Code == apperr.ProxyFailed:
 		step = "proxy"
+	case ae != nil && (ae.Code == apperr.VPNFailed || ae.Code == apperr.VPNDown || ae.Code == apperr.VPNAmbiguous):
+		step = "vpn"
 	case ae != nil && ae.Code == apperr.Unreachable:
 		step = "tcp"
 	case ae != nil && (ae.Code == apperr.HostKeyUnknown || ae.Code == apperr.HostKeyChanged):

@@ -99,8 +99,9 @@ func (s *TransferService) TransferConnect(ctx context.Context, hostID string) (T
 }
 
 // dial connects to a file host as its saved settings say, and only so:
-// through its proxy when it names one, never around it (KTD22). A file
-// host has no way through a jump host, so one that names a jump host fails.
+// through its VPN profile or proxy when it names one, never around it
+// (KTD5, KTD22). A file host has no way through a jump host, so one that
+// names a jump host fails.
 func (s *TransferService) dial(ctx context.Context, c Credentials) (transfer.Source, string, error) {
 	h := c.Host
 	if h.Jumped() {
@@ -110,7 +111,10 @@ func (s *TransferService) dial(ctx context.Context, c Credentials) (transfer.Sou
 	if err != nil {
 		return nil, "", err
 	}
-	p, err := s.creds.proxyFor(d, &h)
+	p, err := s.creds.dialVia(d, &h, "")
+	if err == nil {
+		err = s.creds.vpnUp(ctx, p)
+	}
 	if err != nil {
 		return nil, "", err
 	}

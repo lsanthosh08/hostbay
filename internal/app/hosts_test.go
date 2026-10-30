@@ -33,7 +33,9 @@ func newHostService(t *testing.T, ver secrets.Verifier) (*HostService, *HostCred
 	if err := v.SetMasterPassword("test master password"); err != nil { // Linux needs one before sealing
 		t.Fatal(err)
 	}
-	return NewHostService(st, v, ver), NewHostCredentials(st, v), dir
+	creds := NewHostCredentials(st, v)
+	LinkVPNs(creds, NewVPNService(st, v))
+	return NewHostService(st, v, ver), creds, dir
 }
 
 func TestSaveHostSealsPasswordAndHidesIt(t *testing.T) {
