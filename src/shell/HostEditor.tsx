@@ -3,7 +3,7 @@ import * as api from "../api";
 import { hostKind, isDatabaseHost, isFileHost, type Folder, type Host, type HostKeyPrompt, type HostKind, type Proxy, type SshAlgorithms } from "../api";
 import { TagEditor } from "../components/TagEditor";
 import { TrustDialog } from "../components/TrustDialog";
-import { reloadVpns, useVpns } from "../state/vpns";
+import { reloadVpns } from "../state/vpns";
 import { answerTrust } from "../connect/useConnect";
 import { open } from "../dialogs";
 import { t, type MessageKey } from "../i18n";
@@ -15,9 +15,10 @@ import { usePrompt } from "../ui/prompt";
 import { SegmentedControl } from "../ui/SegmentedControl";
 import { Select } from "../ui/Select";
 import { useAsyncToast, useToast } from "../ui/toast";
-import { asksPasswordAgain, formHost, missingVpn, passwordForKind, SQL_SERVERS, unencrypted, validateHost, type HostField } from "./hostForm";
+import { asksPasswordAgain, formHost, passwordForKind, SQL_SERVERS, unencrypted, validateHost, type HostField } from "./hostForm";
 import { SSH_ALGORITHMS } from "./sshAlgorithms";
 import { PostLoginEditor } from "./PostLoginEditor";
+import { VpnField } from "./VpnField";
 import { TERMINAL_KINDS } from "./settings/Logging";
 
 const KEY_FILTERS = [{ name: "Keys", extensions: ["pem", "ppk", "key", ""] }];
@@ -126,7 +127,6 @@ export function HostEditor({
   const [savedKeys, setSavedKeys] = useState<string[]>([]);
   const [sshKeys, setSshKeys] = useState<string[]>([]);
   const [proxies, setProxies] = useState<Proxy[]>([]);
-  const { vpns } = useVpns();
   const reloadSavedKeys = () => api.listIdentityKeys().then(setSavedKeys).catch(() => {});
   useEffect(() => {
     reloadSavedKeys();
@@ -769,22 +769,7 @@ export function HostEditor({
         {!sqlite && (
           <Section title={t("hostForm.vpn")}>
             {/* Like the proxy, the conflict shows at once (R15, KTD5). */}
-            <Field label={t("hostForm.vpnVia")} hint={t("hostForm.vpnHint")} error={errors.vpnId && t(errors.vpnId)}>
-              <Select
-                className="w-full"
-                value={h.vpnId ?? ""}
-                aria-invalid={!!errors.vpnId}
-                onChange={(e) => set({ vpnId: e.target.value || null })}
-              >
-                <option value="">{t("hostForm.vpnNone")}</option>
-                {vpns.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.name}
-                  </option>
-                ))}
-                {missingVpn(h, vpns) && <option value={h.vpnId!}>{t("hostForm.vpnMissing")}</option>}
-              </Select>
-            </Field>
+            <VpnField h={h} set={set} error={errors.vpnId} />
           </Section>
         )}
 
