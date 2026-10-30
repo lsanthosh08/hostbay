@@ -1,0 +1,32 @@
+package proto
+
+import (
+	"encoding/json"
+	"testing"
+)
+
+// The field names are the wire format both sides of an upgrade share, so a
+// rename must show up here.
+func TestWireNames(t *testing.T) {
+	for _, c := range []struct {
+		m    Msg
+		want string
+	}{
+		{Msg{T: Hello, Version: Version}, `{"t":"hello","version":1}`},
+		{Msg{T: Start, Type: TypeWireGuard, Config: "[Interface]", Secrets: map[string]string{"privateKey": "k"}, SocksUser: "u", SocksPass: "p"},
+			`{"t":"start","type":"wireguard","config":"[Interface]","secrets":{"privateKey":"k"},"socksUser":"u","socksPass":"p"}`},
+		{Msg{T: State, State: Connected, Address: []string{"10.0.0.1/32"}, Routes: []string{"10.0.0.0/24"}, SocksPort: 1080},
+			`{"t":"state","state":"connected","address":["10.0.0.1/32"],"routes":["10.0.0.0/24"],"socksPort":1080}`},
+		{Msg{T: State, State: Failed, Reason: "r"}, `{"t":"state","state":"failed","reason":"r"}`},
+		{Msg{T: Need, Need: NeedBrowser, URL: "https://sso.example"}, `{"t":"need","need":"browser","url":"https://sso.example"}`},
+		{Msg{T: Answer, OTP: "123456"}, `{"t":"answer","otp":"123456"}`},
+	} {
+		b, err := json.Marshal(c.m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(b) != c.want {
+			t.Errorf("got  %s\nwant %s", b, c.want)
+		}
+	}
+}

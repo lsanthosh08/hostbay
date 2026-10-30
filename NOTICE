@@ -75,3 +75,12 @@ dependencies are github.com/google/jsonschema-go, github.com/segmentio/encoding
 and github.com/segmentio/asm (MIT License), github.com/yosida95/uritemplate/v3
 (BSD 3-Clause License, Copyright (C) 2016 Kohei YOSHIDA), and golang.org/x/oauth2
 and golang.org/x/time (BSD 3-Clause License, Copyright 2009 The Go Authors).
+
+The VPN helper (hostbay-vpn) runs WireGuard with wireguard-go,
+golang.zx2c4.com/wireguard (https://git.zx2c4.com/wireguard-go), shipped
+unmodified and licensed under the MIT License, Copyright (C) 2017-2025
+WireGuard LLC. Its userspace network stack is gVisor, gvisor.dev/gvisor
+(https://github.com/google/gvisor), licensed under the Apache License,
+Version 2.0, Copyright The gVisor Authors, which uses github.com/google/btree
+(Apache License, Version 2.0, Copyright Google Inc.). On Windows it also uses
+golang.zx2c4.com/wintun (MIT License, Copyright (C) 2017-2025 WireGuard LLC).
