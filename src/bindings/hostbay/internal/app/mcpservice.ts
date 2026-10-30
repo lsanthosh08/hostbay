@@ -28,8 +28,7 @@ export function AddAllowEntry(tokenID: string, hostID: string, command: string):
 }
 
 /**
- * AddVPNAllow lets one token connect and disconnect one app-scoped or
- * external VPN profile without a card, after the dialog and verification.
+ * AddVPNAllow lets one token connect and disconnect one app-scoped VPN profile without a card, after the dialog and verification.
  * The entry holds while the profile keeps its type, gateway and tier; a
  * system-wide profile is refused, since it always asks (KTD6).
  */

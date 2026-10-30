@@ -535,8 +535,8 @@ export interface MCPToken {
 
 /**
  * MCPVPNAllow is Settings > MCP's VPN entries, and the profiles one can
- * name: app-scoped and external ones, since a system-wide profile always
- * asks (KTD6).
+ * name: app-scoped ones, since a system-wide profile always asks (KTD6) and
+ * an external one connects in its own app, so a card never gates it.
  */
 export interface MCPVPNAllow {
     "entries": MCPVPNAllowEntry[] | null;

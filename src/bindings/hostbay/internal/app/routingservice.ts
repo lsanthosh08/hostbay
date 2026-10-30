@@ -62,7 +62,10 @@ export function Preview(id: string, mode: string): $CancellablePromise<routing$0
 /**
  * Reset removes every route Hostbay added and restores the vendor routes it
  * narrowed: the helper sweeps them when the connection ends, and Hostbay
- * reconnects. Nothing re-applies until the next Apply.
+ * reconnects. Ending the connection would also end every system-wide
+ * tunnel, so while one runs Reset deletes each added route through the live
+ * connection instead, and keeps the narrowing routes, whose vendor routes
+ * only the sweep can restore. Nothing re-applies until the next Apply.
  */
 export function Reset(): $CancellablePromise<$models.RoutingReport> {
     return $Call.ByID(3210745907);
