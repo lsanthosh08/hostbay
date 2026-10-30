@@ -12,6 +12,9 @@ import * as container$0 from "../container/models.js";
 import * as database$0 from "../database/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as importer$0 from "../importer/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as monitor$0 from "../monitor/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -768,11 +771,51 @@ export interface VPN {
     "autoApply"?: boolean;
     "routingMode"?: string;
     "client"?: string;
+
+    /**
+     * This computer's own, kept in store.Local and never synced: the
+     * external client program LaunchVPNClient opens, and the tunnel
+     * interface the profile is pinned to (R24).
+     */
+    "clientPath"?: string;
+    "iface"?: string;
     "password"?: string | null;
     "privateKey"?: string | null;
     "presharedKey"?: string | null;
     "authKey"?: string | null;
     "hasSecret"?: boolean;
+}
+
+/**
+ * VPNDraft is one profile a VPN import read, for the review flow (R42).
+ * Like VPN, it never carries a secret; HasSecret says the file held some.
+ */
+export interface VPNDraft {
+    "profile": VPN;
+
+    /**
+     * Ignored lists what the file held that was dropped, such as a script
+     * hook (R43).
+     */
+    "ignored": string[] | null;
+
+    /**
+     * AskPassword: the file signs in with a password it does not hold, so
+     * it is asked for on first connect (R44).
+     */
+    "askPassword": boolean;
+}
+
+/**
+ * VPNImportPreview is what a VPN configuration file holds, before anything
+ * is saved. Token names the parsed file for CommitVPNImport.
+ */
+export interface VPNImportPreview {
+    "token": string;
+    "drafts": VPNDraft[] | null;
+    "skipped": importer$0.Skipped[] | null;
+    "notes": string[] | null;
+    "browsers": importer$0.BrowserMapping[] | null;
 }
 
 /**
@@ -803,6 +846,11 @@ export interface VPNState {
      * connected: when it came up, Unix milliseconds
      */
     "since"?: number;
+
+    /**
+     * connected external profile: its tunnel's interface
+     */
+    "iface"?: string;
 }
 
 export interface WinDashboard {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { dataFolder, dataFolderMove, errorInfo, type DataFolder } from "../../api";
+import { dataFolder, dataFolderMove, errorInfo, settingsGetLocal, settingsSetLocal, type DataFolder } from "../../api";
 import { setAlwaysOnTop, setZoom, windowPrefs } from "../../components/WindowControls";
 import { language, LANGUAGES, t } from "../../i18n";
 import { setLanguage } from "../../state/settings";
@@ -43,6 +43,11 @@ export function General() {
   const [langError, setLangError] = useState("");
   const [zoom, setZoomState] = useState(windowPrefs.zoom);
   const [onTop, setOnTop] = useState(windowPrefs.onTop);
+  const [keepRunning, setKeepRunning] = useState(false);
+  const run = useAsyncToast();
+  useEffect(() => {
+    run(settingsGetLocal).then((l) => l && setKeepRunning(!!l.keepRunning));
+  }, []);
   const zoomTo = (z: number) => {
     const next = Math.min(150, Math.max(70, z));
     setZoom(next);
@@ -100,6 +105,21 @@ export function General() {
             }}
           />
           {t("window.alwaysOnTop")}
+        </label>
+        <label className="flex items-center gap-2 text-sm w-fit">
+          <input
+            type="checkbox"
+            className="accent-accent size-4"
+            checked={keepRunning}
+            onChange={(e) => {
+              const next = e.target.checked;
+              run(async () => {
+                await settingsSetLocal({ keepRunning: next });
+                setKeepRunning(next);
+              });
+            }}
+          />
+          {t("settings.keepRunning")}
         </label>
       </Group>
       <DataFolderRow />

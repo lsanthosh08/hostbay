@@ -71,6 +71,19 @@ export interface Local {
      * another computer choose what Hostbay runs, so it never leaves here (KTD4).
      */
     "vpnClients"?: { [_ in string]?: string } | null;
+
+    /**
+     * VPNIfaces pin external VPN profiles to a tunnel interface on this
+     * computer, keyed by profile ID, for when detection cannot tell two
+     * VPNs apart (R24). Interface names mean nothing on another computer.
+     */
+    "vpnIfaces"?: { [_ in string]?: string } | null;
+
+    /**
+     * KeepRunning hides the window when it closes instead of quitting, so
+     * Hostbay and its VPNs stay up in the menu bar (KTD10).
+     */
+    "keepRunning"?: boolean;
 }
 
 /**

@@ -13,6 +13,10 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as detect$0 from "../vpn/detect/models.js";
+
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
 /**
@@ -50,11 +54,30 @@ export function DeleteVPN(id: string): $CancellablePromise<void> {
 }
 
 /**
+ * DetectVPNs looks for VPNs on this computer now and lists the ones no
+ * profile names yet, to offer as external profiles (R22). It also drops an
+ * external profile whose client program this computer saved and has since
+ * removed, that detection no longer sees and no host uses (R23); a profile
+ * with no client program here was set up elsewhere and stays.
+ */
+export function DetectVPNs(): $CancellablePromise<detect$0.VPN[] | null> {
+    return $Call.ByID(3137378056);
+}
+
+/**
  * DisconnectVPN stops the profile's helper. Disconnecting a profile that is
  * not connected clears a failed or dropped state.
  */
 export function DisconnectVPN(id: string): $CancellablePromise<void> {
     return $Call.ByID(1077876600, id);
+}
+
+/**
+ * LaunchVPNClient opens external profile id's client program, the one saved
+ * on this computer: a synced name never chooses what Hostbay runs (KTD4).
+ */
+export function LaunchVPNClient(id: string): $CancellablePromise<void> {
+    return $Call.ByID(3517930604, id);
 }
 
 /**

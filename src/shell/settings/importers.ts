@@ -23,4 +23,7 @@ export const IMPORT_TOOLS: {
   { id: "kubeconfig", name: "kubeconfig", extensions: ["yaml", "yml", "config", "kubeconfig"], file: "import.file.kubeconfig", path: "import.path.kubeconfig" },
   { id: "navicat", name: "Navicat", extensions: ["ncx"], file: "import.file.navicat" },
   { id: "dbeaver", name: "DBeaver", extensions: ["json"], file: "import.file.dbeaver", path: "import.path.dbeaver" },
+  // Profiles from these open the VPN import review rather than saving at once (R42).
+  { id: "vpn", name: "VPN", extensions: ["ovpn", "conf", "xml", "mobileconfig", "nmconnection", "pbk"], file: "import.file.vpn" },
+  { id: "tunnelhub", name: "TunnelHub", extensions: ["json"], file: "import.file.tunnelhub" },
 ];

@@ -89,7 +89,9 @@ export function validateVpn(v: Vpn): Partial<Record<VpnField, MessageKey>> {
   const e: Partial<Record<VpnField, MessageKey>> = {};
   const gw = v.gateway ?? "";
   if (!v.name.trim() || control.test(v.name)) e.name = "vpnForm.error.name";
-  if (gw.length > 253 || spaceOrControl.test(gw) || (needsGateway(v.type) && !gw)) e.gateway = "vpnForm.error.gateway";
+  // An external profile's own app holds its gateway and keys.
+  const external = v.tier === "external";
+  if (gw.length > 253 || spaceOrControl.test(gw) || (needsGateway(v.type) && !external && !gw)) e.gateway = "vpnForm.error.gateway";
   if (v.port != null && v.port !== 0 && !(Number.isInteger(v.port) && v.port >= 1 && v.port <= 65535)) e.port = "hostForm.error.port";
   if (control.test(v.user ?? "")) e.user = "vpnForm.error.user";
   if (v.mtu && !(Number.isInteger(v.mtu) && v.mtu >= 576 && v.mtu <= 65535)) e.mtu = "vpnForm.error.mtu";
@@ -98,7 +100,7 @@ export function validateVpn(v: Vpn): Partial<Record<VpnField, MessageKey>> {
   if (!(v.routes ?? []).every(validCidr)) e.routes = "vpnForm.error.cidr";
   if (!(v.dnsServers ?? []).every(validIp)) e.dnsServers = "vpnForm.error.dnsServer";
   if (!(v.dnsDomains ?? []).every((d) => d && !spaceOrControl.test(d) && !d.includes(","))) e.dnsDomains = "vpnForm.error.dnsDomain";
-  if (v.type === "wireguard") {
+  if (v.type === "wireguard" && !external) {
     // Without these the tunnel cannot come up or routes nothing.
     if (!v.address?.length) e.address ??= "vpnForm.error.address";
     if (!v.peerKey || spaceOrControl.test(v.peerKey)) e.peerKey = "vpnForm.error.peerKey";

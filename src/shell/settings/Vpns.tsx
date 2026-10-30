@@ -103,6 +103,35 @@ export function Vpns() {
   );
 }
 
+/** Full or split tunnel, the routes and DNS (R42), for the profile form
+ *  and the import review. */
+export function RouteEditor({ v, set, err }: { v: Vpn; set: (patch: Partial<Vpn>) => void; err: (f: VpnField) => string | undefined }) {
+  const full = isFullTunnel(v.routes);
+  const list = (label: string, field: "routes" | "dnsServers" | "dnsDomains", placeholder: string, hint?: ReactNode) => (
+    <Field label={label} hint={hint} error={err(field)}>
+      <TagEditor tags={v[field] ?? []} placeholder={placeholder} invalid={!!err(field)} onChange={(x) => set({ [field]: x })} />
+    </Field>
+  );
+  return (
+    <>
+      <SegmentedControl
+        label={t("vpnForm.tunnel")}
+        value={full ? "full" : "split"}
+        options={[
+          { value: "split", label: t("vpnForm.split") },
+          { value: "full", label: t("vpnForm.full") },
+        ]}
+        onChange={(m) => set({ routes: m === "full" ? [...FULL_TUNNEL] : (v.routes ?? []).filter((r) => !FULL_TUNNEL.includes(r)) })}
+      />
+      {full ? <p className="text-xs text-muted">{t("vpnForm.fullHint")}</p> : list(t("vpnForm.routes"), "routes", "10.0.0.0/8", t("vpnForm.routesHint"))}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {list(t("vpnForm.dnsServers"), "dnsServers", "10.0.0.53")}
+        {list(t("vpnForm.dnsDomains"), "dnsDomains", "corp.example")}
+      </div>
+    </>
+  );
+}
+
 /** Creates or edits one profile: type, sign-in per type, routes (full or
  *  split tunnel), DNS and MTU (R20, R42). */
 export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: () => void; onSaved: () => void }) {
@@ -115,11 +144,11 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
   const errors = validateVpn(v);
   const err = (f: VpnField) => (tried && errors[f] ? t(errors[f]!) : undefined);
   const dirty = JSON.stringify(v) !== JSON.stringify(start);
-  const wg = v.type === "wireguard";
-  const auths = authsFor(v.type);
+  // An external profile's own app holds its keys and sign-in.
+  const wg = v.type === "wireguard" && v.tier !== "external";
+  const auths = v.tier === "external" ? [] : authsFor(v.type);
   const auth = auths.length ? v.auth || auths[0] : "";
   const external = v.tier === "external";
-  const full = isFullTunnel(v.routes);
   const keep = v.hasSecret ? t("hostForm.passwordKeep") : "";
 
   const save = async () => {
@@ -233,9 +262,20 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
           </div>
         )}
         {external && (
-          <Field label={t("vpnForm.client")} hint={t("vpnForm.clientHint")}>
-            <Input className="w-full" spellCheck={false} value={v.client ?? ""} onChange={(e) => set({ client: e.target.value })} />
-          </Field>
+          <>
+            <Field label={t("vpnForm.client")} hint={t("vpnForm.clientHint")}>
+              <Input className="w-full" spellCheck={false} value={v.client ?? ""} onChange={(e) => set({ client: e.target.value })} />
+            </Field>
+            {list(t("vpnForm.address"), "address", "10.255.0.0/16", t("vpnForm.addressExternalHint"))}
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_10rem] gap-3">
+              <Field label={t("vpnForm.clientPath")} hint={t("vpnForm.clientPathHint")}>
+                <Input className="w-full" spellCheck={false} value={v.clientPath ?? ""} onChange={(e) => set({ clientPath: e.target.value })} />
+              </Field>
+              <Field label={t("vpnForm.iface")} hint={t("vpnForm.ifaceHint")}>
+                <Input className="w-full font-mono" spellCheck={false} value={v.iface ?? ""} onChange={(e) => set({ iface: e.target.value.trim() })} />
+              </Field>
+            </div>
+          </>
         )}
 
         {wg && (
@@ -275,23 +315,11 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
         )}
         {vpnAsksSecretAgain(start, v) && <p className="text-xs text-warning">{t("vpnForm.secretAgain")}</p>}
 
-        {!external && v.type !== "tailscale" && v.type !== "zerotier" && (
+        {/* An external profile's routes label its tunnel, and its DNS servers resolve names over it (R24, KTD7). */}
+        {v.type !== "tailscale" && v.type !== "zerotier" && (
           <section className="flex flex-col gap-3 pt-2 border-t border-line">
             <h3 className="text-sm font-semibold">{t("vpnForm.routing")}</h3>
-            <SegmentedControl
-              label={t("vpnForm.tunnel")}
-              value={full ? "full" : "split"}
-              options={[
-                { value: "split", label: t("vpnForm.split") },
-                { value: "full", label: t("vpnForm.full") },
-              ]}
-              onChange={(m) => set({ routes: m === "full" ? [...FULL_TUNNEL] : (v.routes ?? []).filter((r) => !FULL_TUNNEL.includes(r)) })}
-            />
-            {full ? <p className="text-xs text-muted">{t("vpnForm.fullHint")}</p> : list(t("vpnForm.routes"), "routes", "10.0.0.0/8", t("vpnForm.routesHint"))}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {list(t("vpnForm.dnsServers"), "dnsServers", "10.0.0.53")}
-              {list(t("vpnForm.dnsDomains"), "dnsDomains", "corp.example")}
-            </div>
+            <RouteEditor v={v} set={set} err={err} />
             <Field label={t("vpnForm.mtu")} hint={t("vpnForm.mtuHint")} error={err("mtu")}>
               <Input
                 className="w-32"
