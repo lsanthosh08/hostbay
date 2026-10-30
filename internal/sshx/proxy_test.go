@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"net/netip"
 	"slices"
 	"strconv"
 	"strings"
@@ -213,5 +214,51 @@ func TestFailedVPNNeverFallsBackToDirect(t *testing.T) {
 				t.Fatalf("target saw %d direct connections", n)
 			}
 		})
+	}
+}
+
+// A system-wide profile's dial goes to exactly the address its Route
+// checked, from the tunnel's address, never to addr resolved again: that
+// could pick an address the tunnel does not carry (KTD22).
+func TestRoutedVPNDialsOnlyTheCheckedAddress(t *testing.T) {
+	checked, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer checked.Close()
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pc.Close()
+	local := netip.MustParseAddr("127.0.0.1")
+	var asked []string
+	p := &Proxy{Type: "vpn", Host: "office", VPN: "v1", Route: func(_ context.Context, addr string) (netip.AddrPort, netip.Addr, error) {
+		asked = append(asked, addr)
+		return checked.Addr().(*net.TCPAddr).AddrPort(), local, nil
+	}}
+	c, err := DialTCP(context.Background(), p, "unchecked.invalid:22")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Close()
+	if c.RemoteAddr().String() != checked.Addr().String() || c.LocalAddr().(*net.TCPAddr).AddrPort().Addr() != local {
+		t.Fatalf("dialed %s from %s, want %s from %s", c.RemoteAddr(), c.LocalAddr(), checked.Addr(), local)
+	}
+	// mosh's UDP takes the same path.
+	p.Route = func(_ context.Context, addr string) (netip.AddrPort, netip.Addr, error) {
+		asked = append(asked, addr)
+		return pc.LocalAddr().(*net.UDPAddr).AddrPort(), local, nil
+	}
+	u, err := p.DialUDP(context.Background(), &net.UDPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 60001})
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.Close()
+	if u.RemoteAddr().String() != pc.LocalAddr().String() {
+		t.Fatalf("UDP dialed %s, want %s", u.RemoteAddr(), pc.LocalAddr())
+	}
+	if !slices.Equal(asked, []string{"unchecked.invalid:22", "192.0.2.1:60001"}) {
+		t.Fatalf("Route asked about %v", asked)
 	}
 }

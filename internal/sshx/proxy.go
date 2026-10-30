@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"slices"
 	"strconv"
 	"strings"
@@ -40,10 +41,11 @@ type Proxy struct {
 	VPN   string
 	Socks func() (addr, user, pass string, err error)
 	Iface func(ctx context.Context) (iface string, dns []string, err error)
-	// Route, for a system-wide profile, checks that the system sends addr
-	// through the profile's tunnel; the dial then goes direct, on the
-	// system's routes.
-	Route func(ctx context.Context, addr string) error
+	// Route, for a system-wide profile, finds the address of addr the
+	// system sends through the profile's tunnel, and the tunnel's own
+	// address it leaves from; the dial then goes direct to exactly that
+	// address, from the tunnel's, on the system's routes.
+	Route func(ctx context.Context, addr string) (to netip.AddrPort, local netip.Addr, err error)
 }
 
 // maxProxyReply caps an HTTP proxy's reply headers.
@@ -149,13 +151,24 @@ func (p *Proxy) dialBound(ctx context.Context, network, addr string) (net.Conn, 
 	return p.dialVPNWith(ctx, d, network, addr)
 }
 
-// dialRouted dials addr directly once Route has found the system sends it
-// through the system-wide profile's tunnel.
+// dialRouted dials directly the address of addr Route found the system
+// sends through the system-wide profile's tunnel, bound to the tunnel's own
+// address: the dial never resolves addr again, so it cannot reach an
+// address that was not checked, and it fails once the tunnel is gone.
 func (p *Proxy) dialRouted(ctx context.Context, network, addr string) (net.Conn, error) {
-	if err := p.Route(ctx, addr); err != nil {
+	to, local, err := p.Route(ctx, addr)
+	if err != nil {
 		return nil, err
 	}
-	return p.dialVPNWith(ctx, &net.Dialer{}, network, addr)
+	d := &net.Dialer{LocalAddr: net.TCPAddrFromAddrPort(netip.AddrPortFrom(local, 0))}
+	if network == "udp" {
+		d.LocalAddr = net.UDPAddrFromAddrPort(netip.AddrPortFrom(local, 0))
+	}
+	c, err := d.DialContext(ctx, network, to.String())
+	if err != nil {
+		return nil, p.vpnErr(addr, err)
+	}
+	return c, nil
 }
 
 // dialVPNWith dials addr with d, as a dial through the VPN.
