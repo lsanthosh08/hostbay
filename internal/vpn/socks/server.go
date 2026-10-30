@@ -25,6 +25,7 @@ import (
 const (
 	version         = 5
 	authVersion     = 1 // RFC 1929's subnegotiation version
+	methodNoAuth    = 0x00
 	methodLogin     = 0x02
 	methodNone      = 0xff
 	cmdConnect      = 0x01
@@ -49,6 +50,10 @@ const (
 type Server struct {
 	User, Pass string
 	Dial       func(ctx context.Context, network, address string) (net.Conn, error)
+	// NoLogin serves clients that do not log in, and only those: the browser
+	// listener, since Chromium cannot log in to a SOCKS proxy (KTD11). An
+	// empty User never means this.
+	NoLogin bool
 }
 
 // Serve accepts clients on ln until it is closed.
@@ -99,6 +104,14 @@ func (s *Server) login(c io.ReadWriter) error {
 	}
 	methods := make([]byte, head[1])
 	if _, err := io.ReadFull(c, methods); err != nil {
+		return err
+	}
+	if s.NoLogin {
+		if !slices.Contains(methods, methodNoAuth) {
+			c.Write([]byte{version, methodNone})
+			return errors.New("socks: client insists on logging in")
+		}
+		_, err := c.Write([]byte{version, methodNoAuth})
 		return err
 	}
 	if !slices.Contains(methods, methodLogin) {

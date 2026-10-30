@@ -139,6 +139,9 @@ type Local struct {
 	// KeepRunning hides the window when it closes instead of quitting, so
 	// Hostbay and its VPNs stay up in the menu bar (KTD10).
 	KeepRunning bool `json:"keepRunning,omitempty"`
+	// BrowserMappings send browser profiles through VPN profiles (R33).
+	// Browsers and their profiles are this computer's own.
+	BrowserMappings []BrowserMapping `json:"browserMappings,omitempty"`
 }
 
 // MCPSettings is this computer's MCP server. Its tokens' hashes are in

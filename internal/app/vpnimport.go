@@ -92,7 +92,11 @@ func (s *HostService) CommitVPNImport(token string, keep []VPN) (importer.Report
 	}
 	delete(vpnImports.m, token)
 	res.Bundle.VPNs, res.VPNs = vpns, meta
-	return importer.Import(s.st, s.vault, res)
+	rep, err := importer.Import(s.st, s.vault, res)
+	if err == nil {
+		rep.Browsers = saveImportedBrowsers(s.st, rep) // only the saved ones are reported
+	}
+	return rep, err
 }
 
 // ScanVPNConfigs lists the VPN configurations installed clients keep on

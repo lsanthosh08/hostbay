@@ -1,7 +1,6 @@
 // Package tunnelhub imports a TunnelHub vpn-config.json (R41): its VPNs as
 // external profiles, its routes as per-destination routes on them, and its
-// Chrome entries as browser mappings, which are reported until browser
-// routing exists to save them.
+// Chrome entries as browser mappings, which the import's commit saves.
 package tunnelhub
 
 import (

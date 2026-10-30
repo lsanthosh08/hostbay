@@ -48,6 +48,8 @@ const (
 	Port    = 41080
 	Address = "10.9.0.2/32"
 	Route   = "10.9.0.0/24"
+	// BrowserPort is what an OK helper answers openBrowser with.
+	BrowserPort = 41081
 	// Pin is the fake gateway's certificate.
 	Pin = "pin-sha256:RmFrZS1nYXRld2F5LWNlcnRpZmljYXRlLXBpbi0wMDA="
 	// The node states Node reports, base64 like a real store's.
@@ -258,6 +260,10 @@ func run() int {
 	}
 	send(connected)
 	for in.Scan() {
+		var m proto.Msg
+		if json.Unmarshal(in.Bytes(), &m) == nil && m.T == proto.OpenBrowser {
+			send(proto.Msg{T: proto.BrowserPort, SocksPort: BrowserPort})
+		}
 	}
 	return 0
 }

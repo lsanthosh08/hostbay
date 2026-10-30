@@ -172,3 +172,28 @@ func TestNodeStatePassesThroughEvenWhileClosing(t *testing.T) {
 	default:
 	}
 }
+
+// BrowserPort asks the helper for its no-login browser listener; the port
+// comes back to the caller and never as a report (KTD11).
+func TestBrowserPortAsksTheHelper(t *testing.T) {
+	_, h, msgs, err := start(t, vpntest.OK)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recv(t, msgs) // connecting
+	recv(t, msgs) // connected
+	port, err := h.BrowserPort(context.Background())
+	if err != nil || port != vpntest.BrowserPort {
+		t.Fatalf("BrowserPort %d, %v; want %d", port, err, vpntest.BrowserPort)
+	}
+	select {
+	case m := <-msgs:
+		t.Fatalf("reported %+v", m)
+	case <-time.After(100 * time.Millisecond):
+	}
+	h.Close()
+	<-h.Done()
+	if _, err := h.BrowserPort(context.Background()); err == nil {
+		t.Fatal("BrowserPort on a stopped helper succeeded")
+	}
+}
