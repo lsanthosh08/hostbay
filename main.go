@@ -224,6 +224,7 @@ func main() {
 	netdSvc := app.NewNetdService()
 	a.RegisterService(application.NewService(netdSvc))
 	a.RegisterService(application.NewService(app.NewRoutingService(st, vpns, netdSvc)))
+	a.RegisterService(application.NewService(app.NewTunnelHubService())) // retires TunnelHub (R45)
 	a.RegisterService(application.NewService(app.NewMonitorService(connSvc)))
 	a.RegisterService(application.NewService(app.NewTerminalToolsService(connSvc)))
 	a.RegisterService(application.NewService(app.NewWorkspaceService(st)))
