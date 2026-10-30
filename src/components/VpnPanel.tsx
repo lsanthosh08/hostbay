@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Browser } from "@wailsio/runtime";
 import * as api from "../api";
 import type { DetectedVpn, Host, Vpn, VpnState } from "../api";
 import { useConnect } from "../connect/useConnect";
@@ -9,6 +10,7 @@ import { filterVpns, tagCounts, typeLabel } from "../shell/vpnForm";
 import { useHosts } from "../state/hosts";
 import { useSessions } from "../state/sessions";
 import { Button } from "../ui/Button";
+import { Dialog } from "../ui/Dialog";
 import { EmptyState } from "../ui/EmptyState";
 import { Input } from "../ui/Field";
 import { IconButton } from "../ui/IconButton";
@@ -16,6 +18,7 @@ import { AddIcon, ImportIcon, RefreshIcon, SearchIcon, StartIcon, StopIcon, VpnI
 import { StatusDot, type ConnStatus } from "../ui/StatusDot";
 import { useToast } from "../ui/toast";
 import { onFilesDropped } from "../importApi";
+import { Fingerprint } from "./TrustDialog";
 import { VpnImport } from "./VpnImport";
 
 type VpnStates = Record<string, VpnState>;
@@ -83,21 +86,102 @@ export function uptime(since: number, now: number) {
   return m >= 60 ? t("vpn.duration.hm", { h: Math.floor(m / 60), m: m % 60 }) : t("vpn.duration.m", { m });
 }
 
+/** A gateway certificate a failed connect asks about (R21): the pin
+ *  presented and, for a changed one, the saved pin it does not match (AE8),
+ *  which is refused and can only be forgotten. */
+export type VpnCert = { pin: string; pinned?: string };
+
+/** The certificate a rejected connectVpn asks about, if it does. */
+export function vpnCertPrompt(e: unknown): VpnCert | undefined {
+  const { code, details } = api.errorInfo(e);
+  const reason = details?.reason;
+  if (code !== "VPNFailed" || (reason !== "cert-unknown" && reason !== "cert-changed") || !details?.serverCert) return undefined;
+  return reason === "cert-changed" ? { pin: details.serverCert, pinned: details.pinned ?? "" } : { pin: details.serverCert };
+}
+
+/** What the dialog says about a gateway certificate: a changed one shows
+ *  the saved pin beside the new one, with a warning. */
+export function VpnCertBody({ name, cert }: { name: string; cert: VpnCert }) {
+  const changed = cert.pinned !== undefined;
+  return (
+    <>
+      <p className={"text-sm mb-3 " + (changed ? "text-warning" : "text-muted")}>{t(changed ? "vpn.trust.changed" : "vpn.trust.unknown", { name })}</p>
+      <Fingerprint>
+        {changed ? `${t("connect.keyChanged.saved")} ${cert.pinned}\n${t("connect.keyChanged.now")} ${cert.pin}` : cert.pin}
+      </Fingerprint>
+    </>
+  );
+}
+
 /** Connect and disconnect a profile from anywhere. An untrusted gateway
- *  asks through the trust dialog (render `dialog` once, R21); other failures
- *  show as a toast, or with `quiet` only as the profile's failed state. */
+ *  certificate asks through a trust dialog and connects once trusted; a
+ *  changed one is refused and offers only to forget the saved one, after
+ *  which connecting asks again (render `dialog` once, R21, AE8). Other
+ *  failures show as a toast, or with `quiet` only as the profile's failed
+ *  state. */
 export function useVpnConnect() {
   const { push } = useToast();
   const { fail, dialog } = useConnect();
+  const { vpns } = useVpns();
+  const [trust, setTrust] = useState<{ id: string; cert: VpnCert; quiet: boolean } | null>(null);
   const connect = async (id: string, quiet = false): Promise<void> => {
     try {
       await api.connectVpn(id);
     } catch (e) {
-      fail(e, () => connect(id, quiet), quiet ? { onStep: () => {} } : {});
+      const cert = vpnCertPrompt(e);
+      if (cert) setTrust({ id, cert, quiet });
+      else fail(e, () => connect(id, quiet), quiet ? { onStep: () => {} } : {});
     }
   };
   const disconnect = (id: string) => api.disconnectVpn(id).catch((e) => push("error", api.errorInfo(e).message));
-  return { connect, disconnect, dialog };
+  const changed = trust?.cert.pinned !== undefined;
+  // Either call reseals the secrets to the new pin; a stale copy saved from
+  // an editor would undo it, so the list is read again before connecting.
+  const answer = (call: () => Promise<unknown>) => {
+    const { id, quiet } = trust!;
+    setTrust(null);
+    call().then(
+      () => {
+        reloadVpns();
+        return connect(id, quiet);
+      },
+      (e) => push("error", api.errorInfo(e).message)
+    );
+  };
+  const trustDialog = trust && (
+    <Dialog
+      title={t(changed ? "connect.certChanged.title" : "trust.titleCert")}
+      onClose={() => setTrust(null)}
+      footer={
+        <>
+          <Button variant="ghost" onClick={() => setTrust(null)}>
+            {t("common.cancel")}
+          </Button>
+          {changed ? (
+            <Button variant="danger" onClick={() => answer(() => api.forgetVpnCert(trust.id))}>
+              {t("vpn.trust.forget")}
+            </Button>
+          ) : (
+            <Button variant="primary" onClick={() => answer(() => api.trustVpnCert(trust.id, trust.cert.pin))}>
+              {t("trust.confirm")}
+            </Button>
+          )}
+        </>
+      }
+    >
+      <VpnCertBody name={vpns.find((v) => v.id === trust.id)?.name ?? ""} cert={trust.cert} />
+    </Dialog>
+  );
+  return {
+    connect,
+    disconnect,
+    dialog: (
+      <>
+        {dialog}
+        {trustDialog}
+      </>
+    ),
+  };
 }
 
 /** What a signing-in profile waits for: a one-time code typed here, or the
@@ -110,6 +194,12 @@ export function VpnSignIn({ id, state }: { id: string; state: VpnState }) {
     return (
       <div className="flex items-center gap-2 text-xs">
         <span className="text-muted">{t("vpn.waitingBrowser")}</span>
+        {/* Go opened it already and sends only http and https pages. */}
+        {state.url && (
+          <Button size="sm" variant="ghost" onClick={() => Browser.OpenURL(state.url!)}>
+            {t("vpn.openSignIn")}
+          </Button>
+        )}
         <Button size="sm" variant="ghost" onClick={() => api.disconnectVpn(id).catch((e) => push("error", api.errorInfo(e).message))}>
           {t("common.cancel")}
         </Button>

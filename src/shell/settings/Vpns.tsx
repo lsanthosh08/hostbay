@@ -147,7 +147,8 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
   // An external profile's own app holds its keys and sign-in.
   const wg = v.type === "wireguard" && v.tier !== "external";
   const auths = v.tier === "external" ? [] : authsFor(v.type);
-  const auth = auths.length ? v.auth || auths[0] : "";
+  // A sign-in the type no longer offers (an imported certificate one) shows as its first.
+  const auth = auths.length ? (auths.includes(v.auth as never) ? v.auth! : auths[0]) : "";
   const external = v.tier === "external";
   const keep = v.hasSecret ? t("hostForm.passwordKeep") : "";
 
@@ -160,8 +161,8 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
     if (ok !== undefined) onSaved();
   };
 
-  const secret = (label: string, field: "password" | "privateKey" | "presharedKey" | "authKey", error?: string) => (
-    <Field label={label} error={error}>
+  const secret = (label: string, field: "password" | "privateKey" | "presharedKey" | "authKey", error?: string, hint?: string) => (
+    <Field label={label} error={error} hint={hint}>
       <Input
         type="password"
         className="w-full"
@@ -209,7 +210,7 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
           <Field label={t("vpnForm.name")} error={err("name")}>
             <Input className="w-full" autoFocus value={v.name} aria-invalid={!!err("name")} onChange={(e) => set({ name: e.target.value })} />
           </Field>
-          <Field label={t("vpnForm.type")} hint={v.type === "wireguard" ? undefined : t("vpnForm.typeLater")}>
+          <Field label={t("vpnForm.type")} hint={tierFor(v.type) === "system" ? t("vpnForm.typeLater") : undefined}>
             <Select
               className="w-full"
               value={v.type}
@@ -290,7 +291,21 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
             </div>
           </>
         )}
-        {v.type === "tailscale" && secret(t("vpnForm.authKey"), "authKey")}
+        {v.type === "tailscale" && (
+          <>
+            {secret(t("vpnForm.authKey"), "authKey", undefined, t("vpnForm.authKeyHint"))}
+            {initial.id && initial.type === "tailscale" && (
+              <Button
+                type="button"
+                className="w-fit"
+                size="sm"
+                onClick={() => run(() => api.signInAgainVpn(initial.id), t("vpnForm.signedOut"))}
+              >
+                {t("vpnForm.signInAgain")}
+              </Button>
+            )}
+          </>
+        )}
         {auths.length > 0 && (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

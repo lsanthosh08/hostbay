@@ -43,7 +43,8 @@ export function Get(id: string): $CancellablePromise<store$0.SettingsGroup> {
 }
 
 /**
- * GetLocal returns this computer's own settings.
+ * GetLocal returns this computer's own settings, except sealed Tailscale
+ * node keys, which stay in Go.
  */
 export function GetLocal(): $CancellablePromise<store$0.Local> {
     return $Call.ByID(1842613134);

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { RoutingView } from "../components/RoutingView";
 import { SyncSettings } from "../components/SyncSettings";
 import { t } from "../i18n";
 import { SECTION_LABEL, SETTINGS_SECTIONS, type SettingsSection } from "../state/sessions";
@@ -27,7 +28,12 @@ const BODY: Record<SettingsSection, () => ReactNode> = {
   security: () => <Security />,
   keys: () => <Keys />,
   proxies: () => <Proxies />,
-  vpns: () => <Vpns />,
+  vpns: () => (
+    <>
+      <Vpns />
+      <RoutingView />
+    </>
+  ),
   ai: () => <AI />,
   sync: () => <SyncSettings />,
   backup: () => <Backup />,

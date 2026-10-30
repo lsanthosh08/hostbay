@@ -2,8 +2,9 @@ import type { Host, Vpn } from "../api";
 import { t, type MessageKey } from "../i18n";
 
 /** The supported-types table (R2): each type's UI name and tier. The SSL VPN
- *  type never shows its vendor's name. Only app-scoped WireGuard connects
- *  today; the backend refuses the rest with a reason, so they are not hidden. */
+ *  type never shows its vendor's name. App-scoped types connect inside
+ *  Hostbay; the backend refuses system-wide ones with a reason until they are
+ *  supported, so they are not hidden. */
 export const VPN_TYPES: { id: string; label: MessageKey; tier: "app" | "system" | "external" }[] = [
   { id: "wireguard", label: "vpn.type.wireguard", tier: "app" },
   { id: "tailscale", label: "vpn.type.tailscale", tier: "app" },
@@ -39,9 +40,10 @@ export const AUTH_LABEL: Record<VpnAuth, MessageKey> = {
 };
 
 /** The sign-ins a type offers (R20). Browser sign-in only where its engine
- *  handles it: OpenConnect's AnyConnect (browserTypes in launch.go). */
+ *  handles it: OpenConnect's AnyConnect (browserTypes in launch.go). Hostbay
+ *  cannot send OpenConnect a client certificate yet, so it is not offered. */
 export function authsFor(type: string): VpnAuth[] {
-  if (OPENCONNECT.includes(type)) return type === "anyconnect" ? ["password", "certificate", "otp", "browser"] : ["password", "certificate", "otp"];
+  if (OPENCONNECT.includes(type)) return type === "anyconnect" ? ["password", "otp", "browser"] : ["password", "otp"];
   if (type === "openvpn" || type === "ipsec") return ["password", "certificate"];
   return [];
 }

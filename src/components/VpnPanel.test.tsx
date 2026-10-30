@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { DetectedVpn, Host, Vpn, VpnState } from "../api";
 import { en } from "../i18n/en";
-import { VpnPanelView } from "./VpnPanel";
+import { VpnCertBody, VpnPanelView, vpnCertPrompt } from "./VpnPanel";
 
 const noop = () => {};
 const vpn = (over: Partial<Vpn> = {}): Vpn => ({ id: "v1", name: "Atlas VPN", type: "wireguard", tier: "app", tags: ["atlas"], ...over });
@@ -94,5 +94,37 @@ describe("VPN panel", () => {
 
   it("announces state changes in a live region", () => {
     expect(render([vpn()])).toContain('aria-live="polite"');
+  });
+
+  it("waits on a browser sign-in with its page and Cancel", () => {
+    const html = render([vpn({ type: "anyconnect" })], { v1: { id: "v1", status: "signing_in", need: "browser", url: "https://sso.example.test/x" } });
+    expect(html).toContain(en["vpn.waitingBrowser"]);
+    expect(buttons(html)).toContain(en["vpn.openSignIn"]);
+    expect(buttons(html)).toContain(en["common.cancel"]);
+  });
+});
+
+describe("VPN gateway certificate", () => {
+  const pin = "pin-sha256:RmFrZS1nYXRld2F5LWNlcnRpZmljYXRlLXBpbi0wMDA=";
+  const old = "pin-sha256:QW5vdGhlci1nYXRld2F5LWNlcnRpZmljYXRlLXBpbjA=";
+  const fail = (details: Record<string, string>) => ({ cause: { code: "VPNFailed", message: "VPN: refused", details } });
+
+  it("asks to trust an unknown certificate, and a changed one with both pins", () => {
+    expect(vpnCertPrompt(fail({ reason: "cert-unknown", serverCert: pin }))).toEqual({ pin });
+    expect(vpnCertPrompt(fail({ reason: "cert-changed", serverCert: pin, pinned: old }))).toEqual({ pin, pinned: old });
+    expect(vpnCertPrompt(fail({ reason: "needs-system-wide" }))).toBeUndefined();
+    expect(vpnCertPrompt(fail({ reason: "cert-unknown" }))).toBeUndefined();
+  });
+
+  it("shows both fingerprints for a changed certificate", () => {
+    const html = renderToStaticMarkup(createElement(VpnCertBody, { name: "Atlas VPN", cert: { pin, pinned: old } }));
+    expect(html).toContain(pin);
+    expect(html).toContain(old);
+    expect(html).toContain(en["connect.keyChanged.saved"]);
+    expect(html).toContain("intercepting the connection");
+  });
+
+  it("treats a changed certificate as changed even without the saved pin", () => {
+    expect(vpnCertPrompt(fail({ reason: "cert-changed", serverCert: pin }))).toEqual({ pin, pinned: "" });
   });
 });

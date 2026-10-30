@@ -22,6 +22,9 @@ import * as store$0 from "../store/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as sync$0 from "../sync/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as routing$0 from "../vpn/routing/models.js";
 
 export interface AIAllowEntry {
     "command": string;
@@ -103,6 +106,33 @@ export interface AITarget {
      * no envelope: every command asks and ends on Done
      */
     "confirmOnly": boolean;
+}
+
+/**
+ * ChangeResult is one planned change and its outcome.
+ */
+export interface ChangeResult {
+    "kind": string;
+
+    /**
+     * netd.Add or netd.Delete; "" for KindMTU
+     */
+    "op"?: string;
+    "dst"?: string;
+    "iface"?: string;
+
+    /**
+     * through the local default gateway
+     */
+    "gateway"?: boolean;
+    "mtu"?: number;
+
+    /**
+     * the profile it is for; "" for the local network or no profile
+     */
+    "profile"?: string;
+    "reason": string;
+    "error"?: string;
 }
 
 /**
@@ -324,6 +354,14 @@ export interface Folder {
     "name": string;
     "parentId"?: string | null;
     "order"?: number;
+}
+
+/**
+ * HelperStatus is the privileged helper's state.
+ */
+export interface HelperStatus {
+    "state": string;
+    "reason"?: string;
 }
 
 export interface Host {
@@ -556,6 +594,39 @@ export interface Proxy {
     "user"?: string;
     "password"?: string | null;
     "hasPassword"?: boolean;
+}
+
+/**
+ * RoutingReport is the outcome of an apply (R26).
+ */
+export interface RoutingReport {
+    "results": ChangeResult[] | null;
+    "skipped": routing$0.Skip[] | null;
+
+    /**
+     * profiles with a failed change
+     */
+    "partly": string[] | null;
+}
+
+/**
+ * RoutingState is what Settings shows about routing.
+ */
+export interface RoutingState {
+    /**
+     * profile ID: RouteApplied, RoutePartly or RouteFighting
+     */
+    "profiles": { [_ in string]?: string } | null;
+
+    /**
+     * Reset is true after Reset until the next Apply: nothing re-applies.
+     */
+    "reset": boolean;
+
+    /**
+     * the last automatic re-apply, to tell the user (R29)
+     */
+    "notice"?: string;
 }
 
 /**
@@ -851,6 +922,22 @@ export interface VPNState {
      * connected external profile: its tunnel's interface
      */
     "iface"?: string;
+
+    /**
+     * signing_in at a browser: the sign-in page, only ever http or https
+     */
+    "url"?: string;
+
+    /**
+     * failed: a proto.Code* reason the UI acts on
+     */
+    "code"?: string;
+
+    /**
+     * ServerCert is the pin the gateway presented, with cert-unknown and
+     * cert-changed: what TrustVPNCert accepts (R21).
+     */
+    "serverCert"?: string;
 }
 
 export interface WinDashboard {
