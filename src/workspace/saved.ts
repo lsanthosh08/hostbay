@@ -40,7 +40,7 @@ export function fromSaved(saved: WorkspaceNode, hosts: Host[]): { tree: Pane | n
   return { tree, missing };
 }
 
-const PROMPTS: Step["kind"][] = ["trust", "secret", "proxySecret", "unlock"];
+const PROMPTS: Step["kind"][] = ["trust", "vpnCert", "secret", "proxySecret", "unlock"];
 
 /** True while a pane's connect needs the user: it is still dialling, or a
  *  trust, password or unlock prompt is up. */

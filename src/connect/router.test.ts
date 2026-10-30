@@ -141,6 +141,25 @@ describe("connect router", () => {
       expect(route(err(code, { vpnId: "v1", reason: "failed" }), { host: mac })).toEqual({ kind: "failure", message: `${code} message` });
   });
 
+  // R21, AE8: an unknown gateway certificate can be trusted; a changed one is refused.
+  it("asks to trust an unknown VPN gateway certificate and refuses a changed one", () => {
+    const base = { vpnId: "v1", serverCert: "sha256:new" };
+    expect(route(err("VPNFailed", { ...base, reason: "cert-unknown" }), { host: host() })).toEqual({
+      kind: "vpnCert",
+      message: "VPNFailed message",
+      vpnId: "v1",
+      cert: { pin: "sha256:new" },
+    });
+    expect(route(err("VPNFailed", { ...base, reason: "cert-changed", pinned: "sha256:old" }), { host: host() })).toEqual({
+      kind: "vpnCertChanged",
+      message: "VPNFailed message",
+      vpnId: "v1",
+      cert: { pin: "sha256:new", pinned: "sha256:old" },
+    });
+    // No certificate or profile to act on: a plain failure.
+    expect(route(err("VPNFailed", { vpnId: "v1", reason: "cert-unknown" }), { host: host() }).kind).toBe("failure");
+  });
+
   it("asks to run kinit for a missing Kerberos ticket, not for a password", () => {
     const krb = host({ authType: "kerberos" });
     expect(route(err("SecretNeeded", { kind: "kerberos" }), { host: krb, hosts: [krb] })).toEqual({

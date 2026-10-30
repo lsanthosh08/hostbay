@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import * as api from "../api";
 import { Fingerprint, isCert, RemoveKeyForm, trustQuestion } from "../components/TrustDialog";
 import { useHostManager } from "../components/HostManager";
+import { reloadVpns, useVpns, VpnCertBody } from "../components/VpnPanel";
 import { t, type MessageKey } from "../i18n";
 import { useHosts } from "../state/hosts";
 import { sessionAddress, useSessions, type Connection } from "../state/sessions";
@@ -21,6 +22,7 @@ export function ConnectionStatusView({ c }: { c: Connection }) {
   const { retry, disconnect, wakeHost, showSettings, cancelPrompt } = useSessions();
   const manager = useHostManager();
   const { reloadHosts } = useHosts();
+  const { vpns } = useVpns();
   const { step, host } = c;
   const close = () => disconnect(c.sessionId);
   const cancel = () => cancelPrompt(c.sessionId);
@@ -94,6 +96,38 @@ export function ConnectionStatusView({ c }: { c: Connection }) {
         </>
       );
       break;
+    case "vpnCert":
+    case "vpnCertChanged": {
+      // Same answers as the VPN panel's dialog (R21): trust only an unknown
+      // certificate; a changed one is refused and can only be forgotten. Either
+      // call reseals the secrets to the new pin, so the list is read again first.
+      const { vpnId, cert } = step;
+      const changed = step.kind === "vpnCertChanged";
+      const answer = (call: () => Promise<unknown>) =>
+        call().then(() => {
+          reloadVpns();
+          again();
+        }, (e) => setError(api.errorInfo(e).message));
+      title = t(changed ? "connect.certChanged.title" : "trust.titleCert");
+      body = <VpnCertBody name={vpns.find((v) => v.id === vpnId)?.name ?? ""} cert={cert} />;
+      actions = (
+        <>
+          {changed ? (
+            <Button variant="danger" onClick={() => answer(() => api.forgetVpnCert(vpnId))}>
+              {t("vpn.trust.forget")}
+            </Button>
+          ) : (
+            <Button variant="primary" onClick={() => answer(() => api.trustVpnCert(vpnId, cert.pin))}>
+              {t("trust.confirm")}
+            </Button>
+          )}
+          <Button variant="ghost" onClick={changed ? close : cancel}>
+            {changed ? t("common.close") : t("common.cancel")}
+          </Button>
+        </>
+      );
+      break;
+    }
     case "keyChanged": {
       // A refusal: never Retry or accept. Removing the old key needs the
       // typed host name and OS verification; only then can it connect again.
