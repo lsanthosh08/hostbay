@@ -58,7 +58,7 @@ func (c *HostCredentials) vpnProxy(v *store.VPN, host string) (*sshx.Proxy, erro
 	case store.VPNTierSystem:
 		// Checked at each dial, once vpnUp has had its chance to connect it.
 		id, name := v.ID, v.Name
-		return &sshx.Proxy{Type: "vpn", Host: name, VPN: id, Route: func(ctx context.Context, addr string) (netip.AddrPort, netip.Addr, error) {
+		return &sshx.Proxy{Type: sshx.TypeVPN, Host: name, VPN: id, Route: func(ctx context.Context, addr string) (netip.AddrPort, netip.Addr, error) {
 			iface, err := c.vpns.systemIface(id, name)
 			if err != nil {
 				return netip.AddrPort{}, netip.Addr{}, err
@@ -68,13 +68,13 @@ func (c *HostCredentials) vpnProxy(v *store.VPN, host string) (*sshx.Proxy, erro
 	case store.VPNTierExternal:
 		// Pinned to the vendor tunnel's interface, labeled at each dial (KTD7).
 		id, name, dns := v.ID, v.Name, slices.Clone(v.DNSServers)
-		return &sshx.Proxy{Type: "vpn", Host: name, VPN: id, Iface: func(ctx context.Context) (string, []string, error) {
+		return &sshx.Proxy{Type: sshx.TypeVPN, Host: name, VPN: id, Iface: func(ctx context.Context) (string, []string, error) {
 			iface, err := c.vpns.iface(ctx, id, name)
 			return iface, dns, err
 		}}, nil
 	}
 	id, name := v.ID, v.Name
-	return &sshx.Proxy{Type: "vpn", Host: name, VPN: id, Socks: func() (string, string, string, error) {
+	return &sshx.Proxy{Type: sshx.TypeVPN, Host: name, VPN: id, Socks: func() (string, string, string, error) {
 		addr, user, pass, err := c.vpns.socks(id)
 		if err != nil {
 			err = apperr.New(apperr.VPNDown, fmt.Sprintf("VPN %s is not connected; connect it, then try again", name)).With("vpnId", id)
@@ -187,7 +187,7 @@ func (c *HostCredentials) routed(d *store.Data, host string) (*sshx.Proxy, error
 // vpnUp connects the VPN profile p dials through when it is down, and waits
 // until it is up (R15): the UI's dials call it, an agent's never do (KTD6).
 func (c *HostCredentials) vpnUp(ctx context.Context, p *sshx.Proxy) error {
-	if p == nil || p.Type != "vpn" || p.Iface != nil { // an external profile's own app connects it
+	if !p.IsVPN() || p.External() { // an external profile's own app connects it
 		return nil
 	}
 	if c.vpns.connected(p.VPN) {
@@ -229,7 +229,7 @@ func (c *HostCredentials) dialUp(ctx context.Context, d *store.Data, h *store.Ho
 // vpnKey names the revision of the VPN profile p dials through in a
 // connection key, so editing the profile opens a fresh connection (KTD5).
 func vpnKey(d *store.Data, p *sshx.Proxy) string {
-	if p == nil || p.Type != "vpn" {
+	if !p.IsVPN() {
 		return ""
 	}
 	return "~vpn:" + p.VPN + "@" + strconv.FormatInt(d.VPN(p.VPN).Revision, 10)

@@ -303,7 +303,7 @@ func TestMoshOverVPNUsesSSHConnectionAndTheHelpersUDP(t *testing.T) {
 		}
 		return (&net.Dialer{}).DialContext(ctx, network, net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 	}}).Serve(ln)
-	p := &sshx.Proxy{Type: "vpn", Host: "office", VPN: "v1", Socks: func() (string, string, string, error) {
+	p := &sshx.Proxy{Type: sshx.TypeVPN, Host: "office", VPN: "v1", Socks: func() (string, string, string, error) {
 		return ln.Addr().String(), "vu", "vp", nil
 	}}
 

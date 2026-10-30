@@ -575,7 +575,7 @@ func TestSystemWideDialPicksOnlyAnAddressTheTunnelCarries(t *testing.T) {
 	var answer []netip.Addr
 	lookupNetIP = func(context.Context, string, string) ([]netip.Addr, error) { return answer, nil }
 	t.Cleanup(func() { lookupNetIP = net.DefaultResolver.LookupNetIP })
-	p := &sshx.Proxy{Type: "vpn", Host: "Office", VPN: "v1", Route: func(ctx context.Context, addr string) (netip.AddrPort, netip.Addr, error) {
+	p := &sshx.Proxy{Type: sshx.TypeVPN, Host: "Office", VPN: "v1", Route: func(ctx context.Context, addr string) (netip.AddrPort, netip.Addr, error) {
 		return systemDest(ctx, "v1", "Office", lo, addr)
 	}}
 	addr := net.JoinHostPort("multi.example.test", strconv.Itoa(port))
