@@ -2,7 +2,7 @@ import { useEffect, useId, useState } from "react";
 import * as api from "../api";
 import { actions, keysFor, type AppCommands } from "../actions/registry";
 import { t } from "../i18n";
-import { isVpnActive, useVpns } from "../components/VpnPanel";
+import { isVpnActive, useVpns } from "../state/vpns";
 import { useHosts } from "../state/hosts";
 import { connLabel, tabsOf, useSessions, viewsFor } from "../state/sessions";
 import { Dialog } from "../ui/Dialog";

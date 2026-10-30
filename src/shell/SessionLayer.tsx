@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
-import { useVpns, VpnSignIn } from "../components/VpnPanel";
+import { VpnSignIn } from "../components/VpnPanel";
+import { useVpns } from "../state/vpns";
 import { ConnectionStatusView, ReconnectBanner } from "../connect/ConnectionStatusView";
 import { t } from "../i18n";
 import { ToastScope } from "../ui/toast";

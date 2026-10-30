@@ -1,7 +1,7 @@
 import { useEffect, useRef, type MouseEvent } from "react";
 import { t } from "../i18n";
 import { keysFor } from "../actions/registry";
-import { useVpns } from "../components/VpnPanel";
+import { useVpns } from "../state/vpns";
 import { SETTINGS_TAB, activeTab, connLabel, tabsOf, useSessions, vpnTabNote, type Connection } from "../state/sessions";
 import { useContextMenu } from "../ui/contextmenu";
 import { IconButton } from "../ui/IconButton";

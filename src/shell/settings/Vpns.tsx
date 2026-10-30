@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import * as api from "../../api";
 import type { Vpn } from "../../api";
-import { reloadVpns, useVpns } from "../../components/VpnPanel";
+import { reloadVpns, useVpns } from "../../state/vpns";
 import { TagEditor } from "../../components/TagEditor";
 import { VpnImport } from "../../components/VpnImport";
 import { t } from "../../i18n";

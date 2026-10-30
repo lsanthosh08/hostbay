@@ -24,7 +24,8 @@ import {
   type Icon,
 } from "../ui/icons";
 import { useHostManager } from "./HostManager";
-import { isVpnActive, useVpnConnect, useVpns } from "./VpnPanel";
+import { useVpnConnect } from "./VpnPanel";
+import { isVpnActive, useVpns } from "../state/vpns";
 
 // Drag payload mime types.
 const DND_HOST = "text/host-id";
