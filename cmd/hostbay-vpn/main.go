@@ -7,7 +7,8 @@
 // exits when its stdin closes, taking the tunnel and the listener with it.
 //
 // Secrets arrive only in the start message. Nothing the helper writes, to
-// stdout or stderr, carries one.
+// stdout or stderr, carries one, except the nodeState message: a Tailscale
+// node's own keys, which Hostbay seals and sends back in the next start.
 //
 // For the OpenConnect types the helper runs openconnect, which starts the
 // helper again with one argument: "tun-fd" as its tunnel script, or a URL
@@ -27,6 +28,7 @@ import (
 	"hostbay/internal/vpn/openconnect"
 	"hostbay/internal/vpn/proto"
 	"hostbay/internal/vpn/socks"
+	"hostbay/internal/vpn/tailnet"
 	"hostbay/internal/vpn/wg"
 )
 
@@ -47,6 +49,7 @@ type answerer interface {
 
 var engines = map[string]func(config string, secrets map[string]string) (engine, error){
 	proto.TypeWireGuard: func(c string, s map[string]string) (engine, error) { return wg.New(c, s) },
+	proto.TypeTailscale: func(c string, s map[string]string) (engine, error) { return tailnet.New(c, s) },
 }
 
 func init() {
