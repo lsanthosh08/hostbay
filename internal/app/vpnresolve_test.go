@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/netip"
 	"slices"
 	"strconv"
 	"strings"
@@ -11,10 +12,12 @@ import (
 	"testing"
 
 	"hostbay/internal/apperr"
+	"hostbay/internal/sshx"
 	"hostbay/internal/sshx/proxytest"
 	"hostbay/internal/store"
 	"hostbay/internal/tlstrust"
 	"hostbay/internal/vpn/detect"
+	"hostbay/internal/vpn/proto"
 	"hostbay/internal/vpn/socks"
 	"hostbay/internal/vpn/vpntest"
 )
@@ -531,4 +534,65 @@ func mustHost(t *testing.T, c *ConnService, id string) *store.Host {
 		t.Fatal(err)
 	}
 	return h
+}
+
+// R21, AE8: a host whose profile fails on an untrusted gateway certificate
+// fails with the coded failure itself, so the UI can ask to trust the
+// certificate the gateway presented; the server sees nothing.
+func TestHostConnectKeepsTheVPNsCertificateFailure(t *testing.T) {
+	srv := newCountingServer(t)
+	c, s, _ := vpnConn(t, vpntest.Cert, srv.knownLine())
+	p := saveProfile(t, c.creds.vpns, "office", func(v *VPN) {
+		*v = VPN{Name: "office", Type: proto.TypeAnyConnect, Tier: "app", Gateway: "vpn.example.test", Port: 443, User: "alice", Auth: "password", Password: new("s3cret")}
+	})
+	form := srv.form("pw")
+	form.VPNID = &p.ID
+	h, err := s.SaveHost(form)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.Connect(context.Background(), h.ID)
+	if ae := vpnCode(t, err, apperr.VPNFailed, p.ID); ae.Details["reason"] != proto.CodeCertUnknown || ae.Details["serverCert"] != vpntest.Pin {
+		t.Fatalf("err = %+v, want the certificate to trust", ae)
+	}
+	if n := srv.conns.Load(); n != 0 {
+		t.Fatalf("the server saw %d direct connections", n)
+	}
+}
+
+// KTD22: of a name's addresses, a system-wide profile dials the first its
+// tunnel carries, and fails when it carries none: an address outside the
+// tunnel is never the one dialed.
+func TestSystemWideDialPicksOnlyAnAddressTheTunnelCarries(t *testing.T) {
+	lo := loopback(t)
+	in, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer in.Close()
+	port := in.Addr().(*net.TCPAddr).Port
+	off := netip.MustParseAddr("192.0.2.1") // leaves by the default route, if any
+	var answer []netip.Addr
+	lookupNetIP = func(context.Context, string, string) ([]netip.Addr, error) { return answer, nil }
+	t.Cleanup(func() { lookupNetIP = net.DefaultResolver.LookupNetIP })
+	p := &sshx.Proxy{Type: "vpn", Host: "Office", VPN: "v1", Route: func(ctx context.Context, addr string) (netip.AddrPort, netip.Addr, error) {
+		return systemDest(ctx, "v1", "Office", lo, addr)
+	}}
+	addr := net.JoinHostPort("multi.example.test", strconv.Itoa(port))
+	for _, order := range [][]netip.Addr{{off, netip.MustParseAddr("127.0.0.1")}, {netip.MustParseAddr("127.0.0.1"), off}} {
+		answer = order
+		conn, err := sshx.DialTCP(context.Background(), p, addr)
+		if err != nil {
+			t.Fatalf("%v: %v", order, err)
+		}
+		conn.Close()
+		if got := conn.RemoteAddr().(*net.TCPAddr).AddrPort(); got != netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), uint16(port)) {
+			t.Fatalf("%v: dialed %s", order, got)
+		}
+	}
+	answer = []netip.Addr{off}
+	_, err = sshx.DialTCP(context.Background(), p, addr)
+	if ae := vpnCode(t, err, apperr.VPNFailed, "v1"); ae.Details["reason"] != "route" {
+		t.Fatalf("off-tunnel only: %+v", ae)
+	}
 }

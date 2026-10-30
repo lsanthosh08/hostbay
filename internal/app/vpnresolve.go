@@ -58,12 +58,12 @@ func (c *HostCredentials) vpnProxy(v *store.VPN, host string) (*sshx.Proxy, erro
 	case store.VPNTierSystem:
 		// Checked at each dial, once vpnUp has had its chance to connect it.
 		id, name := v.ID, v.Name
-		return &sshx.Proxy{Type: "vpn", Host: name, VPN: id, Route: func(ctx context.Context, addr string) error {
+		return &sshx.Proxy{Type: "vpn", Host: name, VPN: id, Route: func(ctx context.Context, addr string) (netip.AddrPort, netip.Addr, error) {
 			iface, err := c.vpns.systemIface(id, name)
 			if err != nil {
-				return err
+				return netip.AddrPort{}, netip.Addr{}, err
 			}
-			return systemRoute(ctx, id, name, iface, addr)
+			return systemDest(ctx, id, name, iface, addr)
 		}}, nil
 	case store.VPNTierExternal:
 		// Pinned to the vendor tunnel's interface, labeled at each dial (KTD7).
@@ -83,21 +83,33 @@ func (c *HostCredentials) vpnProxy(v *store.VPN, host string) (*sshx.Proxy, erro
 	}}, nil
 }
 
-// systemRoute checks that the system sends addr's traffic through
-// system-wide profile id's tunnel interface, so a dial with no proxy goes
-// through it (KTD5): a UDP socket connected to addr, which sends nothing,
-// takes the source address the route table picks, and that must be one of
-// iface's. A name resolves through the system's resolver, as the dial's
-// does.
+// lookupNetIP resolves a system-wide profile's dial target; tests replace it.
+var lookupNetIP = net.DefaultResolver.LookupNetIP
+
+// systemRoute is systemDest's verdict alone.
 func systemRoute(ctx context.Context, id, name, iface, addr string) error {
-	fail := func(reason, format string, args ...any) error {
-		return apperr.New(apperr.VPNFailed, fmt.Sprintf(format, args...)).With("vpnId", id).With("reason", reason)
+	_, _, err := systemDest(ctx, id, name, iface, addr)
+	return err
+}
+
+// systemDest is the address of addr the system sends through system-wide
+// profile id's tunnel interface, and the tunnel's own address it leaves
+// from, so a dial with no proxy goes through it (KTD5): a UDP socket
+// connected to an address, which sends nothing, takes the source address
+// the route table picks, and that must be one of iface's. A name resolves
+// through the system's resolver, and the first of its addresses that the
+// tunnel carries is the one dialed: never another, which could leave by
+// the default route.
+func systemDest(ctx context.Context, id, name, iface, addr string) (netip.AddrPort, netip.Addr, error) {
+	fail := func(reason, format string, args ...any) (netip.AddrPort, netip.Addr, error) {
+		return netip.AddrPort{}, netip.Addr{}, apperr.New(apperr.VPNFailed, fmt.Sprintf(format, args...)).With("vpnId", id).With("reason", reason)
 	}
-	host, port, err := net.SplitHostPort(addr)
-	if err != nil {
+	host, portStr, err := net.SplitHostPort(addr)
+	port, perr := strconv.ParseUint(portStr, 10, 16)
+	if err != nil || perr != nil {
 		return fail("route", "%q is not host:port", addr)
 	}
-	ips, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+	ips, err := lookupNetIP(ctx, "ip", host)
 	if err != nil || len(ips) == 0 {
 		return fail("resolve", "VPN %s: cannot resolve %s: %v", name, host, err)
 	}
@@ -109,18 +121,26 @@ func systemRoute(ctx context.Context, id, name, iface, addr string) error {
 	if err != nil {
 		return fail("route", "VPN %s: its interface %s is gone", name, iface)
 	}
-	conn, err := net.Dial("udp", net.JoinHostPort(ips[0].Unmap().String(), port))
-	if err != nil {
-		return fail("route", "VPN %s: this computer has no route to %s: %v", name, host, err)
-	}
-	local := conn.LocalAddr().(*net.UDPAddr).AddrPort().Addr().Unmap()
-	conn.Close()
-	for _, a := range own {
-		if n, ok := a.(*net.IPNet); ok {
-			if ip, ok := netip.AddrFromSlice(n.IP); ok && ip.Unmap() == local {
-				return nil
+	var routeErr error
+	for _, ip := range ips {
+		to := netip.AddrPortFrom(ip.Unmap(), uint16(port))
+		conn, err := net.Dial("udp", to.String())
+		if err != nil {
+			routeErr = err
+			continue
+		}
+		local := conn.LocalAddr().(*net.UDPAddr).AddrPort().Addr().Unmap()
+		conn.Close()
+		for _, a := range own {
+			if n, ok := a.(*net.IPNet); ok {
+				if ip, ok := netip.AddrFromSlice(n.IP); ok && ip.Unmap() == local {
+					return to, local, nil
+				}
 			}
 		}
+	}
+	if routeErr != nil && len(ips) == 1 {
+		return fail("route", "VPN %s: this computer has no route to %s: %v", name, host, routeErr)
 	}
 	return fail("route", "VPN %s is connected, but this computer does not send %s through it; check the profile's routes", name, host)
 }
@@ -184,6 +204,10 @@ func (c *HostCredentials) vpnUp(ctx context.Context, p *sshx.Proxy) error {
 		return apperr.New(apperr.VPNFailed, fmt.Sprintf("VPN %s did not connect in time", p.Host)).With("vpnId", p.VPN).With("reason", "timeout")
 	case errors.As(err, &ae) && ae.Code != apperr.VPNFailed:
 		return ae.With("vpnId", p.VPN) // a missing helper, say, keeps its own code
+	case errors.As(err, &ae) && st.Code != "":
+		// A coded failure keeps the certificate details the UI asks about
+		// (R21, AE8); it names vpnId already and is shared, so left as is.
+		return ae
 	}
 	reason := st.Reason
 	if reason == "" {
