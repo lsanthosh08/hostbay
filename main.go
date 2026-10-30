@@ -218,6 +218,12 @@ func main() {
 	vpns = app.NewVPNService(st, vault)
 	app.LinkVPNs(creds, vpns) // before any dial, which runs only once the app does
 	a.RegisterService(application.NewService(vpns))
+	// System routes for system-wide and external VPNs go through the
+	// privileged helper (KTD8, KTD9); the helper's connection ends at quit,
+	// which removes them.
+	netdSvc := app.NewNetdService()
+	a.RegisterService(application.NewService(netdSvc))
+	a.RegisterService(application.NewService(app.NewRoutingService(st, vpns, netdSvc)))
 	a.RegisterService(application.NewService(app.NewMonitorService(connSvc)))
 	a.RegisterService(application.NewService(app.NewTerminalToolsService(connSvc)))
 	a.RegisterService(application.NewService(app.NewWorkspaceService(st)))
