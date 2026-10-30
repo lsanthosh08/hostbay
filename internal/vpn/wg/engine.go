@@ -288,6 +288,7 @@ func (e *Engine) Run(ctx context.Context, report func(proto.Msg)) {
 	}
 
 	started, connected := time.Now(), false
+	var watch handshakeWatch
 	tick := time.NewTicker(pollEvery)
 	defer tick.Stop()
 	for {
@@ -297,6 +298,7 @@ func (e *Engine) Run(ctx context.Context, report func(proto.Msg)) {
 		case <-tick.C:
 		}
 		last := lastHandshake(dev)
+		stale := watch.stale(last, time.Now())
 		switch {
 		case !connected && !last.IsZero():
 			connected = true
@@ -304,12 +306,25 @@ func (e *Engine) Run(ctx context.Context, report func(proto.Msg)) {
 		case !connected && time.Since(started) > connectTimeout:
 			fail(fmt.Sprintf("No WireGuard handshake from %s within %v.", e.endpoints(), connectTimeout))
 			return
-		case connected && time.Since(last) > dropAfter:
+		case connected && stale:
 			report(proto.Msg{T: proto.State, State: proto.Dropped,
 				Reason: fmt.Sprintf("No WireGuard handshake from %s for %v.", e.endpoints(), dropAfter)})
 			return
 		}
 	}
+}
+
+// handshakeWatch ages the newest handshake on the monotonic clock. The
+// handshake time WireGuard reports is wall-clock, so comparing it to now
+// reads a wake from sleep as a long silence before keepalive re-handshakes.
+type handshakeWatch struct{ last, seenAt time.Time }
+
+// stale reports whether no newer handshake than w has seen arrived for dropAfter.
+func (w *handshakeWatch) stale(last, now time.Time) bool {
+	if last.After(w.last) {
+		w.last, w.seenAt = last, now
+	}
+	return !w.seenAt.IsZero() && now.Sub(w.seenAt) > dropAfter
 }
 
 // lastHandshake is the newest handshake with any peer, or zero for none.
