@@ -142,6 +142,8 @@ tasks:
     deps:
       - task: build
       - task: :build:rdp-helper
+      - task: :build:netd
+        vars: { GOOS: linux }
     cmds:
       - task: generate:dotdesktop
       - task: generate:deb
@@ -151,6 +153,8 @@ tasks:
     deps:
       - task: build
       - task: :build:rdp-helper
+      - task: :build:netd
+        vars: { GOOS: linux }
     cmds:
       - task: generate:dotdesktop
       - task: generate:rpm

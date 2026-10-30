@@ -48,6 +48,19 @@ tasks:
       - mkdir -p ../{{.BIN_DIR}}
       - cp target/release/hostbay-rdp-helper{{exeExt}} ../{{.BIN_DIR}}/hostbay-rdp-helper{{exeExt}}
 
+  build:netd:
+    summary: Builds the hostbay-netd privileged helper into bin/, beside the app binary, where Hostbay's install looks for it
+    # Pure Go with no cgo, so it cross-compiles with GOOS and GOARCH alone.
+    cmds:
+      - go build -trimpath -buildvcs=false -ldflags="-s -w" -o "{{.OUTPUT}}" ./cmd/hostbay-netd
+    vars:
+      NETD_EXT: '{{if eq .GOOS "windows"}}.exe{{end}}'
+      OUTPUT: '{{.OUTPUT | default (print .BIN_DIR "/hostbay-netd" .NETD_EXT)}}'
+    env:
+      GOOS: '{{.GOOS}}'
+      GOARCH: '{{.ARCH | default ARCH}}'
+      CGO_ENABLED: 0
+
   dev:
     summary: Runs the application in development mode
     cmds:

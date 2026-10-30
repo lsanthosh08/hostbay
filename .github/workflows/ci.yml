@@ -46,6 +46,13 @@ jobs:
       - name: Go test
         run: go test ${{ runner.os == 'Linux' && '-tags gtk3' || '' }} ./...
 
+      # go vet and go test above cover cmd/hostbay-netd and internal/netd;
+      # this builds the shipped helper the way packaging does.
+      - name: Build hostbay-netd
+        run: go build -trimpath -ldflags "-s -w" -o "${{ runner.temp }}/hostbay-netd" ./cmd/hostbay-netd
+        env:
+          CGO_ENABLED: 0
+
       - name: RDP helper test
         working-directory: rdp-helper
         run: cargo test --locked

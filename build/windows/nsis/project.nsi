@@ -95,6 +95,8 @@ Section
 
     # internal/rdp.HelperPath looks for the RDP helper beside hostbay.exe.
     File "..\..\..\bin\hostbay-rdp-helper.exe"
+    # internal/netd installs the network helper from beside hostbay.exe.
+    File "..\..\..\bin\hostbay-netd.exe"
 
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"

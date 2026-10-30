@@ -22,6 +22,14 @@ contents:
   # internal/rdp.HelperPath looks for the RDP helper beside the hostbay binary.
   - src: "./bin/hostbay-rdp-helper"
     dst: "/usr/local/bin/hostbay-rdp-helper"
+  # The privileged network helper installs from beside hostbay (internal/netd),
+  # and only from the deb and rpm: an Arch package or AppImage cannot run it.
+  - src: "./bin/hostbay-netd"
+    dst: "/usr/local/bin/hostbay-netd"
+    packager: deb
+  - src: "./bin/hostbay-netd"
+    dst: "/usr/local/bin/hostbay-netd"
+    packager: rpm
   - src: "./build/appicon.png"
     dst: "/usr/share/icons/hicolor/128x128/apps/hostbay.png"
   - src: "./build/linux/hostbay.desktop"

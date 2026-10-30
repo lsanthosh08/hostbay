@@ -118,6 +118,8 @@ tasks:
     deps:
       - task: build
       - task: :build:rdp-helper
+      - task: :build:netd
+        vars: { GOOS: windows, ARCH: '{{.ARCH}}' }
     preconditions:
       - sh: '[ "{{.INSTALL_SCOPE}}" = "user" ] || [ "{{.INSTALL_SCOPE}}" = "machine" ]'
         msg: "INSTALL_SCOPE must be 'user' or 'machine', got '{{.INSTALL_SCOPE}}'"
