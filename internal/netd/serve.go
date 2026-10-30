@@ -21,6 +21,18 @@ type TunnelEnv struct {
 // CodeUnsupported.
 var NewTunnels func(TunnelEnv) Tunnels
 
+// authFor is the helper's caller check: the system names the peer, and only
+// the installing user's paired Hostbay gets through.
+func authFor(cfg Config) func(net.Conn) error {
+	return func(c net.Conn) error {
+		p, err := peerOf(c)
+		if err != nil {
+			return &Error{CodeDenied, "Cannot identify the caller: " + err.Error()}
+		}
+		return authorize(p, cfg)
+	}
+}
+
 // Serve runs the installed helper until ctx ends: it sweeps whatever a
 // previous run left journaled, then serves the paired Hostbay, and sweeps
 // again on the way out so stopping or uninstalling the helper leaves no
@@ -38,13 +50,7 @@ func Serve(ctx context.Context) error {
 	s := &Server{
 		Table:   newTable(),
 		Journal: j,
-		Auth: func(c net.Conn) error {
-			p, err := peerOf(c)
-			if err != nil {
-				return &Error{CodeDenied, "Cannot identify the caller: " + err.Error()}
-			}
-			return authorize(p, cfg)
-		},
+		Auth:    authFor(cfg),
 	}
 	if NewTunnels != nil {
 		s.Tunnels = NewTunnels(TunnelEnv{Dir: dir, User: cfg.UID})
