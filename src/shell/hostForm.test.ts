@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Host } from "../api";
-import { asksPasswordAgain, formHost, passwordForKind, proxyAsksPasswordAgain, unencrypted, validateHost, validateProxy } from "./hostForm";
+import { asksPasswordAgain, formHost, missingVpn, passwordForKind, proxyAsksPasswordAgain, unencrypted, validateHost, validateProxy } from "./hostForm";
 
 const host = (over: Partial<Host> = {}): Host => ({
   id: "web",
@@ -464,5 +464,24 @@ describe("asking for the saved password again", () => {
     // A cluster dials the host and port of its URL, which is what is sealed.
     const k8s = saved({ kind: "kubernetes", hostname: "k8s.lan", port: 6443, user: "", identityFile: "", authType: null, url: "https://k8s.lan:6443" });
     expect(asksPasswordAgain(k8s, { ...k8s, user: "left" })).toBe(false);
+  });
+});
+
+// R15, KTD5: a host names one VPN profile, never with a proxy.
+describe("host VPN", () => {
+  const vpns = [{ id: "v1", name: "Atlas VPN", type: "wireguard", tier: "app" }];
+
+  it("refuses a VPN together with a proxy, on any kind", () => {
+    expect(validateHost(host({ vpnId: "v1", proxyId: "p1" }), []).vpnId).toBe("hostForm.error.vpnProxy");
+    expect(validateHost(host({ kind: "ftp", identityFile: "", user: "", authType: null, port: 0, vpnId: "v1", proxyId: "p1" }), []).vpnId).toBe("hostForm.error.vpnProxy");
+    expect(validateHost(host({ vpnId: "v1" }), [])).toEqual({});
+    expect(validateHost(host({ kind: "mosh", vpnId: "v1" }), [])).toEqual({});
+  });
+
+  it("shows missing for a host naming a deleted or held profile", () => {
+    expect(missingVpn(host({ vpnId: "gone" }), vpns)).toBe(true);
+    expect(missingVpn(host({ vpnId: "held" }), vpns)).toBe(true);
+    expect(missingVpn(host({ vpnId: "v1" }), vpns)).toBe(false);
+    expect(missingVpn(host(), vpns)).toBe(false);
   });
 });

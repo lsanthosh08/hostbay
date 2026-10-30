@@ -9,6 +9,7 @@ import { activeTerminal, onActiveTerminal } from "../tabs/terminal/active";
 import { useHostManager } from "../components/HostManager";
 import { TransferPanel } from "../components/TransferPanel";
 import { TunnelsPanel } from "../components/TunnelsPanel";
+import { useVpnConnect, VpnPanel } from "../components/VpnPanel";
 import { HistoryPanel } from "../components/HistoryPanel";
 import { QuickCommands } from "../components/QuickCommands";
 import { useHosts } from "../state/hosts";
@@ -59,6 +60,7 @@ export function AppShell() {
   // Sync's state is read again whenever the Settings category changes.
   const sync = useSyncState(sessions.settings);
   const [slots] = useState(() => createSlots(() => document.createElement("div")));
+  const vpn = useVpnConnect();
 
   const tabs = tabsOf(sessions);
   const tabAt = tabs.findIndex((x) => x.id === activeTab(sessions));
@@ -134,6 +136,8 @@ export function AppShell() {
     saveWorkspace,
     toggleAISidebar: () => setAI((s) => (s === "open" ? "hidden" : "open")),
     focusApprovals: () => document.getElementById(APPROVAL_TRAY_ID)?.focus(),
+    connectVpn: (id) => vpn.connect(id),
+    disconnectVpn: (id) => vpn.disconnect(id),
   };
 
   // A follow-active AI conversation acts on the focused pane's terminal.
@@ -174,6 +178,8 @@ export function AppShell() {
           <SidePanel>
             {panel === "tunnels" ? (
               <TunnelsPanel />
+            ) : panel === "vpns" ? (
+              <VpnPanel />
             ) : panel === "quickCommands" ? (
               <QuickCommands />
             ) : panel === "history" ? (
@@ -200,6 +206,7 @@ export function AppShell() {
       <SessionLayer slots={slots} />
       <ApprovalTray />
       {palette && <CommandPalette app={app} onClose={() => setPalette(false)} />}
+      {vpn.dialog}
     </div>
   );
 }

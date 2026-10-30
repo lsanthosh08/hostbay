@@ -9,6 +9,7 @@ import {
   SETTINGS_TAB,
   tabsOf,
   viewsFor,
+  vpnTabNote,
   type Connection,
   type LocalTerm,
   type SessionsState,
@@ -256,5 +257,26 @@ describe("split panes", () => {
     expect(s.layouts[0]).toMatchObject({ name: "prod", focus: "b" });
     expect(ids(s)).toEqual(["a", paneTab(s)]);
     expect(s.activeId).toBe("b");
+  });
+});
+
+// F1: a tab opening a host behind a down profile says so, then names it.
+describe("VPN tab note", () => {
+  const vpns = [{ id: "v1", name: "Atlas VPN", type: "wireguard", tier: "app" }];
+  const behind = (over: Partial<Connection>): Connection => ({ sessionId: "s", host: { ...host("h"), vpnId: "v1" }, status: "connecting", ...over });
+
+  it("shows Connecting VPN P while the profile comes up, then via P once live", () => {
+    const dialing = behind({ dialing: true });
+    expect(vpnTabNote(dialing, vpns, { v1: { id: "v1", status: "connecting" } })).toEqual({ kind: "pending", name: "Atlas VPN", state: { id: "v1", status: "connecting" } });
+    expect(vpnTabNote(dialing, vpns, { v1: { id: "v1", status: "signing_in", need: "otp" } })?.kind).toBe("pending");
+    // The VPN is up and the host is being dialled: the usual connecting view.
+    expect(vpnTabNote(dialing, vpns, { v1: { id: "v1", status: "connected" } })).toBeUndefined();
+    expect(vpnTabNote(behind({ status: "live" }), vpns, { v1: { id: "v1", status: "connected" } })).toEqual({ kind: "via", name: "Atlas VPN" });
+  });
+
+  it("says nothing for a host without a profile, or a step to answer", () => {
+    expect(vpnTabNote({ ...behind({ status: "live" }), host: host("h") }, vpns, {})).toBeUndefined();
+    expect(vpnTabNote(behind({ dialing: true, step: { kind: "failure", message: "x" } }), vpns, { v1: { id: "v1", status: "connecting" } })).toBeUndefined();
+    expect(vpnTabNote(behind({ status: "live" }), [], {})).toBeUndefined();
   });
 });

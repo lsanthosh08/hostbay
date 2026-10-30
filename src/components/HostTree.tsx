@@ -20,9 +20,11 @@ import {
   StartIcon,
   StopIcon,
   VncIcon,
+  VpnIcon,
   type Icon,
 } from "../ui/icons";
 import { useHostManager } from "./HostManager";
+import { isVpnActive, useVpnConnect, useVpns } from "./VpnPanel";
 
 // Drag payload mime types.
 const DND_HOST = "text/host-id";
@@ -92,6 +94,8 @@ type TreeCtx = {
   manager: ReturnType<typeof useHostManager>;
   menu: (items: MenuItem[]) => (e: MouseEvent) => void;
   menuAt: (items: MenuItem[], x: number, y: number) => void;
+  /** The host's VPN items: connect or disconnect its profile, and choose one. */
+  vpnMenu: (h: Host) => MenuItem[];
 };
 
 /** A row action: dim until the row is hovered; never starts the row's own click. */
@@ -157,6 +161,7 @@ const hostMenu = (h: Host, ctx: TreeCtx): MenuItem[] => [
     : { label: t("host.connect"), icon: StartIcon, onClick: () => ctx.onConnect(h) },
   // Connect and Edit first: the row's More button lists the rest.
   { label: t("host.edit"), icon: EditIcon, onClick: () => ctx.manager.editHost(h) },
+  ...ctx.vpnMenu(h),
   ...(hostKind(h) === "ssh" ? [{ label: t("x11.openDesktop"), icon: VncIcon, onClick: () => ctx.onOpenX11Desktop(h) }] : []),
   { label: t("host.clone"), icon: CloneIcon, onClick: () => ctx.manager.cloneHost(h) },
   { label: t("host.download"), icon: DownloadIcon, onClick: () => ctx.manager.downloadHost(h) },
@@ -335,6 +340,8 @@ export function HostTree(props: {
   const { roots, rootHosts } = useHostTree(hosts, folders);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const { menu, at, node: menuNode } = useContextMenu();
+  const { vpns, states } = useVpns();
+  const vpn = useVpnConnect();
 
   const ctx: TreeCtx = {
     ...props,
@@ -347,6 +354,20 @@ export function HostTree(props: {
     manager,
     menu,
     menuAt: at,
+    vpnMenu: (h) => {
+      const v = h.vpnId ? vpns.find((x) => x.id === h.vpnId) : undefined;
+      return [
+        ...(v
+          ? [
+              isVpnActive(states[v.id])
+                ? { label: t("host.vpnDisconnect", { name: v.name }), icon: VpnIcon, onClick: () => vpn.disconnect(v.id) }
+                : { label: t("host.vpnConnect", { name: v.name }), icon: VpnIcon, onClick: () => vpn.connect(v.id) },
+            ]
+          : []),
+        // The host editor is where a host names its profile.
+        { label: t("host.vpnSet"), icon: VpnIcon, onClick: () => manager.editHost(h) },
+      ];
+    },
   };
 
   const dropRoot = (e: React.DragEvent) => {
@@ -380,6 +401,7 @@ export function HostTree(props: {
       className="flex flex-col gap-px min-h-8"
     >
       {menuNode}
+      {vpn.dialog}
       {props.flat ? (
         props.flat.map((h) => <HostRow key={h.id} h={h} ctx={ctx} />)
       ) : (

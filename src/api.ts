@@ -26,6 +26,7 @@ import {
   X11Service,
   ZmodemService,
   MCPService,
+  VPNService,
 } from "./bindings/hostbay/internal/app";
 
 export type UnlistenFn = () => void;
@@ -886,6 +887,50 @@ export const startTunnel = (id: string) =>
 export const stopTunnel = (id: string) => TunnelService.StopTunnel(id);
 export const tunnelStates = () => list(TunnelService.TunnelStates()) as Promise<TunnelState[]>;
 export const onTunnelState = (cb: (s: TunnelState) => void) => on<TunnelState>("tunnel-state", cb);
+
+// ---- VPN profiles (R1, R8, R9) ----
+// type is a row of the supported-types table (src/shell/vpnForm.ts) and tier
+// follows from it. Secrets are never sent back: hasSecret says some are saved,
+// and an empty one keeps the saved one.
+export type Vpn = {
+  id: string;
+  name: string;
+  type: string;
+  tier: string;
+  gateway?: string;
+  port?: number;
+  user?: string;
+  auth?: string; // password, certificate, otp or browser
+  address?: string[] | null; // WireGuard: the tunnel's own addresses
+  peerKey?: string; // WireGuard: the server's public key
+  routes?: string[] | null; // networks sent through the VPN; 0.0.0.0/0 and ::/0 are a full tunnel
+  dnsServers?: string[] | null;
+  dnsDomains?: string[] | null;
+  mtu?: number; // 0 is 1280
+  tags?: string[] | null;
+  autoReconnect?: boolean;
+  autoApply?: boolean;
+  routingMode?: string;
+  client?: string;
+  password?: string | null;
+  privateKey?: string | null;
+  presharedKey?: string | null;
+  authKey?: string | null;
+  hasSecret?: boolean;
+};
+// signing_in waits for need ("otp" or "browser"); failed and dropped carry reason.
+export type VpnStatus = "disconnected" | "connecting" | "signing_in" | "connected" | "failed" | "dropped";
+export type VpnState = { id: string; status: VpnStatus; reason?: string; need?: string; address?: string[] | null; routes?: string[] | null; since?: number };
+export const listVpns = () => list(VPNService.ListVPNs()) as Promise<Vpn[]>;
+export const saveVpn = (v: Vpn) => unlocking(() => VPNService.SaveVPN(v) as Promise<Vpn>);
+export const deleteVpn = (id: string) => VPNService.DeleteVPN(id);
+// Resolves once up; rejects with the coded reason (a type Hostbay cannot run
+// yet rejects VPNFailed, reason "unsupported"), which also arrives as a state.
+export const connectVpn = (id: string) => unlocking(() => VPNService.ConnectVPN(id) as Promise<VpnState>);
+export const disconnectVpn = (id: string) => VPNService.DisconnectVPN(id);
+export const answerVpn = (id: string, code: string) => VPNService.AnswerVPN(id, code);
+export const vpnStates = () => list(VPNService.VPNStates()) as Promise<VpnState[]>;
+export const onVpnState = (cb: (s: VpnState) => void) => on<VpnState>("vpn-state", cb);
 
 // ---- Server monitor (R59): one sampler per Linux host, shared by its Monitor tabs ----
 // Sizes are bytes, rates bytes per second. Every string came from the host:

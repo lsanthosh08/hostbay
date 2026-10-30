@@ -2,10 +2,11 @@ import { useEffect, useId, useState } from "react";
 import * as api from "../api";
 import { actions, keysFor, type AppCommands } from "../actions/registry";
 import { t } from "../i18n";
+import { isVpnActive, useVpns } from "../components/VpnPanel";
 import { useHosts } from "../state/hosts";
 import { connLabel, tabsOf, useSessions, viewsFor } from "../state/sessions";
 import { Dialog } from "../ui/Dialog";
-import { SearchIcon, SplitDownIcon, SplitIcon, TerminalIcon, VncIcon, type Icon } from "../ui/icons";
+import { SearchIcon, SplitDownIcon, SplitIcon, TerminalIcon, VncIcon, VpnIcon, type Icon } from "../ui/icons";
 import { Kbd } from "../ui/Kbd";
 import { fuzzyRank } from "./fuzzy";
 import { hostIcon, sessionIcon } from "./kindIcon";
@@ -22,6 +23,7 @@ export function CommandPalette({ app, onClose }: { app: AppCommands; onClose: ()
   const [query, setQuery] = useState("");
   const [at, setAt] = useState(0);
   const [shells, setShells] = useState<api.LocalShell[]>([]);
+  const { vpns, states } = useVpns();
   const listId = useId();
   useEffect(() => {
     api.listLocalShells().then(setShells).catch(() => {});
@@ -76,6 +78,12 @@ export function CommandPalette({ app, onClose }: { app: AppCommands; onClose: ()
           icon: VncIcon,
           run: () => openX11Desktop(h),
         })),
+      // vpn.connect and vpn.disconnect, one entry per profile (R8).
+      ...vpns.map((v) =>
+        isVpnActive(states[v.id])
+          ? { key: `vpn.disconnect:${v.id}`, label: t("vpn.disconnectNamed", { name: v.name }), group: t("nav.vpns"), icon: VpnIcon, run: () => app.disconnectVpn(v.id) }
+          : { key: `vpn.connect:${v.id}`, label: t("vpn.connectNamed", { name: v.name }), group: t("nav.vpns"), icon: VpnIcon, run: () => app.connectVpn(v.id) }
+      ),
       ...shells.map((s) => ({
         key: `shell:${s.id}`,
         label: s.name,

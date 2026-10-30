@@ -13,6 +13,7 @@ import { Keys } from "./settings/Keys";
 import { Logging } from "./settings/Logging";
 import { MCP } from "./settings/MCP";
 import { Proxies } from "./settings/Proxies";
+import { Vpns } from "./settings/Vpns";
 import { Security } from "./settings/Security";
 import { Skills } from "./settings/Skills";
 import { Terminal } from "./settings/Terminal";
@@ -26,6 +27,7 @@ const BODY: Record<SettingsSection, () => ReactNode> = {
   security: () => <Security />,
   keys: () => <Keys />,
   proxies: () => <Proxies />,
+  vpns: () => <Vpns />,
   ai: () => <AI />,
   sync: () => <SyncSettings />,
   backup: () => <Backup />,

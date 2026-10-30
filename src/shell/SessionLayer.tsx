@@ -1,9 +1,13 @@
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
+import { useVpns, VpnSignIn } from "../components/VpnPanel";
 import { ConnectionStatusView, ReconnectBanner } from "../connect/ConnectionStatusView";
 import { t } from "../i18n";
 import { ToastScope } from "../ui/toast";
-import { layoutOf, terminalOnly, useSessions, type Connection, type TabKey } from "../state/sessions";
+import { layoutOf, sessionAddress, terminalOnly, useSessions, vpnTabNote, type Connection, type TabKey } from "../state/sessions";
+import type { VpnState } from "../api";
+import { Button } from "../ui/Button";
+import { Spinner } from "../ui/kit";
 import {
   DashboardIcon,
   DatabaseIcon,
@@ -57,12 +61,40 @@ export const VIEW_INFO: Record<TabKey, { label: string; icon: Icon }> = {
  *  Until the session first goes live the connect's status fills the tab;
  *  a later drop shows a banner over the views, which stay mounted. */
 function SessionView({ c, view }: { c: Connection; view: TabKey }) {
+  const { vpns, states } = useVpns();
+  const note = vpnTabNote(c, vpns, states);
+  if (note?.kind === "pending") return <VpnPending c={c} name={note.name} state={note.state} />;
   if (c.dialing) return <ConnectionStatusView c={c} />;
   return (
     <>
       {c.step?.kind === "reconnect" && <ReconnectBanner c={c} />}
       <SessionViews c={c} view={view} />
     </>
+  );
+}
+
+/** A first connect waiting on the host's VPN profile (F1): "Connecting VPN
+ *  P", then its one-time code or browser sign-in. A failure comes back as the
+ *  connect's failed step, with its reason and Retry. */
+function VpnPending({ c, name, state }: { c: Connection; name: string; state: VpnState }) {
+  const { disconnect } = useSessions();
+  const title = t("connect.vpnPending", { name });
+  return (
+    <div className="flex-1 min-h-0 overflow-auto flex items-center justify-center p-6">
+      <section aria-live="polite" aria-label={title} className="w-full max-w-lg flex flex-col gap-4">
+        <div className="flex items-center gap-2.5">
+          <Spinner />
+          <h2 className="text-base font-semibold">{title}</h2>
+        </div>
+        <p className="text-sm text-muted font-mono truncate allow-select -mt-2">{sessionAddress(c)}</p>
+        <VpnSignIn id={state.id} state={state} />
+        {state.need !== "browser" && (
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => disconnect(c.sessionId)}>{t("common.cancel")}</Button>
+          </div>
+        )}
+      </section>
+    </div>
   );
 }
 
