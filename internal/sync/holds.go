@@ -14,8 +14,9 @@ import (
 // confirmation (KTD13). Today that is a tunnel set to listen beyond
 // loopback (R33); a host set to plain FTP, an http:// URL or a database TLS
 // mode of "none" (KTD25), to forward the
-// agent or X11 (KTD20), to offer insecure algorithms or to use another proxy; a proxy
-// pointed at another address (KTD22); and a Kubernetes host pointed at
+// agent or X11 (KTD20), to offer insecure algorithms or to use another proxy
+// or VPN; a proxy pointed at another address (KTD22); a VPN profile pointed
+// at another gateway or switched to another type or tier (KTD4); and a Kubernetes host pointed at
 // another server or trusting another CA, or new here with a CA or TLS
 // server name of its own (KTD28); an AI execution mode weaker than this
 // computer's (KTD33); and a post-login rule created or changed on another
@@ -23,7 +24,7 @@ import (
 
 // Hold kinds this build resolves. Any other kind came from a newer Hostbay
 // and stays held and listed, untouched.
-var holdKinds = []string{"", "host", "proxy", "aimode", "postlogin"} // "" is a tunnel
+var holdKinds = []string{"", "host", "proxy", "vpn", "aimode", "postlogin"} // "" is a tunnel
 
 // unknownHolds are the holds of a kind this build does not know.
 func unknownHolds(holds []Hold) []Hold {
@@ -42,6 +43,7 @@ type guarded struct {
 	tunnels map[string]bool  // allowed beyond loopback
 	hosts   map[string]guard // by host ID
 	proxies map[string]Endpoint
+	vpns    map[string]Endpoint
 	aiMode  string                // the mode in force
 	rules   map[string]store.Meta // post-login rules allowed to run, as confirmed
 }
@@ -53,6 +55,7 @@ type guard struct {
 	x11   bool
 	algos *store.Algorithms
 	proxy string
+	vpn   string
 	// cluster is a Kubernetes host's server and trust anchor, else nil.
 	cluster *ClusterTrust
 }
@@ -61,6 +64,9 @@ func guardOf(h *store.Host) guard {
 	g := guard{plain: h.Plaintext(), agent: h.Forwards(), x11: h.ForwardsX11(), algos: h.Algorithms, cluster: clusterOf(h)}
 	if h.ProxyID != nil {
 		g.proxy = *h.ProxyID
+	}
+	if h.VPNID != nil {
+		g.vpn = *h.VPNID
 	}
 	return g
 }
@@ -86,9 +92,18 @@ func setCluster(h *store.Host, c ClusterTrust) {
 
 func endpointOf(p *store.Proxy) Endpoint { return Endpoint{Type: p.Type, Host: p.Host, Port: p.Port} }
 
+func vpnEndpointOf(v *store.VPN) Endpoint {
+	return Endpoint{Type: v.Type, Host: v.Gateway, Port: v.Port, Tier: v.Tier}
+}
+
+// setVPNEndpoint points v at e.
+func setVPNEndpoint(v *store.VPN, e Endpoint) {
+	v.Type, v.Gateway, v.Port, v.Tier = e.Type, e.Host, e.Port, e.Tier
+}
+
 // confirmed records d's guarded settings before the merge.
 func confirmed(d *store.Data) guarded {
-	g := guarded{tunnels: map[string]bool{}, hosts: map[string]guard{}, proxies: map[string]Endpoint{}, aiMode: d.AIMode(), rules: map[string]store.Meta{}}
+	g := guarded{tunnels: map[string]bool{}, hosts: map[string]guard{}, proxies: map[string]Endpoint{}, vpns: map[string]Endpoint{}, aiMode: d.AIMode(), rules: map[string]store.Meta{}}
 	for _, r := range d.PostLogin.Items {
 		if !r.Held {
 			g.rules[r.ID] = r.Meta
@@ -103,18 +118,25 @@ func confirmed(d *store.Data) guarded {
 	for i := range d.Proxies.Items {
 		g.proxies[d.Proxies.Items[i].ID] = endpointOf(&d.Proxies.Items[i])
 	}
+	for i := range d.VPNs.Items {
+		g.vpns[d.VPNs.Items[i].ID] = vpnEndpointOf(&d.VPNs.Items[i])
+	}
 	return g
 }
 
 // liftHolds shows held settings as synced, so the merge and the upload see
 // the real setting rather than this computer's stand-in.
 func (e *Engine) liftHolds(d *store.Data) {
-	synced := map[string]*string{} // host ID: the synced proxy a hold waits on
+	synced := map[string]*string{}    // host ID: the synced proxy a hold waits on
+	syncedVPN := map[string]*string{} // host ID: the synced VPN a hold waits on
 	for _, h := range e.State.Holds {
 		switch h.Kind {
 		case "host":
 			if h.ProxyID != nil && *h.ProxyID != "" {
 				synced[h.ID] = new(*h.ProxyID)
+			}
+			if h.VPNID != nil && *h.VPNID != "" {
+				syncedVPN[h.ID] = new(*h.VPNID)
 			}
 			if host := d.Host(h.ID); host != nil && sameMeta(host.Meta, h.Meta) {
 				h.applyHost(host)
@@ -122,6 +144,10 @@ func (e *Engine) liftHolds(d *store.Data) {
 		case "proxy":
 			if p := d.Proxy(h.ID); p != nil && sameMeta(p.Meta, h.Meta) && h.Endpoint != nil {
 				p.Type, p.Host, p.Port = h.Endpoint.Type, h.Endpoint.Host, h.Endpoint.Port
+			}
+		case "vpn":
+			if v := d.VPN(h.ID); v != nil && sameMeta(v.Meta, h.Meta) && h.Endpoint != nil {
+				setVPNEndpoint(v, *h.Endpoint)
 			}
 		case "aimode":
 			if g := d.SettingsGroup(h.ID); g != nil && sameMeta(g.Meta, h.Meta) {
@@ -138,11 +164,16 @@ func (e *Engine) liftHolds(d *store.Data) {
 	for i := range d.PostLogin.Items {
 		d.PostLogin.Items[i].Held = false
 	}
-	// HeldProxyID must not travel. A host edited here since its hold still
-	// has it: show the synced proxy, or none, and holdNew holds it again.
+	// HeldProxyID and HeldVPNID must not travel. A host edited here since
+	// its hold still has them: show the synced proxy or VPN, or none, and
+	// holdNew holds it again.
 	for i := range d.Hosts.Items {
-		if h := &d.Hosts.Items[i]; h.ProxyID != nil && *h.ProxyID == store.HeldProxyID {
+		h := &d.Hosts.Items[i]
+		if h.ProxyID != nil && *h.ProxyID == store.HeldProxyID {
 			h.ProxyID = synced[h.ID]
+		}
+		if h.VPNID != nil && *h.VPNID == store.HeldVPNID {
+			h.VPNID = syncedVPN[h.ID]
 		}
 	}
 }
@@ -150,7 +181,7 @@ func (e *Engine) liftHolds(d *store.Data) {
 // plain reports a host hold on a plaintext setting. A hold saved before
 // holds named their settings was only ever that.
 func (h Hold) plain() bool {
-	return h.Plaintext || (!h.ForwardAgent && !h.X11 && h.Algorithms == nil && h.ProxyID == nil && h.Cluster == nil)
+	return h.Plaintext || (!h.ForwardAgent && !h.X11 && h.Algorithms == nil && h.ProxyID == nil && h.VPNID == nil && h.Cluster == nil)
 }
 
 // applyHost sets host to the synced values h waits on.
@@ -178,15 +209,22 @@ func (h Hold) applyHost(host *store.Host) {
 			host.ProxyID = new(*h.ProxyID)
 		}
 	}
+	if h.VPNID != nil {
+		host.VPNID = nil
+		if *h.VPNID != "" {
+			host.VPNID = new(*h.VPNID)
+		}
+	}
 }
 
 // holdNew puts back what this computer confirmed wherever only another
 // computer weakened it, and returns the holds: a tunnel stays on loopback,
 // a file host encrypted, a cluster on its confirmed server and CA, a host forwards no agent or X11 and offers its confirmed
-// algorithms, and a proxy keeps its address. A host whose proxy changed
-// keeps its confirmed one; a host new here gets HeldProxyID, so it cannot
-// connect at all rather than skip the proxy, and so does a cluster new here
-// that brings its own CA or TLS server name.
+// algorithms, and a proxy or VPN profile keeps where it points. A host
+// whose proxy or VPN changed keeps its confirmed one; a host new here gets
+// HeldProxyID or HeldVPNID, so it cannot connect at all rather than skip
+// the proxy or VPN, and so does a cluster new here that brings its own CA
+// or TLS server name.
 func holdNew(d *store.Data, was guarded) []Hold {
 	var holds []Hold
 	for i := range d.Tunnels.Items {
@@ -239,6 +277,15 @@ func holdNew(d *store.Data, was guarded) []Hold {
 				h.ProxyID = new(g.proxy)
 			}
 		}
+		if v := guardOf(h).vpn; v != g.vpn {
+			hd.VPNID, h.VPNID, held = new(v), nil, true
+			switch {
+			case !known:
+				h.VPNID = new(store.HeldVPNID)
+			case g.vpn != "":
+				h.VPNID = new(g.vpn)
+			}
+		}
 		if held {
 			holds = append(holds, hd)
 		}
@@ -249,6 +296,14 @@ func holdNew(d *store.Data, was guarded) []Hold {
 			synced := endpointOf(p)
 			p.Type, p.Host, p.Port = old.Type, old.Host, old.Port
 			holds = append(holds, Hold{ID: p.ID, Kind: "proxy", Name: p.Name, Meta: p.Meta, Endpoint: &synced})
+		}
+	}
+	for i := range d.VPNs.Items {
+		v := &d.VPNs.Items[i]
+		if old, ok := was.vpns[v.ID]; ok && vpnEndpointOf(v) != old {
+			synced := vpnEndpointOf(v)
+			setVPNEndpoint(v, old)
+			holds = append(holds, Hold{ID: v.ID, Kind: "vpn", Name: v.Name, Meta: v.Meta, Endpoint: &synced})
 		}
 	}
 	// A rule runs only as this computer confirmed it: one new here, or
@@ -302,8 +357,8 @@ func setPlaintext(h *store.Host, plain bool) {
 
 // ResolveHold applies (accept) or refuses a held setting. Refusing is a
 // local change, so it reaches the other computers. A host new here that
-// refuses its synced proxy is left with none: HeldProxyID is this
-// computer's stand-in and must not travel.
+// refuses its synced proxy or VPN is left with none: HeldProxyID and
+// HeldVPNID are this computer's stand-ins and must not travel.
 func (e *Engine) ResolveHold(id string, accept bool) error {
 	i := -1
 	for j, h := range e.State.Holds {
@@ -333,6 +388,9 @@ func (e *Engine) ResolveHold(id string, accept bool) error {
 				if host.ProxyID != nil && *host.ProxyID == store.HeldProxyID {
 					host.ProxyID = nil
 				}
+				if host.VPNID != nil && *host.VPNID == store.HeldVPNID {
+					host.VPNID = nil
+				}
 			}
 		case "proxy":
 			p := d.Proxy(id)
@@ -341,6 +399,13 @@ func (e *Engine) ResolveHold(id string, accept bool) error {
 			}
 			meta = &p.Meta
 			apply = func() { p.Type, p.Host, p.Port = h.Endpoint.Type, h.Endpoint.Host, h.Endpoint.Port }
+		case "vpn":
+			v := d.VPN(id)
+			if v == nil || h.Endpoint == nil {
+				return nil
+			}
+			meta = &v.Meta
+			apply = func() { setVPNEndpoint(v, *h.Endpoint) }
 		case "aimode":
 			g := d.SettingsGroup(id)
 			if g == nil {

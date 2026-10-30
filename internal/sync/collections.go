@@ -69,6 +69,13 @@ var collections = func() []collection {
 		_ = json.Unmarshal(raw, &p)
 		return p.SecretAAD()
 	}
+	vpns := coll("vpns", func(d *store.Data) *store.Collection[store.VPN] { return &d.VPNs })
+	vpns.secret = "secret"
+	vpns.aad = func(_ *store.Data, raw json.RawMessage) []byte {
+		var v store.VPN
+		_ = json.Unmarshal(raw, &v)
+		return v.SecretAAD()
+	}
 	// A rule's answer is bound to the merged host, so it merges after hosts
 	// (KTD39). A rule whose host is gone gets a binding nothing was sealed
 	// under, and its answer needs entering again.
@@ -99,6 +106,7 @@ var collections = func() []collection {
 		coll("bookmarks", func(d *store.Data) *store.Collection[store.Bookmark] { return &d.Bookmarks }),
 		coll("tunnels", func(d *store.Data) *store.Collection[store.Tunnel] { return &d.Tunnels }),
 		proxies,
+		vpns,
 		coll("settings", func(d *store.Data) *store.Collection[store.SettingsGroup] { return &d.Settings }),
 		postlogin,
 		coll("workspaces", func(d *store.Data) *store.Collection[store.Workspace] { return &d.Workspaces }),

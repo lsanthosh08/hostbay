@@ -21,9 +21,10 @@ import (
 )
 
 // Bundle is the content of a backup, in SSH Manager's StoreBundle shape plus
-// each item's Meta and Hostbay's proxies. Inside an encrypted backup
-// Host.Password and Proxy.Password are plaintext and Keys maps key-store
-// names to base64 key files; a plain backup has none of them. A Bundle
+// each item's Meta and Hostbay's proxies and VPN profiles. Inside an
+// encrypted backup Host.Password, Proxy.Password and VPN.Secret are
+// plaintext and Keys maps key-store names to base64 key files; a plain
+// backup has none of them. A Bundle
 // never reaches the store as is: Restore re-seals.
 type Bundle struct {
 	SchemaVersion int               `json:"schemaVersion,omitempty"`
@@ -33,6 +34,8 @@ type Bundle struct {
 	Bookmarks     []string          `json:"bookmarks"`
 	Keys          map[string]string `json:"keys,omitempty"`
 	Proxies       []store.Proxy     `json:"proxies,omitempty"`
+	// VPNs' Secret is the VPNSecrets JSON in an encrypted backup.
+	VPNs []store.VPN `json:"vpns,omitempty"`
 	// Settings are the synced groups; local.json is never in a backup.
 	Settings []store.SettingsGroup `json:"settings,omitempty"`
 	// PostLogin are the post-login rules. Answer is plaintext inside an
@@ -47,13 +50,15 @@ type Bundle struct {
 	Skills []store.Skill `json:"skills,omitempty"`
 }
 
-// bundleVersion is the newest bundle this build reads. A bundle holding
+// bundleVersion is the newest bundle this build reads. A bundle holding VPN
+// profiles, or a host that uses one, is written as 5, so a build that would
+// drop the profile and connect around it refuses it; one holding
 // settings, post-login rules or workspaces is written as 4, so a build that would drop them refuses it;
 // one holding a database or Kubernetes host as 3, so a build that would
 // drop its fields refuses it; one whose hosts use proxies as 2, so a build
 // that would drop the proxy and connect directly refuses it; any other
 // stays 1.
-const bundleVersion = 4 // AI providers and skills are written as 4 too
+const bundleVersion = 5 // AI providers and skills are written as 4
 
 // Hostbay's encrypted layout:
 //
@@ -155,6 +160,7 @@ func Export(d *store.Data, v *secrets.Vault, hostID, passphrase string) ([]byte,
 		b.Scripts = append(b.Scripts, d.Scripts.Items...)
 		b.Bookmarks = d.BookmarkPaths()
 		b.Proxies = append(b.Proxies, d.Proxies.Items...)
+		b.VPNs = append(b.VPNs, d.VPNs.Items...)
 		b.Settings = d.Settings.Items
 		b.PostLogin = append(b.PostLogin, d.PostLogin.Items...)
 		b.Workspaces = d.Workspaces.Items
@@ -170,6 +176,9 @@ func Export(d *store.Data, v *secrets.Vault, hostID, passphrase string) ([]byte,
 		if h.ProxyID != nil && d.Proxy(*h.ProxyID) != nil {
 			b.Proxies = append(b.Proxies, *d.Proxy(*h.ProxyID))
 		}
+		if h.VPNID != nil && d.VPN(*h.VPNID) != nil {
+			b.VPNs = append(b.VPNs, *d.VPN(*h.VPNID))
+		}
 	} else {
 		return nil, errors.New("host not found")
 	}
@@ -184,6 +193,18 @@ func Export(d *store.Data, v *secrets.Vault, hostID, passphrase string) ([]byte,
 			return nil, fmt.Errorf("proxy %s: %w", p.Name, err)
 		}
 		p.Password = string(pw)
+	}
+	for i := range b.VPNs {
+		p := &b.VPNs[i]
+		if !withSecrets || p.Secret == "" {
+			p.Secret = ""
+			continue
+		}
+		s, err := v.Open(p.Secret, p.SecretAAD())
+		if err != nil && !undecryptable(err) {
+			return nil, fmt.Errorf("VPN profile %s: %w", p.Name, err)
+		}
+		p.Secret = string(s)
 	}
 	for i := range b.AIProviders {
 		p := &b.AIProviders[i]
@@ -251,6 +272,9 @@ func Export(d *store.Data, v *secrets.Vault, hostID, passphrase string) ([]byte,
 	if len(b.Settings) > 0 || len(b.PostLogin) > 0 || len(b.Workspaces) > 0 || len(b.AIProviders) > 0 || len(b.Skills) > 0 {
 		b.SchemaVersion = 4
 	}
+	if len(b.VPNs) > 0 || slices.ContainsFunc(b.Hosts, func(h store.Host) bool { return h.UsesVPN() }) {
+		b.SchemaVersion = 5
+	}
 	if !withSecrets {
 		return json.MarshalIndent(b, "", "  ")
 	}
@@ -269,7 +293,7 @@ func undecryptable(err error) bool {
 }
 
 // Restore merges b into d and returns how many hosts it added, with a note
-// for each added host that names no saved proxy. It only adds:
+// for each added host that names no saved proxy or VPN profile. It only adds:
 // hosts match by ID, then by alias, hostname, port and user together;
 // folders by ID, then by name and parent; scripts by ID, then by label and
 // command; keys by name and content. A matched local item is left exactly
@@ -360,6 +384,27 @@ func Restore(d *store.Data, v *secrets.Vault, b Bundle) (int, []string, error) {
 		proxyIDs[p.ID] = d.AddProxy(p).ID
 	}
 
+	vpnIDs := map[string]string{} // backup ID -> local ID
+	for _, p := range b.VPNs {
+		if local := matchVPN(d, p); local != "" {
+			vpnIDs[p.ID] = local
+			continue
+		}
+		if p.ID == "" {
+			p.ID = store.NewID()
+		}
+		secret := p.Secret
+		p.Secret = ""
+		if secret != "" {
+			sealed, err := v.Seal([]byte(secret), p.SecretAAD())
+			if err != nil {
+				return 0, nil, err
+			}
+			p.Secret = sealed
+		}
+		vpnIDs[p.ID] = d.AddVPN(p).ID
+	}
+
 	hostIDs := map[string]string{} // backup ID -> local ID
 	var added []string
 	for _, h := range b.Hosts {
@@ -381,6 +426,9 @@ func Restore(d *store.Data, v *secrets.Vault, b Bundle) (int, []string, error) {
 		// connect rather than connect around it (KTD22).
 		if h.ProxyID != nil && proxyIDs[*h.ProxyID] != "" {
 			h.ProxyID = new(proxyIDs[*h.ProxyID])
+		}
+		if h.VPNID != nil && vpnIDs[*h.VPNID] != "" {
+			h.VPNID = new(vpnIDs[*h.VPNID])
 		}
 		if h.ID == "" {
 			h.ID = store.NewID()
@@ -416,6 +464,9 @@ func Restore(d *store.Data, v *secrets.Vault, b Bundle) (int, []string, error) {
 	for _, id := range added {
 		if h := d.Host(id); h.Proxied() && d.Proxy(*h.ProxyID) == nil {
 			notes = append(notes, h.Alias+": its jump host or proxy is not in this backup, so it will not connect until you choose its jump host or a proxy in its settings")
+		}
+		if h := d.Host(id); h.UsesVPN() && d.VPN(*h.VPNID) == nil {
+			notes = append(notes, h.Alias+": its VPN profile is not in this backup, so it will not connect until you choose a VPN profile in its settings")
 		}
 	}
 
@@ -539,6 +590,20 @@ func matchProxy(d *store.Data, p store.Proxy) string {
 	}
 	for _, l := range d.Proxies.Items {
 		if l.Type == p.Type && l.Host == p.Host && l.Port == p.Port && l.User == p.User {
+			return l.ID
+		}
+	}
+	return ""
+}
+
+// matchVPN returns the ID of the saved profile p matches: by ID, then by
+// type, gateway, port and user together; or "".
+func matchVPN(d *store.Data, p store.VPN) string {
+	if p.ID != "" && d.VPN(p.ID) != nil {
+		return p.ID
+	}
+	for _, l := range d.VPNs.Items {
+		if l.Type == p.Type && l.Gateway == p.Gateway && l.Port == p.Port && l.User == p.User {
 			return l.ID
 		}
 	}

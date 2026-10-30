@@ -18,21 +18,28 @@ export interface ClusterTrust {
 }
 
 /**
- * Endpoint is where a proxy points.
+ * Endpoint is where a proxy or VPN profile points. Host is a profile's
+ * gateway.
  */
 export interface Endpoint {
     "type": string;
     "host": string;
     "port": number;
+
+    /**
+     * a VPN profile's
+     */
+    "tier"?: string;
 }
 
 /**
  * Hold is a synced security setting not yet confirmed on this computer: a
  * tunnel set to listen beyond loopback, which locally stays on loopback; a
  * host (Kind "host") set to connect unencrypted, forward the agent or X11,
- * offer insecure algorithms or use another proxy, which locally keeps what this
- * computer confirmed; a proxy (Kind "proxy") pointed elsewhere, which
- * locally keeps its old address; or an AI execution mode (Kind "aimode",
+ * offer insecure algorithms or use another proxy or VPN, which locally keeps what this
+ * computer confirmed; a proxy (Kind "proxy") pointed elsewhere, or a VPN
+ * profile (Kind "vpn") pointed at another gateway or switched to another
+ * type or tier, which locally keeps its old one; or an AI execution mode (Kind "aimode",
  * ID the ai group) weaker than this computer's, which locally keeps its
  * mode; or a post-login rule (Kind "postlogin") created or changed on
  * another computer, which locally does not run. The other fields are the synced values waiting. A kind this build
@@ -42,7 +49,7 @@ export interface Hold {
     "id": string;
 
     /**
-     * "" for a tunnel, "host", "proxy", "aimode" or "postlogin"
+     * "" for a tunnel, "host", "proxy", "vpn", "aimode" or "postlogin"
      */
     "kind"?: string;
     "name": string;
@@ -58,7 +65,12 @@ export interface Hold {
     "proxyId"?: string | null;
 
     /**
-     * Kind "proxy"
+     * "" removes the host's VPN
+     */
+    "vpnId"?: string | null;
+
+    /**
+     * Kind "proxy" or "vpn"
      */
     "endpoint"?: Endpoint | null;
 

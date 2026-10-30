@@ -24,8 +24,8 @@ func seedStore(t *testing.T, home string) {
 	}
 	s.Close()
 	for name, body := range map[string]string{
-		"masterpassword.json":                    `{"schemaVersion":3,"data":{"salt":"c2FsdA=="}}`,
-		"tlspins.json":                           `{"schemaVersion":3,"data":[]}`,
+		"masterpassword.json":                    `{"schemaVersion":` + strconv.Itoa(SchemaVersion) + `,"data":{"salt":"c2FsdA=="}}`,
+		"tlspins.json":                           `{"schemaVersion":` + strconv.Itoa(SchemaVersion) + `,"data":[]}`,
 		"sync-git/objects/ab/cdef":               "git object",
 		"sync-git/HEAD":                          "ref: refs/heads/main\n",
 		"backups/v2-20261025T000000Z/hosts.json": `{"schemaVersion":2,"data":[]}`,

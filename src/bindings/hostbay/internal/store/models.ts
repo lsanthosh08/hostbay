@@ -64,6 +64,13 @@ export interface Local {
      * MCPService, behind its dialog, verification or folder picker.
      */
     "mcp"?: MCPSettings;
+
+    /**
+     * VPNClients are external VPN profiles' client programs on this
+     * computer, keyed by profile ID. A path from sync or a backup would let
+     * another computer choose what Hostbay runs, so it never leaves here (KTD4).
+     */
+    "vpnClients"?: { [_ in string]?: string } | null;
 }
 
 /**

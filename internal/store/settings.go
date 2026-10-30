@@ -118,6 +118,10 @@ type Local struct {
 	// MCP is the MCP server's settings (KTD35). It changes only through
 	// MCPService, behind its dialog, verification or folder picker.
 	MCP MCPSettings `json:"mcp,omitzero"`
+	// VPNClients are external VPN profiles' client programs on this
+	// computer, keyed by profile ID. A path from sync or a backup would let
+	// another computer choose what Hostbay runs, so it never leaves here (KTD4).
+	VPNClients map[string]string `json:"vpnClients,omitempty"`
 }
 
 // MCPSettings is this computer's MCP server. Its tokens' hashes are in

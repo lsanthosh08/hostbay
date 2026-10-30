@@ -27,7 +27,7 @@ import (
 
 // ReaderVersion is the newest snapshot format this build reads; a manifest
 // whose minReaderVersion is higher stops sync and asks for an update.
-const ReaderVersion = 5
+const ReaderVersion = 6
 
 // minReaderVersion is what every snapshot this build writes demands. 2
 // brought file hosts (FTP, SMB, WebDAV, S3) and their fields, which a
@@ -36,9 +36,10 @@ const ReaderVersion = 5
 // keepalive, raw TCP), which a version 2 build would drop the same way
 // (KTD22); 4 brought Release 3's database and Kubernetes hosts and their
 // fields, which a version 3 build would drop or connect without TLS; 5
-// brings Release 4's collections, settings first (KTD37), which a version 4
-// build would drop.
-const minReaderVersion = 5
+// brought Release 4's collections, settings first (KTD37), which a version 4
+// build would drop; 6 brings VPN profiles and host VPN bindings (KTD4),
+// which a version 5 build would drop and then connect around.
+const minReaderVersion = 6
 
 var (
 	ErrDecrypt      = errors.New("the sync snapshot cannot be decrypted: the passphrase is wrong or the data was changed")
