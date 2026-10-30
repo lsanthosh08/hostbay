@@ -28,6 +28,16 @@ export function AddAllowEntry(tokenID: string, hostID: string, command: string):
 }
 
 /**
+ * AddVPNAllow lets one token connect and disconnect one app-scoped or
+ * external VPN profile without a card, after the dialog and verification.
+ * The entry holds while the profile keeps its type, gateway and tier; a
+ * system-wide profile is refused, since it always asks (KTD6).
+ */
+export function AddVPNAllow(tokenID: string, vpnID: string): $CancellablePromise<void> {
+    return $Call.ByID(3352414528, tokenID, vpnID);
+}
+
+/**
  * CreateToken makes a token for one client, after the dialog and
  * verification. Only its hash is kept, so this is the one time it exists
  * outside the client's config.
@@ -42,6 +52,14 @@ export function ListAllowlist(): $CancellablePromise<$models.MCPAllowEntry[] | n
 
 export function ListTokens(): $CancellablePromise<$models.MCPToken[] | null> {
     return $Call.ByID(4211834628);
+}
+
+/**
+ * ListVPNAllow lists the VPN entries; one whose token or profile is gone
+ * applies to nothing and is left out.
+ */
+export function ListVPNAllow(): $CancellablePromise<$models.MCPVPNAllow> {
+    return $Call.ByID(2424066059);
 }
 
 /**
@@ -61,7 +79,14 @@ export function RemoveAllowEntry(tokenID: string, hostID: string, command: strin
 }
 
 /**
- * RevokeToken deletes a token and its allowlist entries: new calls get
+ * RemoveVPNAllow takes a VPN entry off; that only makes more ask.
+ */
+export function RemoveVPNAllow(tokenID: string, vpnID: string): $CancellablePromise<void> {
+    return $Call.ByID(2175506043, tokenID, vpnID);
+}
+
+/**
+ * RevokeToken deletes a token and its allowlist and VPN entries: new calls get
  * 401, its waiting requests are denied, and its running jobs finish with
  * their output dropped (KTD36).
  */

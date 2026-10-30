@@ -34,6 +34,13 @@ type Pending struct {
 	// skill with that name is saved already.
 	Name     string `json:"name,omitempty"`
 	Replaces bool   `json:"replaces,omitempty"`
+	// A connect_vpn or disconnect_vpn request changes what this computer
+	// reaches: Target is the profile's ID, Host its name, Tag the tag the
+	// client named it by, and Tier and Gateway what the card shows. Bytes is
+	// empty.
+	Tag     string `json:"tag,omitempty"`
+	Tier    string `json:"tier,omitempty"`
+	Gateway string `json:"gateway,omitempty"`
 }
 
 // Approvals holds the pending requests.

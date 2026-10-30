@@ -23,6 +23,7 @@ import (
 	"hostbay/internal/sshx"
 	"hostbay/internal/store"
 	"hostbay/internal/tlstrust"
+	"hostbay/internal/vpn/vpntest"
 )
 
 const mcpSamplePassword = "Mcp-Sample-Pass-4417"
@@ -324,4 +325,84 @@ func TestMCPPickFolderRefuses(t *testing.T) {
 		t.Fatal("SetLocal changed MCP settings")
 	}
 	_ = store.MCPSettings{}
+}
+
+// VPN allow entries are added only through the dialog, never for a
+// system-wide profile, go stale when the profile's gateway changes, and
+// leave with their token (KTD6).
+func TestMCPVPNAllowSettings(t *testing.T) {
+	e := newMCPEnv(t)
+	nt, _ := e.s.CreateToken(t.Context(), "c")
+	vpns := e.s.srv.VPNs.(*mcpVPNs).creds.vpns
+	app, err := vpns.SaveVPN(VPN{Name: "office", Type: "wireguard", Tier: "app", Gateway: "a.example.test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	whole, _ := vpns.SaveVPN(VPN{Name: "whole", Type: "openvpn", Tier: "system", Gateway: "w.example.test"})
+
+	dialogs := e.dialogs
+	if err := e.s.AddVPNAllow(t.Context(), nt.Token.ID, whole.ID); err == nil || e.dialogs != dialogs {
+		t.Fatalf("system-wide entry: %v, %d dialogs", err, e.dialogs-dialogs)
+	}
+	e.confirm = false
+	if err := e.s.AddVPNAllow(t.Context(), nt.Token.ID, app.ID); err == nil {
+		t.Fatal("added without the dialog")
+	}
+	e.confirm = true
+	if err := e.s.AddVPNAllow(t.Context(), nt.Token.ID, app.ID); err != nil {
+		t.Fatal(err)
+	}
+	l, _ := e.s.ListVPNAllow()
+	if len(l.Entries) != 1 || l.Entries[0].VPNName != "office" || l.Entries[0].TokenName != "c" || l.Entries[0].Stale ||
+		len(l.Profiles) != 1 || l.Profiles[0].ID != app.ID {
+		t.Fatalf("list = %+v", l)
+	}
+
+	app.Gateway = "elsewhere.example.test"
+	vpns.SaveVPN(app)
+	if l, _ := e.s.ListVPNAllow(); len(l.Entries) != 1 || !l.Entries[0].Stale {
+		t.Fatalf("after a gateway change = %+v", l)
+	}
+
+	if err := e.s.RevokeToken(nt.Token.ID); err != nil {
+		t.Fatal(err)
+	}
+	if loc, _ := e.s.st.Local(); len(loc.MCP.VPNAllow) != 0 {
+		t.Fatalf("entries outlived their token: %+v", loc.MCP.VPNAllow)
+	}
+}
+
+// F4 against a test profile: the agent connects by tag after the card, the
+// profile is its own, and it disconnects it after another card.
+func TestMCPConnectVPNEndToEnd(t *testing.T) {
+	e := newMCPEnv(t)
+	e.s.SetEnabled(t.Context(), true)
+	e.s.CreateToken(t.Context(), "claude-code")
+	vpns := e.s.srv.VPNs.(*mcpVPNs).creds.vpns
+	fake := vpntest.Install(t, vpntest.OK)
+	vpns.helper = func() (string, error) { return fake.Path, nil }
+	vpns.emit = func(string, any) {}
+	t.Cleanup(func() { vpns.ServiceShutdown() })
+	key := testWGKey
+	v, err := vpns.SaveVPN(VPN{Name: "Atlas VPN", Type: "wireguard", Tier: "app", Gateway: "vpn.example.test", Address: []string{"10.9.0.2/32"},
+		PeerKey: testPeer, Routes: []string{"10.9.0.0/24"}, Tags: []string{"atlas"}, PrivateKey: &key})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs := e.client(t, e.copied)
+
+	done := make(chan string, 1)
+	go func() { _, text := mcpCall(t, cs, "connect_vpn", map[string]any{"tag": "atlas"}); done <- text }()
+	if p := e.answer(t, true); p.Client != "claude-code" || p.Host != "Atlas VPN" || p.Tag != "atlas" || p.Gateway != "vpn.example.test" {
+		t.Fatalf("card = %+v", p)
+	}
+	if text := <-done; !strings.Contains(text, `"state":"connected"`) || !strings.Contains(text, `"connectedBy":"you"`) || strings.Contains(text, strconv.Itoa(vpntest.Port)) {
+		t.Fatalf("connect_vpn = %s", text)
+	}
+
+	go func() { _, text := mcpCall(t, cs, "disconnect_vpn", map[string]any{"profileId": v.ID}); done <- text }()
+	e.answer(t, true)
+	if text := <-done; !strings.Contains(text, `"state":"disconnected"`) || vpns.ConnectedVPNs() != 0 {
+		t.Fatalf("disconnect_vpn = %s", text)
+	}
 }

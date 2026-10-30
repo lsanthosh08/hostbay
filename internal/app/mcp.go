@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -49,7 +50,7 @@ func NewMCPService(st *store.Store, conns *ConnService, creds *HostCredentials, 
 	jobs := agentexec.NewHostJobs(ai.exec.Approvals, &mcpHosts{conns: conns, creds: creds})
 	s := &MCPService{
 		st:      st,
-		srv:     &mcp.Server{St: st, Jobs: jobs, Tokens: mcp.NewTokens(st), Home: st.Home()},
+		srv:     &mcp.Server{St: st, Jobs: jobs, Tokens: mcp.NewTokens(st), VPNs: &mcpVPNs{creds: creds}, Home: st.Home()},
 		confirm: container.NativeConfirm,
 		gate:    ai.gate,
 		copy:    func(text string) bool { return application.Get().Clipboard.SetText(text) },
@@ -255,7 +256,7 @@ func (s *MCPService) CreateToken(ctx context.Context, name string) (MCPNewToken,
 	return MCPNewToken{Token: MCPToken{ID: tok.ID, Name: tok.Name, Created: tok.Created}, Copied: s.copy(secret), Config: cfg}, nil
 }
 
-// RevokeToken deletes a token and its allowlist entries: new calls get
+// RevokeToken deletes a token and its allowlist and VPN entries: new calls get
 // 401, its waiting requests are denied, and its running jobs finish with
 // their output dropped (KTD36).
 func (s *MCPService) RevokeToken(id string) error {
@@ -265,6 +266,7 @@ func (s *MCPService) RevokeToken(id string) error {
 	s.srv.Jobs.Revoke("mcp:" + id)
 	return s.st.EditLocal(func(l *store.Local) error {
 		delete(l.MCP.Allowlist, id)
+		l.MCP.VPNAllow = slices.DeleteFunc(l.MCP.VPNAllow, func(e store.VPNAllowEntry) bool { return e.Token == id })
 		return nil
 	})
 }
@@ -370,6 +372,105 @@ func (s *MCPService) RemoveAllowEntry(tokenID, hostID, command string) error {
 	})
 }
 
+// MCPVPNAllow is Settings > MCP's VPN entries, and the profiles one can
+// name: app-scoped and external ones, since a system-wide profile always
+// asks (KTD6).
+type MCPVPNAllow struct {
+	Entries  []MCPVPNAllowEntry `json:"entries"`
+	Profiles []MCPVPNChoice     `json:"profiles"`
+}
+
+// MCPVPNAllowEntry is one profile a token connects and disconnects without
+// a card. Stale says the profile's type, gateway or tier changed since, so
+// it asks again until the entry is added anew.
+type MCPVPNAllowEntry struct {
+	TokenID   string `json:"tokenId"`
+	TokenName string `json:"tokenName"`
+	VPNID     string `json:"vpnId"`
+	VPNName   string `json:"vpnName"`
+	Stale     bool   `json:"stale,omitempty"`
+}
+
+type MCPVPNChoice struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// ListVPNAllow lists the VPN entries; one whose token or profile is gone
+// applies to nothing and is left out.
+func (s *MCPService) ListVPNAllow() (MCPVPNAllow, error) {
+	l, err := s.st.Local()
+	if err != nil {
+		return MCPVPNAllow{}, err
+	}
+	d, err := s.st.Data()
+	if err != nil {
+		return MCPVPNAllow{}, err
+	}
+	tokens, err := s.srv.Tokens.List()
+	if err != nil {
+		return MCPVPNAllow{}, err
+	}
+	out := MCPVPNAllow{Entries: []MCPVPNAllowEntry{}, Profiles: []MCPVPNChoice{}}
+	for _, e := range l.MCP.VPNAllow {
+		i := slices.IndexFunc(tokens, func(t mcp.Token) bool { return t.ID == e.Token })
+		v := d.VPN(e.Profile)
+		if i < 0 || v == nil {
+			continue
+		}
+		out.Entries = append(out.Entries, MCPVPNAllowEntry{TokenID: e.Token, TokenName: tokens[i].Name, VPNID: v.ID, VPNName: v.Name, Stale: !e.Matches(e.Token, v)})
+	}
+	for _, v := range d.VPNs.Items {
+		if v.Tier != store.VPNTierSystem {
+			out.Profiles = append(out.Profiles, MCPVPNChoice{ID: v.ID, Name: v.Name})
+		}
+	}
+	return out, nil
+}
+
+// AddVPNAllow lets one token connect and disconnect one app-scoped or
+// external VPN profile without a card, after the dialog and verification.
+// The entry holds while the profile keeps its type, gateway and tier; a
+// system-wide profile is refused, since it always asks (KTD6).
+func (s *MCPService) AddVPNAllow(ctx context.Context, tokenID, vpnID string) error {
+	tokens, err := s.srv.Tokens.List()
+	if err != nil {
+		return err
+	}
+	i := slices.IndexFunc(tokens, func(t mcp.Token) bool { return t.ID == tokenID })
+	if i < 0 {
+		return errors.New("token not found")
+	}
+	d, err := s.st.Data()
+	if err != nil {
+		return err
+	}
+	v := d.VPN(vpnID)
+	switch {
+	case v == nil:
+		return errors.New("VPN profile not found")
+	case v.Tier == store.VPNTierSystem:
+		return errors.New("a system-wide VPN profile changes the whole computer's network, so an MCP client always asks before it connects one")
+	}
+	if err := s.widen(ctx, "Let "+tokens[i].Name+" connect "+v.Name+" without asking?",
+		fmt.Sprintf("The MCP client %s will connect and disconnect the VPN profile %s (%s) without asking, until the profile's type, gateway or tier changes.", tokens[i].Name, v.Name, v.Gateway)); err != nil {
+		return err
+	}
+	e := store.VPNAllowEntry{Token: tokenID, Profile: vpnID, Type: v.Type, Gateway: v.Gateway, Tier: v.Tier}
+	return s.st.EditLocal(func(l *store.Local) error {
+		l.MCP.VPNAllow = append(slices.DeleteFunc(l.MCP.VPNAllow, func(x store.VPNAllowEntry) bool { return x.Token == tokenID && x.Profile == vpnID }), e)
+		return nil
+	})
+}
+
+// RemoveVPNAllow takes a VPN entry off; that only makes more ask.
+func (s *MCPService) RemoveVPNAllow(tokenID, vpnID string) error {
+	return s.st.EditLocal(func(l *store.Local) error {
+		l.MCP.VPNAllow = slices.DeleteFunc(l.MCP.VPNAllow, func(x store.VPNAllowEntry) bool { return x.Token == tokenID && x.Profile == vpnID })
+		return nil
+	})
+}
+
 // PickFolder sets the MCP folder from a dialog Go opens. The data folder,
 // ~/.ssh, a folder inside either and a folder that holds either are
 // refused. A cancelled dialog changes nothing and returns "".
@@ -389,6 +490,31 @@ func (s *MCPService) PickFolder() (string, error) {
 		l.MCP.Folder = dir
 		return nil
 	})
+}
+
+// mcpVPNs is the VPN service as MCP's tools reach it. A connect starts
+// nothing silently: the tools ask first (KTD6).
+type mcpVPNs struct{ creds *HostCredentials }
+
+func (m *mcpVPNs) State(id string) mcp.VPNLive {
+	var l mcp.VPNLive
+	sts := m.creds.vpns.VPNStates()
+	if i := slices.IndexFunc(sts, func(st VPNState) bool { return st.ID == id }); i >= 0 {
+		l = mcp.VPNLive{Status: sts[i].Status, Reason: sts[i].Reason, Need: sts[i].Need}
+	}
+	if by, ok := m.creds.vpns.connectedBy(id); ok {
+		l.By = cmp.Or(by, "user")
+	}
+	return l
+}
+
+func (m *mcpVPNs) Connect(ctx context.Context, id, principal string) (mcp.VPNLive, error) {
+	_, err := m.creds.vpns.connectAs(ctx, id, principal)
+	return m.State(id), err
+}
+
+func (m *mcpVPNs) Disconnect(id, principal string) error {
+	return m.creds.vpns.disconnectAs(id, principal)
 }
 
 // mcpHosts is saved SSH hosts as the MCP gate reaches them: each request

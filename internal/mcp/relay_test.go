@@ -73,7 +73,7 @@ func TestRelayForwards(t *testing.T) {
 				t.Fatalf("negotiated %q", got)
 			}
 			tools, err := cs.ListTools(t.Context(), nil)
-			if err != nil || len(tools.Tools) != 8 {
+			if err != nil || len(tools.Tools) != 12 {
 				t.Fatalf("tools = %v, %v", tools, err)
 			}
 			_, text := call(t, cs, "list_connections", nil)

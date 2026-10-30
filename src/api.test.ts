@@ -127,11 +127,14 @@ describe("api bridge", () => {
   it("offers the page only these MCP calls", () => {
     expect(Object.keys(bindings.MCPService).sort()).toEqual([
       "AddAllowEntry",
+      "AddVPNAllow",
       "CreateToken",
       "ListAllowlist",
       "ListTokens",
+      "ListVPNAllow",
       "PickFolder",
       "RemoveAllowEntry",
+      "RemoveVPNAllow",
       "RevokeToken",
       "SetEnabled",
       "SetPort",

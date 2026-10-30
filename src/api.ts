@@ -1245,5 +1245,10 @@ export const mcpRevokeToken = (id: string) => MCPService.RevokeToken(id);
 export const mcpListAllowlist = () => list(MCPService.ListAllowlist()) as Promise<MCPAllowEntry[]>;
 export const mcpAddAllowEntry = (tokenId: string, hostId: string, command: string) => MCPService.AddAllowEntry(tokenId, hostId, command);
 export const mcpRemoveAllowEntry = (tokenId: string, hostId: string, command: string) => MCPService.RemoveAllowEntry(tokenId, hostId, command);
+export type { MCPVPNAllow } from "./bindings/hostbay/internal/app/models";
+export const mcpListVPNAllow = () => MCPService.ListVPNAllow();
+// Asks in a dialog Go opens, then OS verification; Go refuses system-wide profiles.
+export const mcpAddVPNAllow = (tokenId: string, vpnId: string) => MCPService.AddVPNAllow(tokenId, vpnId);
+export const mcpRemoveVPNAllow = (tokenId: string, vpnId: string) => MCPService.RemoveVPNAllow(tokenId, vpnId);
 // The folder is picked in a dialog Go opens; "" means cancelled.
 export const mcpPickFolder = () => MCPService.PickFolder();

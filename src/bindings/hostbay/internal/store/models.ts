@@ -95,6 +95,12 @@ export interface MCPSettings {
      * then host ID (KTD36).
      */
     "allowlist"?: { [_ in string]?: { [_ in string]?: AllowEntry[] | null } | null } | null;
+
+    /**
+     * VPNAllow is the VPN profiles a token connects and disconnects without
+     * a card (KTD6), added only in Settings.
+     */
+    "vpnAllow"?: VPNAllowEntry[] | null;
 }
 
 /**
@@ -192,6 +198,19 @@ export interface TermTheme {
      */
     "type": string;
     "colors": { [_ in string]?: string } | null;
+}
+
+/**
+ * VPNAllowEntry lets one token connect and disconnect one VPN profile
+ * without a card while the profile keeps the type, gateway and tier it had
+ * when the user allowed it.
+ */
+export interface VPNAllowEntry {
+    "token": string;
+    "profile": string;
+    "type": string;
+    "gateway": string;
+    "tier": string;
 }
 
 /**

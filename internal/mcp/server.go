@@ -112,6 +112,7 @@ type Server struct {
 	St     *store.Store
 	Jobs   *agentexec.HostJobs
 	Tokens *Tokens
+	VPNs   VPNs
 	Home   string // the default folder, where the endpoint file goes
 
 	mu     sync.Mutex

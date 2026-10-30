@@ -351,3 +351,37 @@ func TestConnectVPNFailsWithACode(t *testing.T) {
 		t.Fatalf("unsupported type: %v", err)
 	}
 }
+
+// A connection remembers who made it, so an MCP token disconnects only its
+// own: joining a run someone else started takes nothing over (U14).
+func TestMCPVPNsDisconnectOnlyTheirOwn(t *testing.T) {
+	e := newVPNEnv(t, vpntest.OK)
+	v := e.save(t, false)
+	m := &mcpVPNs{creds: &HostCredentials{vpns: e.svc}}
+	if l := m.State(v.ID); l.By != "" || l.Status != "" {
+		t.Fatalf("before connect %+v", l)
+	}
+	if _, err := e.svc.ConnectVPN(context.Background(), v.ID); err != nil {
+		t.Fatal(err)
+	}
+	if l := m.State(v.ID); l.By != "user" || l.Status != VPNConnected {
+		t.Fatalf("user's connection %+v", l)
+	}
+	if _, err := m.Connect(context.Background(), v.ID, "mcp:a"); err != nil || m.State(v.ID).By != "user" {
+		t.Fatalf("joining took it over: %v %+v", err, m.State(v.ID))
+	}
+	if err := m.Disconnect(v.ID, "mcp:a"); err == nil || e.svc.ConnectedVPNs() != 1 {
+		t.Fatalf("token disconnected the user's profile: %v", err)
+	}
+
+	e.svc.DisconnectVPN(v.ID)
+	if l, err := m.Connect(context.Background(), v.ID, "mcp:a"); err != nil || l.By != "mcp:a" || l.Status != VPNConnected {
+		t.Fatalf("token's connect %+v %v", l, err)
+	}
+	if err := m.Disconnect(v.ID, "mcp:b"); err == nil || e.svc.ConnectedVPNs() != 1 {
+		t.Fatalf("another token disconnected it: %v", err)
+	}
+	if err := m.Disconnect(v.ID, "mcp:a"); err != nil || e.svc.ConnectedVPNs() != 0 || m.State(v.ID).Status != VPNDisconnected {
+		t.Fatalf("own disconnect %v %+v", err, m.State(v.ID))
+	}
+}
