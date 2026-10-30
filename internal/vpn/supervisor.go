@@ -62,6 +62,9 @@ type Helper struct {
 	closeOnce sync.Once
 	closing   chan struct{} // Close was called: its end is not news
 	done      chan struct{} // the helper exited and was reaped
+
+	browserMu sync.Mutex     // one openBrowser at a time, so replies pair with requests
+	browser   chan proto.Msg // browserPort replies, for BrowserPort and never report
 }
 
 // Start launches the helper at path (absolute), checks its version and
@@ -92,7 +95,7 @@ func Start(ctx context.Context, path string, start proto.Msg, report func(proto.
 	if err := cmd.Start(); err != nil {
 		return nil, apperr.New(apperr.HelperMissing, "Cannot start Hostbay's VPN helper: "+err.Error()+". Reinstall Hostbay.")
 	}
-	h := &Helper{cmd: cmd, stdin: stdin, closing: make(chan struct{}), done: make(chan struct{})}
+	h := &Helper{cmd: cmd, stdin: stdin, closing: make(chan struct{}), done: make(chan struct{}), browser: make(chan proto.Msg, 1)}
 	r := bufio.NewReader(stdout)
 	if err := h.handshake(ctx, r, start); err != nil {
 		cmd.Process.Kill()
@@ -148,6 +151,13 @@ func (h *Helper) readLoop(r *bufio.Reader, report func(proto.Msg)) {
 				reason = "The VPN helper sent a malformed message."
 			}
 			break
+		}
+		if m.T == proto.BrowserPort {
+			select {
+			case h.browser <- m:
+			default: // nobody asked
+			}
+			continue
 		}
 		if m.T != proto.State && m.T != proto.Need && m.T != proto.NodeState {
 			continue

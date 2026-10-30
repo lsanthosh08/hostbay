@@ -8,8 +8,12 @@
 // changes or ends, and need when the engine waits on the user, which Hostbay
 // meets with answer. A Tailscale helper also sends nodeState whenever its
 // node's keys change, for Hostbay to seal and send back in the next start's
-// secrets. Closing the helper's stdin disconnects the profile and
-// the helper exits.
+// secrets. Hostbay may send openBrowser at any time; the helper answers
+// browserPort with the port of a second SOCKS5 listener on 127.0.0.1 that
+// takes no login, for a browser profile (Chromium cannot log in to a SOCKS
+// proxy, KTD11). Later requests get the same port. Closing the helper's
+// stdin disconnects the profile and the helper exits, closing both
+// listeners.
 //
 // This package is imported by the main binary, so it uses only the standard
 // library.
@@ -28,6 +32,10 @@ const (
 	// NodeState carries secrets, unlike every other helper message: Hostbay
 	// seals it, keeps it on this device only and never logs it.
 	NodeState = "nodeState" // helper: NodeState
+	// The browser listener's port, like SocksPort, stays between Hostbay and
+	// the helper: no state, event, log or MCP reply carries it.
+	OpenBrowser = "openBrowser" // Hostbay: nothing
+	BrowserPort = "browserPort" // helper: SocksPort, or Reason when it could not open
 )
 
 // Engine types. The OpenConnect ones run the openconnect program; their

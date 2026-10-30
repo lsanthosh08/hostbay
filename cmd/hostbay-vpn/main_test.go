@@ -255,3 +255,119 @@ func TestTailscaleRegistered(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+// openBrowser opens a second, login-free SOCKS listener on loopback that
+// dials through the engine and closes when the run ends (KTD11).
+func TestRunOpensANoLoginBrowserListener(t *testing.T) {
+	f := useFake(t)
+	h := startHelper(t)
+	h.read(t) // hello
+	h.send(t, start("fake", testUser, testPass))
+	h.read(t) // connecting
+	h.read(t) // connected
+
+	echo, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer echo.Close()
+	go func() {
+		for {
+			c, err := echo.Accept()
+			if err != nil {
+				return
+			}
+			go func() { io.Copy(c, c); c.Close() }()
+		}
+	}()
+
+	h.send(t, proto.Msg{T: proto.OpenBrowser})
+	m := h.read(t)
+	if m.T != proto.BrowserPort || m.SocksPort == 0 || m.Reason != "" {
+		t.Fatalf("got %+v, want browserPort with a port", m)
+	}
+	h.send(t, proto.Msg{T: proto.OpenBrowser})
+	if again := h.read(t); again.T != proto.BrowserPort || again.SocksPort != m.SocksPort {
+		t.Fatalf("second open %+v, want port %d again", again, m.SocksPort)
+	}
+	// Bound to loopback only.
+	for _, a := range nonLoopback(t) {
+		if c, err := net.DialTimeout("tcp", net.JoinHostPort(a, strconv.Itoa(m.SocksPort)), time.Second); err == nil {
+			c.Close()
+			t.Fatalf("browser listener reachable at %s", a)
+		}
+	}
+	browserAddr := "127.0.0.1:" + strconv.Itoa(m.SocksPort)
+
+	// No login: method 0 is accepted and CONNECT reaches the echo server.
+	c, err := net.Dial("tcp", browserAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.SetDeadline(time.Now().Add(5 * time.Second))
+	c.Write([]byte{5, 1, 0})
+	var sel [2]byte
+	if _, err := io.ReadFull(c, sel[:]); err != nil || sel != [2]byte{5, 0} {
+		t.Fatalf("method reply %v %v", sel, err)
+	}
+	port := echo.Addr().(*net.TCPAddr).Port
+	c.Write([]byte{5, 1, 0, 1, 127, 0, 0, 1, byte(port >> 8), byte(port)})
+	var rep [10]byte
+	if _, err := io.ReadFull(c, rep[:]); err != nil || rep[1] != 0 {
+		t.Fatalf("connect reply %v %v", rep, err)
+	}
+	c.Write([]byte("ping"))
+	var got [4]byte
+	if _, err := io.ReadFull(c, got[:]); err != nil || string(got[:]) != "ping" {
+		t.Fatalf("echo %q %v", got, err)
+	}
+	c.Close()
+
+	h.stdin.Close()
+	if err := h.wait(t); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	<-f.stopped
+	if c, err := net.Dial("tcp", browserAddr); err == nil {
+		c.Close()
+		t.Fatal("browser listener still open after the run ended")
+	}
+}
+
+// The login listener still refuses a client that will not log in.
+func TestLoginListenerRefusesNoLogin(t *testing.T) {
+	useFake(t)
+	h := startHelper(t)
+	h.read(t)
+	h.send(t, start("fake", testUser, testPass))
+	h.read(t)
+	m := h.read(t)
+	c, err := net.Dial("tcp", "127.0.0.1:"+strconv.Itoa(m.SocksPort))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	c.SetDeadline(time.Now().Add(5 * time.Second))
+	c.Write([]byte{5, 1, 0})
+	var sel [2]byte
+	if _, err := io.ReadFull(c, sel[:]); err != nil || sel[1] != 0xff {
+		t.Fatalf("method reply %v %v, want no acceptable method", sel, err)
+	}
+	h.stdin.Close()
+	h.wait(t)
+}
+
+// nonLoopback is this machine's other IPv4 addresses.
+func nonLoopback(t *testing.T) []string {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, a := range addrs {
+		if n, ok := a.(*net.IPNet); ok && n.IP.To4() != nil && !n.IP.IsLoopback() {
+			out = append(out, n.IP.String())
+		}
+	}
+	return out
+}

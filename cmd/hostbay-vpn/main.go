@@ -3,8 +3,10 @@
 // arguments, and drives it over stdin and stdout with the messages in
 // internal/vpn/proto: the helper sends hello, reads one start message, brings
 // the tunnel up inside its own process and serves an authenticated SOCKS5
-// endpoint on 127.0.0.1 through it (KTD2), reporting each state change. It
-// exits when its stdin closes, taking the tunnel and the listener with it.
+// endpoint on 127.0.0.1 through it (KTD2), reporting each state change. On
+// openBrowser it also serves a SOCKS5 endpoint without a login on
+// 127.0.0.1 for a browser profile (KTD11). It exits when its stdin closes,
+// taking the tunnel and both listeners with it.
 //
 // Secrets arrive only in the start message. Nothing the helper writes, to
 // stdout or stderr, carries one, except the nodeState message: a Tailscale
@@ -118,6 +120,7 @@ func run(in io.Reader, out io.Writer) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() {
+		browserPort := 0 // the browser listener's, once opened
 		for {
 			var m proto.Msg
 			if dec.Decode(&m) != nil {
@@ -126,6 +129,19 @@ func run(in io.Reader, out io.Writer) error {
 			}
 			if a, ok := eng.(answerer); ok && m.T == proto.Answer {
 				a.Answer(m.OTP)
+			}
+			if m.T == proto.OpenBrowser {
+				if browserPort == 0 {
+					bln, err := net.Listen("tcp", "127.0.0.1:0")
+					if err != nil {
+						send(proto.Msg{T: proto.BrowserPort, Reason: "Cannot open the browser's SOCKS port: " + err.Error()})
+						continue
+					}
+					context.AfterFunc(ctx, func() { bln.Close() }) // ctx ends as run returns
+					browserPort = bln.Addr().(*net.TCPAddr).Port
+					go (&socks.Server{NoLogin: true, Dial: eng.Dial}).Serve(bln)
+				}
+				send(proto.Msg{T: proto.BrowserPort, SocksPort: browserPort})
 			}
 		}
 	}()

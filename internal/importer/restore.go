@@ -54,8 +54,8 @@ type Report struct {
 	// VPNs are the VPN profiles added, each with what the file held that
 	// was dropped (R43).
 	VPNs []VPNImport `json:"vpns"`
-	// Browsers are browser-profile mappings the file holds. Browser routing
-	// is not built yet, so they are reported and not saved.
+	// Browsers are browser-profile mappings the file holds. A VPN import's
+	// commit saves those of the VPNs kept and reports only them.
 	Browsers []BrowserMapping `json:"browsers"`
 }
 
