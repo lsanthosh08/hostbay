@@ -231,6 +231,15 @@ tasks:
       # with a message when this machine has no openconnect (brew install openconnect).
       - cmd: sh build/darwin/bundle-openconnect.sh "{{.BIN_DIR}}/{{.APP_BUNDLE}}.app/Contents"
         platforms: [darwin]
+      # openvpn for system-wide profiles, which hostbay-netd copies at install;
+      # skipped with a message when this machine has none (brew install openvpn).
+      - cmd: |
+          if command -v openvpn >/dev/null 2>&1; then
+            sh build/darwin/bundle-openconnect.sh "{{.BIN_DIR}}/{{.APP_BUNDLE}}.app/Contents" "$(command -v openvpn)"
+          else
+            echo "openvpn not found: building without bundled OpenVPN (brew install openvpn to bundle it)"
+          fi
+        platforms: [darwin]
       - cp build/darwin/Info.plist "{{.BIN_DIR}}/{{.APP_BUNDLE}}.app/Contents"
       - task: '{{if eq OS "darwin"}}codesign:adhoc{{else}}codesign:skip{{end}}'
 

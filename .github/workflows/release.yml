@@ -55,9 +55,9 @@ jobs:
       # (build/darwin/bundle-openconnect.sh records each one's version in the
       # app for the NOTICE source offer). The bottle matches the runner's
       # architecture only.
-      - name: Install OpenConnect
+      - name: Install OpenConnect and OpenVPN
         if: runner.os == 'macOS'
-        run: brew install openconnect
+        run: brew install openconnect openvpn
 
       # System-wide tunnels on Windows need wintun.dll beside openconnect.exe.
       # Pinned to the zip and SHA-256 OpenConnect's own installer uses
