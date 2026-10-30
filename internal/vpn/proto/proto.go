@@ -52,6 +52,24 @@ const (
 	TypeTailscale      = "tailscale" // Tailscale, or Headscale through its control URL
 )
 
+// OpenConnectTypes is every engine type that runs the openconnect program,
+// each with its --protocol value.
+var OpenConnectTypes = map[string]string{
+	TypeAnyConnect:     "anyconnect",
+	TypeSSLVPN:         "fortinet",
+	TypeGlobalProtect:  "gp",
+	TypePulse:          "pulse",
+	TypeNetworkConnect: "nc",
+	TypeF5:             "f5",
+	TypeArray:          "array",
+}
+
+// IsOpenConnect reports whether t runs the openconnect program.
+func IsOpenConnect(t string) bool {
+	_, ok := OpenConnectTypes[t]
+	return ok
+}
+
 // Types that connect only system-wide, through hostbay-netd or the
 // operating system, never inside hostbay-vpn.
 const (

@@ -23,17 +23,6 @@ import (
 	"hostbay/internal/vpn/proto"
 )
 
-// protocols maps each type to openconnect's --protocol.
-var protocols = map[string]string{
-	proto.TypeAnyConnect:     "anyconnect",
-	proto.TypeSSLVPN:         "fortinet",
-	proto.TypeGlobalProtect:  "gp",
-	proto.TypePulse:          "pulse",
-	proto.TypeNetworkConnect: "nc",
-	proto.TypeF5:             "f5",
-	proto.TypeArray:          "array",
-}
-
 // browserTypes can sign in in the user's browser (R20): openconnect's
 // --external-browser serves only AnyConnect's external-browser SSO mode.
 var browserTypes = map[string]bool{proto.TypeAnyConnect: true}
@@ -71,7 +60,7 @@ var pinRE = regexp.MustCompile(`pin-sha256:[A-Za-z0-9+/]{43}=`)
 // (secrets["password"]). No error names the password.
 func prepare(typ, conf string, secrets map[string]string) (launch, error) {
 	l := launch{typ: typ, password: secrets["password"]}
-	if _, ok := protocols[typ]; !ok {
+	if !proto.IsOpenConnect(typ) {
 		return l, fmt.Errorf("OpenConnect cannot run VPN type %q.", typ)
 	}
 	dec := json.NewDecoder(strings.NewReader(conf))
@@ -103,7 +92,7 @@ func unsafe(r rune) bool { return r <= ' ' || r == 0x7f }
 // as the browser. No secret is ever an argument: the password goes on
 // stdin.
 func (l launch) args(self string) []string {
-	a := l.signIn([]string{"--protocol=" + protocols[l.typ], "--non-inter", "--script-tun", "--script=" + shellQuote(self) + " tun-fd"})
+	a := l.signIn([]string{"--protocol=" + proto.OpenConnectTypes[l.typ], "--non-inter", "--script-tun", "--script=" + shellQuote(self) + " tun-fd"})
 	if l.cfg.Browser {
 		a = append(a, "--external-browser="+self)
 	}
@@ -124,7 +113,7 @@ func SystemArgs(typ, conf string, secrets map[string]string, iface, script strin
 	if l.cfg.Browser {
 		return nil, errors.New("A system-wide VPN cannot sign in in the browser.")
 	}
-	a := l.signIn([]string{"--protocol=" + protocols[l.typ], "--non-inter", "--interface=" + iface, "--script=" + script})
+	a := l.signIn([]string{"--protocol=" + proto.OpenConnectTypes[l.typ], "--non-inter", "--interface=" + iface, "--script=" + script})
 	return append(a, "--", l.cfg.Gateway), nil
 }
 

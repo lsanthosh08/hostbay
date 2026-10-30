@@ -34,7 +34,7 @@ var vpnGOOS = runtime.GOOS
 // vpnTier is the tier v runs in: its own, except that an OpenConnect type
 // on Windows runs system-wide (R2).
 func vpnTier(v store.VPN) string {
-	if v.Tier == store.VPNTierApp && vpnGOOS == "windows" && openConnectTypes[v.Type] {
+	if v.Tier == store.VPNTierApp && vpnGOOS == "windows" && proto.IsOpenConnect(v.Type) {
 		return store.VPNTierSystem
 	}
 	return v.Tier
@@ -153,7 +153,7 @@ func (s *VPNService) startTunnel(v *store.VPN, sec store.VPNSecrets, up func(str
 			UserPass: v.Auth == "password", Extra: sec.OpenVPN, Key: sec.PrivateKey}
 	case v.Type == proto.TypeWireGuard:
 		m.T, m.WireGuard = netd.WireGuardStart, &netd.WireGuard{Conf: wireGuardConfig(v), PrivateKey: sec.PrivateKey, PresharedKey: sec.PresharedKey}
-	case openConnectTypes[v.Type] && v.Auth != "certificate":
+	case proto.IsOpenConnect(v.Type) && v.Auth != "certificate":
 		b, _ := json.Marshal(openConnectConfig{Gateway: openConnectGateway(v.Gateway, v.Port), User: v.User, ServerCert: v.PeerKey})
 		m.T, m.OpenConnect = netd.OpenConnectStart, &netd.OpenConnect{Type: v.Type, Config: string(b), Password: sec.Password}
 	default:

@@ -33,3 +33,30 @@ func TestWireNames(t *testing.T) {
 		}
 	}
 }
+
+// Dropping a type here silently stops its profiles from connecting, so the
+// set is pinned.
+func TestOpenConnectTypes(t *testing.T) {
+	want := map[string]string{
+		TypeAnyConnect:     "anyconnect",
+		TypeSSLVPN:         "fortinet",
+		TypeGlobalProtect:  "gp",
+		TypePulse:          "pulse",
+		TypeNetworkConnect: "nc",
+		TypeF5:             "f5",
+		TypeArray:          "array",
+	}
+	if len(OpenConnectTypes) != len(want) {
+		t.Errorf("OpenConnectTypes has %d types, want %d", len(OpenConnectTypes), len(want))
+	}
+	for typ, p := range want {
+		if OpenConnectTypes[typ] != p || !IsOpenConnect(typ) {
+			t.Errorf("%s: protocol %q, IsOpenConnect %v; want %q, true", typ, OpenConnectTypes[typ], IsOpenConnect(typ), p)
+		}
+	}
+	for _, typ := range []string{TypeWireGuard, TypeTailscale, TypeOpenVPN, TypeIPsec, ""} {
+		if IsOpenConnect(typ) {
+			t.Errorf("%q is not an OpenConnect type", typ)
+		}
+	}
+}

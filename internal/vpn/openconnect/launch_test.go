@@ -48,8 +48,8 @@ func TestArgsNeverCarryThePassword(t *testing.T) {
 			t.Errorf("%s: argv %q does not end with -- and the gateway", typ, args)
 		}
 	}
-	if len(protocols) != len(want) {
-		t.Errorf("protocols has %d types, the test knows %d", len(protocols), len(want))
+	if len(proto.OpenConnectTypes) != len(want) {
+		t.Errorf("OpenConnectTypes has %d types, the test knows %d", len(proto.OpenConnectTypes), len(want))
 	}
 }
 
@@ -63,7 +63,7 @@ func TestBrowserSignIn(t *testing.T) {
 		t.Fatalf("argv %q", args)
 	}
 	// R20: a protocol without browser sign-in does not offer it.
-	for typ := range protocols {
+	for typ := range proto.OpenConnectTypes {
 		if typ == proto.TypeAnyConnect {
 			continue
 		}
