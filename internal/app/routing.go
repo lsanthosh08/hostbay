@@ -1,0 +1,557 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"maps"
+	"net"
+	"net/netip"
+	"slices"
+	"sync"
+	"time"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
+
+	"hostbay/internal/netd"
+	"hostbay/internal/store"
+	"hostbay/internal/vpn/detect"
+	"hostbay/internal/vpn/routing"
+)
+
+// RoutingStateEvent carries the RoutingState whenever it changes.
+const RoutingStateEvent = "routing-state"
+
+// A profile's routing state after an apply.
+const (
+	RouteApplied  = "applied"
+	RoutePartly   = "partly applied" // at least one of its changes failed (AE5)
+	RouteFighting = "fighting"       // its vendor keeps reverting the routes
+)
+
+var (
+	// routingDebounce gathers a burst of route events into one re-apply;
+	// routingCap is the least time between automatic re-applies of one
+	// profile, so Hostbay does not fight a vendor agent (KTD9).
+	routingDebounce = 300 * time.Millisecond
+	routingCap      = 5 * time.Second
+)
+
+// RoutingState is what Settings shows about routing.
+type RoutingState struct {
+	Profiles map[string]string `json:"profiles"` // profile ID: RouteApplied, RoutePartly or RouteFighting
+	// Reset is true after Reset until the next Apply: nothing re-applies.
+	Reset  bool   `json:"reset"`
+	Notice string `json:"notice,omitempty"` // the last automatic re-apply, to tell the user (R29)
+}
+
+// ChangeResult is one planned change and its outcome.
+type ChangeResult struct {
+	routing.Change
+	Error string `json:"error,omitempty"`
+}
+
+// RoutingReport is the outcome of an apply (R26).
+type RoutingReport struct {
+	Results []ChangeResult `json:"results"`
+	Skipped []routing.Skip `json:"skipped"`
+	Partly  []string       `json:"partly"` // profiles with a failed change
+}
+
+// routeTable is the part of netd.Table routing reads; changes go through
+// the helper.
+type routeTable interface {
+	Routes() ([]netd.SysRoute, error)
+	Interfaces() ([]netd.Iface, error)
+}
+
+// RoutingService plans and applies system routes for system-wide and
+// external VPNs (R25 to R29) through hostbay-netd.
+type RoutingService struct {
+	st      *store.Store
+	vpns    *VPNService
+	netd    *NetdService
+	table   routeTable
+	mtuOf   func(iface string) int
+	resolve func(ctx context.Context, host string) ([]netip.Addr, error)
+	emit    func(name string, data any)
+	now     func() time.Time
+
+	kicks  chan struct{}
+	stop   context.CancelFunc
+	exited chan struct{} // closed when the re-apply loop has ended
+
+	applying sync.Mutex // one apply at a time
+
+	mu     sync.Mutex
+	state  RoutingState
+	added  []routing.Change     // routes this helper connection added, which Reset removes
+	last   map[string]time.Time // profile: its last automatic re-apply
+	fights map[string]int       // profile: re-applies in a row, each soon after the last
+}
+
+// NewRoutingService links routing to the helper connection and to VPN
+// states, so it re-applies on helper (re)connects, which include startup,
+// on route events and on VPNs connecting.
+func NewRoutingService(st *store.Store, vpns *VPNService, nd *NetdService) *RoutingService {
+	s := &RoutingService{
+		st: st, vpns: vpns, netd: nd, table: netd.SystemTable(), mtuOf: interfaceMTU, resolve: resolveGateway, emit: emitEvent, now: time.Now,
+		kicks: make(chan struct{}, 1), state: RoutingState{Profiles: map[string]string{}}, last: map[string]time.Time{}, fights: map[string]int{},
+	}
+	nd.onConnect = func() {
+		s.mu.Lock()
+		s.added = nil // the helper swept the last connection's routes
+		s.mu.Unlock()
+		s.kick()
+	}
+	nd.onEvent = s.kick
+	vpns.checkConnect = s.conflict
+	// VPNService emits with its lock held, so this only signals.
+	emit := vpns.emit
+	vpns.emit = func(name string, data any) {
+		emit(name, data)
+		if st, ok := data.(VPNState); ok && name == VPNStateEvent && st.Status == VPNConnected {
+			s.kick()
+		}
+	}
+	return s
+}
+
+func interfaceMTU(name string) int {
+	if i, err := net.InterfaceByName(name); err == nil {
+		return i.MTU
+	}
+	return 0
+}
+
+// resolveGateway is every address of a VPN gateway, so a dual-stack
+// gateway is pinned in each family.
+// shortcut: resolves the name again rather than asking the helper which
+// address it dialed; upgrade if a gateway's DNS answers vary between calls.
+func resolveGateway(ctx context.Context, host string) ([]netip.Addr, error) {
+	if a, err := netip.ParseAddr(host); err == nil {
+		return []netip.Addr{a}, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+}
+
+func (s *RoutingService) ServiceStartup(context.Context, application.ServiceOptions) error {
+	ctx, stop := context.WithCancel(context.Background())
+	s.stop, s.exited = stop, make(chan struct{})
+	go func() {
+		defer close(s.exited)
+		s.loop(ctx)
+	}()
+	return nil
+}
+
+func (s *RoutingService) ServiceShutdown() error {
+	if s.stop != nil {
+		s.stop()
+		<-s.exited
+	}
+	return nil
+}
+
+func (s *RoutingService) kick() {
+	select {
+	case s.kicks <- struct{}{}:
+	default:
+	}
+}
+
+// loop re-applies once per burst of kicks, and again when a profile held
+// back by the cap may run.
+func (s *RoutingService) loop(ctx context.Context) {
+	var wake <-chan time.Time
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-s.kicks:
+		case <-wake:
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(routingDebounce):
+		}
+		select {
+		case <-s.kicks:
+		default:
+		}
+		wake = nil
+		if d := s.reapply(ctx); d > 0 {
+			wake = time.After(d)
+		}
+	}
+}
+
+// reapply applies what differs from the plan for profiles with auto-apply
+// on (R29), each at most once per routingCap, and every gateway pin; it
+// returns how long until a held-back profile may run.
+func (s *RoutingService) reapply(ctx context.Context) time.Duration {
+	s.mu.Lock()
+	reset := s.state.Reset
+	s.mu.Unlock()
+	if reset || s.netd.client() == nil {
+		return 0
+	}
+	d, err := s.st.Data()
+	if err != nil {
+		return 0
+	}
+	auto := map[string]bool{}
+	for _, v := range d.VPNs.Items {
+		auto[v.ID] = v.AutoApply
+	}
+	anyAuto := slices.Contains(slices.Collect(maps.Values(auto)), true)
+	s.applying.Lock()
+	defer s.applying.Unlock()
+	plan, err := s.plan(ctx, "", "")
+	if err != nil {
+		return 0
+	}
+	now, held, run := s.now(), time.Duration(0), map[string]bool{}
+	s.mu.Lock()
+	for _, c := range plan.Changes {
+		// Pins run whatever auto-apply says and are never held back, so an
+		// app-scoped tunnel keeps its gateway (KTD9).
+		key := c.Profile
+		if c.Kind == routing.KindPin || run[key] || !auto[key] && !(key == "" && anyAuto) {
+			continue
+		}
+		last, ok := s.last[key]
+		if since := now.Sub(last); ok && since < routingCap {
+			if wait := routingCap - since; held == 0 || wait < held {
+				held = wait
+			}
+			continue
+		}
+		if ok && now.Sub(last) < 3*routingCap {
+			s.fights[key]++
+		} else {
+			s.fights[key] = 0
+		}
+		s.last[key], run[key] = now, true
+	}
+	s.mu.Unlock()
+	var changes []routing.Change
+	for _, c := range plan.Changes {
+		if c.Kind == routing.KindPin || run[c.Profile] {
+			changes = append(changes, c)
+		}
+	}
+	if len(changes) > 0 {
+		rep := s.execute(ctx, changes, plan.Skipped)
+		s.mu.Lock()
+		for key := range run {
+			if s.fights[key] >= 2 && key != "" {
+				s.state.Profiles[key] = RouteFighting
+			}
+		}
+		s.state.Notice = fmt.Sprintf("Hostbay re-applied %d route changes at %s", len(rep.Results), now.Format("15:04:05"))
+		s.announce()
+		s.mu.Unlock()
+	}
+	return held
+}
+
+// plan builds the plan from the saved profiles, with profile id's mode
+// replaced by mode when id is set.
+func (s *RoutingService) plan(ctx context.Context, id, mode string) (routing.Plan, error) {
+	if id != "" && mode != routing.PerDestination && mode != routing.Full && mode != routing.Split {
+		return routing.Plan{}, fmt.Errorf("unknown routing mode %q", mode)
+	}
+	_, labels, err := s.vpns.labelNow(ctx)
+	if err != nil {
+		return routing.Plan{}, err
+	}
+	d, err := s.st.Data()
+	if err != nil {
+		return routing.Plan{}, err
+	}
+	l, err := s.st.Local()
+	if err != nil {
+		return routing.Plan{}, err
+	}
+	routes, err := s.table.Routes()
+	if err != nil {
+		return routing.Plan{}, fmt.Errorf("reading the route table: %w", err)
+	}
+	ifaces, err := s.table.Interfaces()
+	if err != nil {
+		return routing.Plan{}, fmt.Errorf("listing interfaces: %w", err)
+	}
+	in := routing.Input{Labels: labels, Local: l.RoutingLocal, Routes: routes, Tunnels: map[string]bool{}, MTUs: map[string]int{}}
+	for _, i := range ifaces {
+		if i.Tunnel {
+			in.Tunnels[i.Name], in.MTUs[i.Name] = true, s.mtuOf(i.Name)
+		}
+	}
+	for _, v := range d.VPNs.Items {
+		p := profileFor(v, l)
+		if v.ID == id {
+			p.Mode = mode
+		}
+		in.Profiles = append(in.Profiles, p)
+	}
+	for _, st := range s.vpns.VPNStates() {
+		v := d.VPN(st.ID)
+		if st.Status != VPNConnected || v == nil {
+			continue
+		}
+		switch {
+		case v.Tier == store.VPNTierSystem && st.Iface != "":
+			in.Labels = append(in.Labels, detect.Labeled{Tunnel: detect.Tunnel{Iface: st.Iface}, Profile: v.ID})
+		case v.Tier == store.VPNTierApp && v.Gateway != "" && v.Type != "tailscale" && v.Type != "headscale":
+			as, _ := s.resolve(ctx, v.Gateway)
+			for _, a := range as {
+				in.Endpoints = append(in.Endpoints, routing.Endpoint{Profile: v.ID, Name: v.Name, Addr: a.Unmap()})
+			}
+		}
+	}
+	return routing.Build(in), nil
+}
+
+func profileFor(v store.VPN, l store.Local) routing.Profile {
+	return routing.Profile{ID: v.ID, Name: v.Name, Tier: v.Tier, Mode: v.RoutingMode, Routes: v.Routes, MTU: v.TunnelMTU(), Narrow: l.VPNNarrow[v.ID]}
+}
+
+// execute sends each change to the helper in order and records each
+// result; one failure does not stop the rest.
+func (s *RoutingService) execute(ctx context.Context, changes []routing.Change, skipped []routing.Skip) RoutingReport {
+	c := s.netd.client()
+	rep := RoutingReport{Results: []ChangeResult{}, Skipped: skipped, Partly: []string{}}
+	failed := map[string]bool{}
+	for _, ch := range changes {
+		err := errors.New("the network helper is not connected")
+		if c != nil {
+			switch {
+			case ch.Kind == routing.KindMTU:
+				err = c.SetMTU(ctx, ch.Iface, ch.MTU)
+			case ch.Op == netd.Add:
+				err = c.Add(ctx, ch.Route())
+			default:
+				err = c.Delete(ctx, ch.Route())
+			}
+		}
+		r := ChangeResult{Change: ch}
+		if err != nil {
+			r.Error = err.Error()
+			failed[ch.Profile] = true
+		} else if ch.Op == netd.Add {
+			s.mu.Lock()
+			s.added = append(s.added, ch)
+			s.mu.Unlock()
+		}
+		rep.Results = append(rep.Results, r)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, ch := range changes {
+		if ch.Profile == "" {
+			continue
+		}
+		if failed[ch.Profile] {
+			s.state.Profiles[ch.Profile] = RoutePartly
+			if !slices.Contains(rep.Partly, ch.Profile) {
+				rep.Partly = append(rep.Partly, ch.Profile)
+			}
+		} else {
+			s.state.Profiles[ch.Profile] = RouteApplied
+		}
+	}
+	s.announce()
+	return rep
+}
+
+// announce emits the state; call it with s.mu held.
+func (s *RoutingService) announce() {
+	st := s.state
+	st.Profiles = maps.Clone(s.state.Profiles)
+	s.emit(RoutingStateEvent, st)
+}
+
+// State is routing's state now.
+func (s *RoutingService) State() RoutingState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st := s.state
+	st.Profiles = maps.Clone(s.state.Profiles)
+	return st
+}
+
+// Preview is the plan Apply would run (R26), with profile id in mode when
+// id is set.
+func (s *RoutingService) Preview(ctx context.Context, id, mode string) (routing.Plan, error) {
+	return s.plan(ctx, id, mode)
+}
+
+// Apply saves profile id's mode when id is set, then applies the whole
+// plan and reports each change.
+func (s *RoutingService) Apply(ctx context.Context, id, mode string) (RoutingReport, error) {
+	if s.netd.client() == nil {
+		return RoutingReport{}, errors.New("the network helper is not connected")
+	}
+	s.applying.Lock()
+	defer s.applying.Unlock()
+	plan, err := s.plan(ctx, id, mode)
+	if err != nil {
+		return RoutingReport{}, err
+	}
+	if id != "" {
+		err := s.st.Edit(func(d *store.Data) error {
+			v := d.VPN(id)
+			if v == nil {
+				return errors.New("VPN profile not found")
+			}
+			if v.RoutingMode != mode {
+				v.RoutingMode = mode
+				d.PutVPN(*v)
+			}
+			return nil
+		})
+		if err != nil {
+			return RoutingReport{}, err
+		}
+	}
+	s.mu.Lock()
+	s.state.Reset, s.state.Notice = false, ""
+	clear(s.fights)
+	s.mu.Unlock()
+	return s.execute(ctx, plan.Changes, plan.Skipped), nil
+}
+
+// Reset removes every route Hostbay added and restores the vendor routes it
+// narrowed: the helper sweeps them when the connection ends, and Hostbay
+// reconnects. Nothing re-applies until the next Apply.
+func (s *RoutingService) Reset(ctx context.Context) (RoutingReport, error) {
+	s.applying.Lock()
+	defer s.applying.Unlock()
+	if s.netd.client() == nil {
+		return RoutingReport{}, errors.New("the network helper is not connected")
+	}
+	s.mu.Lock()
+	s.state.Reset, s.state.Notice = true, ""
+	clear(s.state.Profiles)
+	var dels []routing.Change
+	for _, c := range s.added {
+		if c.Kind != routing.KindMTU {
+			c.Kind, c.Op, c.Reason = routing.KindDelete, netd.Delete, "added by Hostbay"
+			dels = append(dels, c)
+		}
+	}
+	s.announce()
+	s.mu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := s.netd.reconnect(ctx); err != nil {
+		return RoutingReport{}, err
+	}
+	routes, err := s.table.Routes()
+	if err != nil {
+		return RoutingReport{}, fmt.Errorf("reading the route table: %w", err)
+	}
+	rep := RoutingReport{Results: []ChangeResult{}, Skipped: []routing.Skip{}, Partly: []string{}}
+	for _, c := range dels {
+		r := ChangeResult{Change: c}
+		if slices.ContainsFunc(routes, func(x netd.SysRoute) bool { return x.Dst.String() == c.Dst && (c.Gateway || x.Iface == c.Iface) }) {
+			r.Error = "still in the route table"
+		}
+		rep.Results = append(rep.Results, r)
+	}
+	return rep, nil
+}
+
+// Narrow saves the subnets to keep of a greedy route on profile id's
+// tunnel (R27); the plan then replaces the route with them whenever the
+// vendor pushes it. An empty keep list is refused.
+func (s *RoutingService) Narrow(id, greedy string, keep []string) error {
+	cs, err := routing.Narrow(greedy, "", keep)
+	if err != nil {
+		return err
+	}
+	var kept []string
+	for _, c := range cs[1:] {
+		kept = append(kept, c.Dst)
+	}
+	return s.st.EditLocal(func(l *store.Local) error {
+		if l.VPNNarrow == nil {
+			l.VPNNarrow = map[string]map[string][]string{}
+		}
+		if l.VPNNarrow[id] == nil {
+			l.VPNNarrow[id] = map[string][]string{}
+		}
+		l.VPNNarrow[id][cs[0].Dst] = kept
+		return nil
+	})
+}
+
+// SetLocalRoutes saves the destinations per-destination routing sends to
+// the local network (R25).
+func (s *RoutingService) SetLocalRoutes(dsts []string) error {
+	for _, d := range dsts {
+		if _, err := routing.ParseDst(d); err != nil {
+			return fmt.Errorf("%q is not a network", d)
+		}
+	}
+	return s.st.EditLocal(func(l *store.Local) error {
+		l.RoutingLocal = dsts
+		return nil
+	})
+}
+
+// LocalRoutes is the destinations sent to the local network.
+func (s *RoutingService) LocalRoutes() ([]string, error) {
+	l, err := s.st.Local()
+	if l.RoutingLocal == nil {
+		l.RoutingLocal = []string{}
+	}
+	return l.RoutingLocal, err
+}
+
+// PinInterface pins profile id to a tunnel interface on this computer, for
+// when labeling cannot tell two VPNs apart (R24); "" unpins.
+func (s *RoutingService) PinInterface(id, iface string) error {
+	if iface != "" {
+		ifaces, err := s.table.Interfaces()
+		if err != nil {
+			return err
+		}
+		if !slices.Contains(ifaces, netd.Iface{Name: iface, Tunnel: true}) {
+			return fmt.Errorf("%s is not a tunnel interface on this computer", iface)
+		}
+	}
+	return s.st.EditLocal(func(l *store.Local) error {
+		l.VPNIfaces = setLocal(l.VPNIfaces, id, iface)
+		return nil
+	})
+}
+
+// conflict is R13's check before profile id connects system-wide: a plan
+// cannot place a second full tunnel, or a network another connected
+// system-wide or external VPN routes.
+func (s *RoutingService) conflict(id string) error {
+	d, err := s.st.Data()
+	if err != nil {
+		return err
+	}
+	l, err := s.st.Local()
+	if err != nil {
+		return err
+	}
+	v := d.VPN(id)
+	if v == nil {
+		return errors.New("VPN profile not found")
+	}
+	var up []routing.Profile
+	for _, st := range s.vpns.VPNStates() {
+		if o := d.VPN(st.ID); o != nil && st.Status == VPNConnected {
+			up = append(up, profileFor(*o, l))
+		}
+	}
+	return routing.Conflict(up, profileFor(*v, l))
+}

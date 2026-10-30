@@ -41,6 +41,10 @@ type Table interface {
 	SetMTU(iface string, mtu int) error
 }
 
+// SystemTable is this computer's route table. Reading it needs no
+// privilege; changes go through the helper.
+func SystemTable() Table { return newTable() }
+
 // isTunnel decides from what the system reports whether an interface is a
 // tunnel. macOS names interfaces by driver, so a point-to-point utun, ppp or
 // ipsec is one and the always-present gif and stf are not. Linux tunnels take
