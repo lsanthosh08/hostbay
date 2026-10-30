@@ -2,9 +2,10 @@ import { useEffect, useId, useState } from "react";
 import * as api from "../../api";
 import type { Host } from "../../api";
 import { useHostManager } from "../../components/HostManager";
+import { VpnImport } from "../../components/VpnImport";
 import { open, save } from "../../dialogs";
 import { t } from "../../i18n";
-import { importFrom, type ImportReport, type ImportTool } from "../../importApi";
+import { importFrom, isVpnTool, type ImportReport, type ImportTool } from "../../importApi";
 import { useHosts } from "../../state/hosts";
 import { Button } from "../../ui/Button";
 import { Field, Input } from "../../ui/Field";
@@ -99,6 +100,7 @@ function ImportFromApp() {
   const [pass, setPass] = useState("");
   const [busy, setBusy] = useState(false);
   const [report, setReport] = useState<{ name: string; r: ImportReport } | null>(null);
+  const [vpnPath, setVpnPath] = useState<string | null>(null);
   const info = IMPORT_TOOLS.find((x) => x.id === tool)!;
 
   const choose = async () => {
@@ -114,6 +116,7 @@ function ImportFromApp() {
         className="flex flex-col gap-3"
         onSubmit={async (e) => {
           e.preventDefault();
+          if (isVpnTool(tool)) return setVpnPath(path.trim());
           setBusy(true);
           const r = await run(() => importFrom(tool, path.trim(), info.password ? pass : ""));
           setBusy(false);
@@ -157,6 +160,7 @@ function ImportFromApp() {
           {t("import.run")}
         </Button>
       </form>
+      {vpnPath !== null && <VpnImport path={vpnPath} onClose={() => setVpnPath(null)} />}
       {report && (
         <div role="status" className="flex flex-col gap-3 text-sm">
           <p>{t("import.summary", { hosts: report.r.hosts, folders: report.r.folders, tool: report.name })}</p>

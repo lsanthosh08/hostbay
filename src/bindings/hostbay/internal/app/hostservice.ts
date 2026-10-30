@@ -17,6 +17,9 @@ import * as importer$0 from "../importer/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as sshmanager$0 from "../importer/sshmanager/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as vpnconf$0 from "../importer/vpnconf/models.js";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -37,6 +40,17 @@ export function ClearRecent(): $CancellablePromise<void> {
  */
 export function CloneHost(id: string): $CancellablePromise<$models.Host> {
     return $Call.ByID(341928105, id);
+}
+
+/**
+ * CommitVPNImport saves the drafts the user kept, with their name, tags,
+ * routes and DNS as edited in review, and drops the rest, so a skipped
+ * draft leaves nothing behind. Every other field and the secrets come from
+ * the file. An empty keep closes the import without saving. A refused edit
+ * leaves the import open to fix.
+ */
+export function CommitVPNImport(token: string, keep: $models.VPN[] | null): $CancellablePromise<importer$0.Report> {
+    return $Call.ByID(1327506468, token, keep);
 }
 
 /**
@@ -162,6 +176,15 @@ export function ListTrash(): $CancellablePromise<$models.Host[] | null> {
 }
 
 /**
+ * PreviewVPNImport reads a VPN configuration file or bundle folder (R38),
+ * or a TunnelHub vpn-config.json (R41), and returns its profiles for review
+ * without saving anything.
+ */
+export function PreviewVPNImport(path: string): $CancellablePromise<$models.VPNImportPreview> {
+    return $Call.ByID(774368807, path);
+}
+
+/**
  * PurgeHost removes a host for good, leaving a tombstone for sync.
  */
 export function PurgeHost(id: string): $CancellablePromise<void> {
@@ -227,6 +250,15 @@ export function SaveProxy(proxy: $models.Proxy): $CancellablePromise<$models.Pro
 
 export function SaveScripts(scripts: $models.Script[] | null): $CancellablePromise<void> {
     return $Call.ByID(1273588937, scripts);
+}
+
+/**
+ * ScanVPNConfigs lists the VPN configurations installed clients keep on
+ * this computer for the user to pick from (R39), without reading files
+ * this user cannot read.
+ */
+export function ScanVPNConfigs(): $CancellablePromise<vpnconf$0.Found[] | null> {
+    return $Call.ByID(2744979396);
 }
 
 /**

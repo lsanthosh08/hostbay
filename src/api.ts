@@ -911,7 +911,9 @@ export type Vpn = {
   autoReconnect?: boolean;
   autoApply?: boolean;
   routingMode?: string;
-  client?: string;
+  client?: string; // external: the installed client's name, as the OS shows it
+  clientPath?: string; // external, this computer only: the client program Open client runs
+  iface?: string; // external, this computer only: the tunnel interface it is pinned to
   password?: string | null;
   privateKey?: string | null;
   presharedKey?: string | null;
@@ -920,7 +922,16 @@ export type Vpn = {
 };
 // signing_in waits for need ("otp" or "browser"); failed and dropped carry reason.
 export type VpnStatus = "disconnected" | "connecting" | "signing_in" | "connected" | "failed" | "dropped";
-export type VpnState = { id: string; status: VpnStatus; reason?: string; need?: string; address?: string[] | null; routes?: string[] | null; since?: number };
+export type VpnState = {
+  id: string;
+  status: VpnStatus;
+  reason?: string;
+  need?: string;
+  address?: string[] | null;
+  routes?: string[] | null;
+  since?: number;
+  iface?: string; // a connected external profile's tunnel interface
+};
 export const listVpns = () => list(VPNService.ListVPNs()) as Promise<Vpn[]>;
 export const saveVpn = (v: Vpn) => unlocking(() => VPNService.SaveVPN(v) as Promise<Vpn>);
 export const deleteVpn = (id: string) => VPNService.DeleteVPN(id);
@@ -931,6 +942,14 @@ export const disconnectVpn = (id: string) => VPNService.DisconnectVPN(id);
 export const answerVpn = (id: string, code: string) => VPNService.AnswerVPN(id, code);
 export const vpnStates = () => list(VPNService.VPNStates()) as Promise<VpnState[]>;
 export const onVpnState = (cb: (s: VpnState) => void) => on<VpnState>("vpn-state", cb);
+// A VPN found on this computer that no profile names yet (R22).
+export type DetectedVpn = { name: string; type: string; shape?: string; connected: boolean; iface?: string; client?: string };
+export const detectVpns = () => list(VPNService.DetectVPNs()) as Promise<DetectedVpn[]>;
+// Opens an external profile's client program saved on this computer (R3).
+export const launchVpnClient = (id: string) => VPNService.LaunchVPNClient(id);
+// Go asks for the VPN panel when a profile waits on a one-time code or a
+// browser sign-in, or a connect from the tray failed.
+export const onShowVpns = (cb: () => void) => on<null>("show-vpns", cb);
 
 // ---- Server monitor (R59): one sampler per Linux host, shared by its Monitor tabs ----
 // Sizes are bytes, rates bytes per second. Every string came from the host:
@@ -1075,8 +1094,8 @@ export type SettingsGroup = {
   executionMode?: string;
   keys?: KeyOverrides | null;
 };
-// This computer's own settings. The page may change only these two.
-export type LocalSettings = { aiSuggestions?: boolean; hostLogging?: Record<string, boolean> };
+// This computer's own settings. The page may change only these three.
+export type LocalSettings = { aiSuggestions?: boolean; hostLogging?: Record<string, boolean>; keepRunning?: boolean };
 export const settingsGet = (group: string) => SettingsService.Get(group) as Promise<SettingsGroup>;
 export const settingsSet = (g: SettingsGroup) => SettingsService.Set(g as Parameters<typeof SettingsService.Set>[0]);
 export const settingsGetLocal = () => SettingsService.GetLocal() as Promise<LocalSettings>;

@@ -107,6 +107,8 @@ export type {
     TunnelState,
     UpdateStatus,
     VPN,
+    VPNDraft,
+    VPNImportPreview,
     VPNState,
     WinDashboard,
     Workspace,

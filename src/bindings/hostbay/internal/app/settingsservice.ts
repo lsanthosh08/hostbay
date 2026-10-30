@@ -5,7 +5,7 @@
  * SettingsService reads and writes settings for the page (KTD37). The page
  * may change appearance, language and keyboard shortcuts; the ai group changes only through
  * its own verified path (U23), and of the device-local settings only AI
- * suggestions and per-host logging.
+ * suggestions, per-host logging and keeping running in the menu bar.
  * @module
  */
 
@@ -69,7 +69,8 @@ export function Set($in: store$0.SettingsGroup): $CancellablePromise<void> {
 }
 
 /**
- * SetLocal changes AI suggestions and per-host logging. Any other key is
+ * SetLocal changes AI suggestions, per-host logging and keeping running in
+ * the menu bar. Any other key is
  * refused and nothing is saved: allowlist entries, MCP and the log folder
  * change only through their own Go paths.
  */

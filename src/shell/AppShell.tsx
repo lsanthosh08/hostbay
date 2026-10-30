@@ -140,6 +140,18 @@ export function AppShell() {
     disconnectVpn: (id) => vpn.disconnect(id),
   };
 
+  // Go opens the VPN panel for a profile waiting on a code or sign-in, or a
+  // tray connect that failed (internal/app/tray.go).
+  useEffect(() => {
+    const sub = api.onShowVpns(() => {
+      setPanel("vpns");
+      setPanelOpen(true);
+    });
+    return () => {
+      sub.then((off) => off());
+    };
+  }, []);
+
   // A follow-active AI conversation acts on the focused pane's terminal.
   const activeId = sessions.activeId;
   useEffect(() => {

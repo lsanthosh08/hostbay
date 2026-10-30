@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { Host, Vpn, VpnState } from "../api";
+import type { DetectedVpn, Host, Vpn, VpnState } from "../api";
 import { en } from "../i18n/en";
 import { VpnPanelView } from "./VpnPanel";
 
@@ -9,7 +9,7 @@ const noop = () => {};
 const vpn = (over: Partial<Vpn> = {}): Vpn => ({ id: "v1", name: "Atlas VPN", type: "wireguard", tier: "app", tags: ["atlas"], ...over });
 const host = (tags: string[]): Host => ({ id: "h", alias: "h", hostname: "h", port: 22, user: "u", identityFile: "", tags });
 
-function render(vpns: Vpn[], states: Record<string, VpnState> = {}, over: { tag?: string; text?: string; hosts?: Host[] } = {}) {
+function render(vpns: Vpn[], states: Record<string, VpnState> = {}, over: { tag?: string; text?: string; hosts?: Host[]; detected?: DetectedVpn[] } = {}) {
   return renderToStaticMarkup(
     createElement(VpnPanelView, {
       vpns,
@@ -23,9 +23,11 @@ function render(vpns: Vpn[], states: Record<string, VpnState> = {}, over: { tag?
       onTag: noop,
       onText: noop,
       onNew: noop,
+      onImport: noop,
       onEdit: noop,
       onConnect: noop,
       onDisconnect: noop,
+      detected: over.detected,
     })
   );
 }
@@ -37,6 +39,11 @@ describe("VPN panel", () => {
     const html = render([]);
     expect(html).toContain(en["vpn.empty.title"]);
     expect(buttons(html)).toContain(en["vpn.new"]);
+    expect(buttons(html)).toContain(en["vpn.import"]);
+  });
+
+  it("takes dropped config files on the list", () => {
+    expect(render([])).toContain("data-file-drop-target");
   });
 
   it("shows a failed profile's reason and Retry", () => {
@@ -66,6 +73,23 @@ describe("VPN panel", () => {
     const html = render([vpn({ type: "sslvpn" })]);
     expect(html).toContain("SSL VPN (PPP over TLS)");
     expect(html).not.toMatch(/forti/i);
+  });
+
+  it("leaves an external profile to its own app and shows its tunnel", () => {
+    const ext = vpn({ tier: "external", type: "perimeter81", name: "Edge" });
+    const up = render([ext], { v1: { id: "v1", status: "connected", iface: "utun4", address: ["10.255.0.54"], since: 0 } });
+    expect(up).toContain(en["vpn.openClientNamed"].replace("{name}", "Edge"));
+    expect(up).not.toContain(en["vpn.disconnectNamed"].replace("{name}", "Edge"));
+    expect(up).toContain("utun4");
+    const pin = "Hostbay cannot tell which tunnel is this VPN's; pin its interface in the profile's settings";
+    expect(render([ext], { v1: { id: "v1", status: "disconnected", reason: pin } })).toContain("pin its interface");
+  });
+
+  it("offers the VPNs found on this computer as profiles", () => {
+    const html = render([vpn()], {}, { detected: [{ name: "Harmony SASE", type: "perimeter81", connected: true }] });
+    expect(html).toContain(en["vpn.detected"]);
+    expect(html).toContain(en["vpn.addDetected"].replace("{name}", "Harmony SASE"));
+    expect(render([vpn()], {}, { detected: [] })).toContain(en["vpn.noneDetected"]);
   });
 
   it("announces state changes in a live region", () => {

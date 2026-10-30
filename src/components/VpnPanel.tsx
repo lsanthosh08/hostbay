@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import * as api from "../api";
-import type { Host, Vpn, VpnState } from "../api";
+import type { DetectedVpn, Host, Vpn, VpnState } from "../api";
 import { useConnect } from "../connect/useConnect";
 import { t, type MessageKey } from "../i18n";
 import { PanelHeader } from "../shell/SidePanel";
@@ -12,9 +12,11 @@ import { Button } from "../ui/Button";
 import { EmptyState } from "../ui/EmptyState";
 import { Input } from "../ui/Field";
 import { IconButton } from "../ui/IconButton";
-import { AddIcon, SearchIcon, StartIcon, StopIcon, VpnIcon } from "../ui/icons";
+import { AddIcon, ImportIcon, RefreshIcon, SearchIcon, StartIcon, StopIcon, VpnIcon } from "../ui/icons";
 import { StatusDot, type ConnStatus } from "../ui/StatusDot";
 import { useToast } from "../ui/toast";
+import { onFilesDropped } from "../importApi";
+import { VpnImport } from "./VpnImport";
 
 type VpnStates = Record<string, VpnState>;
 
@@ -157,9 +159,16 @@ export function VpnPanelView(p: {
   onTag: (tag: string) => void;
   onText: (text: string) => void;
   onNew: () => void;
+  onImport: () => void;
   onEdit: (v: Vpn) => void;
   onConnect: (id: string) => void;
   onDisconnect: (id: string) => void;
+  /** VPNs found on this computer that no profile names yet (R22); undefined until looked for. */
+  detected?: DetectedVpn[];
+  onDetect?: () => void;
+  onAddDetected?: (d: DetectedVpn) => void;
+  /** Opens an external profile's own app, which connects it (R3). */
+  onLaunch?: (id: string) => void;
 }) {
   const counts = tagCounts(p.hosts, p.vpns);
   // Chips for the tags profiles carry; each counts hosts and profiles.
@@ -168,8 +177,27 @@ export function VpnPanelView(p: {
   return (
     <>
       <PanelHeader title={t("nav.vpns")}>
+        <IconButton label={t("vpn.import")} icon={ImportIcon} onClick={p.onImport} />
+        {p.onDetect && <IconButton label={t("vpn.detect")} icon={RefreshIcon} onClick={p.onDetect} />}
         <IconButton label={t("vpn.new")} icon={AddIcon} onClick={p.onNew} />
       </PanelHeader>
+      {p.detected && (
+        <section className="px-2 pb-2" aria-label={t("vpn.detected")}>
+          <h3 className="px-2 text-xs font-semibold text-muted">{t("vpn.detected")}</h3>
+          {p.detected.length === 0 && <p className="px-2 text-xs text-muted">{t("vpn.noneDetected")}</p>}
+          <ul>
+            {p.detected.map((d) => (
+              <li key={d.name} className="flex items-center gap-2 px-2 py-1 text-sm">
+                <StatusDot status={d.connected ? "live" : undefined} />
+                <span className="truncate flex-1">
+                  {d.name} <span className="text-xs text-muted">{typeLabel(d.type)}</span>
+                </span>
+                <IconButton size="sm" label={t("vpn.addDetected", { name: d.name })} icon={AddIcon} onClick={() => p.onAddDetected?.(d)} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       <div role="status" aria-live="polite" className="sr-only">
         {p.announce}
       </div>
@@ -209,10 +237,12 @@ export function VpnPanelView(p: {
           )}
         </div>
       )}
-      <ul className="flex-1 min-h-0 overflow-auto px-2 pb-2">
+      {/* Config files dropped here start the import review (F5). */}
+      <ul data-file-drop-target className="flex-1 min-h-0 overflow-auto px-2 pb-2 rounded [&.file-drop-target-active]:bg-hover">
         {shown.map((v) => {
           const s = p.states[v.id];
           const active = isVpnActive(s);
+          const external = v.tier === "external";
           const users = p.using[v.id] ?? [];
           return (
             <li key={v.id} className="group px-2 py-1 rounded text-sm hover:bg-hover">
@@ -221,18 +251,23 @@ export function VpnPanelView(p: {
                 <button className="truncate text-left flex-1" onClick={() => p.onEdit(v)} title={t("vpn.edit", { name: v.name })}>
                   {v.name}
                 </button>
-                <IconButton
-                  size="sm"
-                  label={t(active ? "vpn.disconnectNamed" : "vpn.connectNamed", { name: v.name })}
-                  icon={active ? StopIcon : StartIcon}
-                  onClick={() => (active ? p.onDisconnect(v.id) : p.onConnect(v.id))}
-                />
+                {external ? (
+                  <IconButton size="sm" label={t("vpn.openClientNamed", { name: v.name })} icon={StartIcon} onClick={() => p.onLaunch?.(v.id)} />
+                ) : (
+                  <IconButton
+                    size="sm"
+                    label={t(active ? "vpn.disconnectNamed" : "vpn.connectNamed", { name: v.name })}
+                    icon={active ? StopIcon : StartIcon}
+                    onClick={() => (active ? p.onDisconnect(v.id) : p.onConnect(v.id))}
+                  />
+                )}
               </div>
               <div className="pl-4 text-xs text-muted truncate">
                 {vpnStatusText(s)} · {typeLabel(v.type)}
               </div>
               {s?.status === "connected" && (
                 <div className="pl-4 text-xs text-muted flex flex-col allow-select">
+                  {!!s.iface && <span className="truncate">{t("vpn.iface", { iface: s.iface })}</span>}
                   {!!s.address?.length && <span className="truncate">{t("vpn.address", { address: s.address.join(", ") })}</span>}
                   {!!s.routes?.length && <span className="truncate">{t("vpn.routes", { routes: s.routes.join(", ") })}</span>}
                   {!!s.since && <span>{t("vpn.uptime", { time: uptime(s.since, p.now) })}</span>}
@@ -244,6 +279,7 @@ export function VpnPanelView(p: {
                   <VpnSignIn id={v.id} state={s} />
                 </div>
               )}
+              {s?.status === "disconnected" && s.reason && <div className="pl-4 text-xs text-warning break-words allow-select">{s.reason}</div>}
               {(s?.status === "failed" || s?.status === "dropped") && (
                 <div className="pl-4 flex items-start gap-2">
                   <span className="text-xs text-danger break-words flex-1 min-w-0 allow-select">{s.reason}</span>
@@ -261,9 +297,14 @@ export function VpnPanelView(p: {
               icon={VpnIcon}
               title={t("vpn.empty.title")}
               actions={
-                <Button variant="primary" icon={AddIcon} onClick={p.onNew}>
-                  {t("vpn.new")}
-                </Button>
+                <>
+                  <Button variant="primary" icon={AddIcon} onClick={p.onNew}>
+                    {t("vpn.new")}
+                  </Button>
+                  <Button icon={ImportIcon} onClick={p.onImport}>
+                    {t("vpn.import")}
+                  </Button>
+                </>
               }
             >
               {t("vpn.empty.description")}
@@ -287,6 +328,13 @@ export function VpnPanel() {
   const [tag, setTag] = useState("");
   const [text, setText] = useState("");
   const [editing, setEditing] = useState<Vpn | null>(null);
+  const [detected, setDetected] = useState<DetectedVpn[]>();
+  const { push } = useToast();
+  // Import dialogs, one at a time: a dropped file's path each, or "" to pick one.
+  const [importing, setImporting] = useState<{ id: number; path: string }[]>([]);
+  const nextImport = useRef(0);
+  const queueImport = (paths: string[]) => setImporting((q) => [...q, ...paths.map((path) => ({ id: nextImport.current++, path }))]);
+  useEffect(() => onFilesDropped(queueImport), []);
   const [now, setNow] = useState(() => Date.now());
   const [announce, setAnnounce] = useState("");
 
@@ -323,11 +371,34 @@ export function VpnPanel() {
         onTag={setTag}
         onText={setText}
         onNew={() => setEditing({ ...NEW_VPN })}
+        onImport={() => queueImport([""])}
         onEdit={(v) => setEditing(v)}
         // Failures show on the row through the failed state.
         onConnect={(id) => connect(id, true)}
         onDisconnect={disconnect}
+        detected={detected}
+        // A refresh may also drop a profile whose app was removed (R23).
+        onDetect={() =>
+          api.detectVpns().then(
+            (d) => {
+              setDetected(d);
+              reloadVpns();
+            },
+            (e) => push("error", api.errorInfo(e).message)
+          )
+        }
+        onAddDetected={(d) =>
+          api.saveVpn({ id: "", name: d.name, type: d.type, tier: "external", client: d.name, clientPath: d.client, tags: [] }).then(
+            () => {
+              setDetected((x) => x?.filter((y) => y.name !== d.name));
+              reloadVpns();
+            },
+            (e) => push("error", api.errorInfo(e).message)
+          )
+        }
+        onLaunch={(id) => api.launchVpnClient(id).catch((e) => push("error", api.errorInfo(e).message))}
       />
+      {importing.length > 0 && <VpnImport key={importing[0].id} path={importing[0].path || undefined} onClose={() => setImporting((q) => q.slice(1))} />}
       {editing && (
         <VpnForm
           initial={editing}

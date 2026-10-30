@@ -53,6 +53,11 @@ describe("VPN form", () => {
     expect(validateVpn(vpn({ routes: FULL_TUNNEL, dnsServers: ["10.0.0.53", "fd00::53"], dnsDomains: ["corp.example"] }))).toEqual({});
   });
 
+  it("asks an external profile for neither gateway nor keys, which its own app holds", () => {
+    for (const type of ["sslvpn", "anyconnect", "openvpn", "wireguard"])
+      expect(validateVpn({ id: "", name: "Edge", type, tier: "external", tags: [] }), type).toEqual({});
+  });
+
   it("needs a WireGuard private key unless one is saved", () => {
     expect(validateVpn(vpn({ hasSecret: false })).privateKey).toBeDefined();
     expect(validateVpn(vpn({ hasSecret: false, privateKey: "k" }))).toEqual({});
