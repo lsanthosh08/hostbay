@@ -66,11 +66,12 @@ func TestPageCannotSetTheAIMode(t *testing.T) {
 	}
 }
 
-// The page's local setter takes AI suggestions and per-host logging only.
-// Allowlist entries, MCP and the log folder have their own Go paths.
+// The page's local setter takes AI suggestions, per-host logging and
+// keeping Hostbay running in the menu bar only. Allowlist entries, MCP and
+// the log folder have their own Go paths.
 func TestLocalSetterRefusesSecuritySettings(t *testing.T) {
 	s, dir := newSettingsService(t)
-	if err := s.SetLocal(map[string]any{"aiSuggestions": true, "hostLogging": map[string]any{"h1": true}}); err != nil {
+	if err := s.SetLocal(map[string]any{"aiSuggestions": true, "hostLogging": map[string]any{"h1": true}, "keepRunning": true}); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "local.json")
@@ -93,8 +94,14 @@ func TestLocalSetterRefusesSecuritySettings(t *testing.T) {
 		t.Fatalf("local.json changed:\n%s", after)
 	}
 	l, err := s.GetLocal()
-	if err != nil || l.AISuggestions == nil || !*l.AISuggestions || !l.HostLogging["h1"] {
+	if err != nil || l.AISuggestions == nil || !*l.AISuggestions || !l.HostLogging["h1"] || !l.KeepRunning {
 		t.Fatalf("local = %+v, %v", l, err)
+	}
+	if err := s.SetLocal(map[string]any{"keepRunning": false}); err != nil {
+		t.Fatal(err)
+	}
+	if l, err := s.GetLocal(); err != nil || l.KeepRunning {
+		t.Fatalf("keepRunning stayed on: %+v, %v", l, err)
 	}
 }
 
