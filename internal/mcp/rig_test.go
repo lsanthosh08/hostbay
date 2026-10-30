@@ -73,6 +73,7 @@ type rig struct {
 	st     *store.Store
 	srv    *Server
 	hosts  *fakeHosts
+	vpns   *fakeVPNs
 	port   int
 	token  string
 	tokID  string
@@ -116,13 +117,14 @@ func newRig(t *testing.T) *rig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := &Server{St: st, Jobs: agentexec.NewHostJobs(agentexec.NewApprovals(), f), Tokens: tokens, Home: home}
+	vpns := &fakeVPNs{live: map[string]VPNLive{}}
+	srv := &Server{St: st, Jobs: agentexec.NewHostJobs(agentexec.NewApprovals(), f), Tokens: tokens, VPNs: vpns, Home: home}
 	port := freePort(t)
 	if err := srv.Start(port); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(srv.Stop)
-	return &rig{st: st, srv: srv, hosts: f, port: port, token: secret, tokID: tok.ID, url: "http://127.0.0.1:" + strconv.Itoa(port) + Path, server: home}
+	return &rig{st: st, srv: srv, hosts: f, vpns: vpns, port: port, token: secret, tokID: tok.ID, url: "http://127.0.0.1:" + strconv.Itoa(port) + Path, server: home}
 }
 
 func (r *rig) session(t *testing.T, version string) *sdk.ClientSession {

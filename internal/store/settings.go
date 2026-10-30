@@ -133,6 +133,28 @@ type MCPSettings struct {
 	// Allowlist is exact commands that run without a card, by token ID and
 	// then host ID (KTD36).
 	Allowlist map[string]map[string][]AllowEntry `json:"allowlist,omitempty"`
+	// VPNAllow is the VPN profiles a token connects and disconnects without
+	// a card (KTD6), added only in Settings.
+	VPNAllow []VPNAllowEntry `json:"vpnAllow,omitempty"`
+}
+
+// VPNAllowEntry lets one token connect and disconnect one VPN profile
+// without a card while the profile keeps the type, gateway and tier it had
+// when the user allowed it.
+type VPNAllowEntry struct {
+	Token   string `json:"token"`
+	Profile string `json:"profile"`
+	Type    string `json:"type"`
+	Gateway string `json:"gateway"`
+	Tier    string `json:"tier"`
+}
+
+// Matches reports whether e lets token act on v without a card: never for a
+// system-wide profile, and only while v keeps the type, gateway and tier e
+// was added for, whatever changed them, sync included.
+func (e VPNAllowEntry) Matches(token string, v *VPN) bool {
+	return v != nil && v.Tier != VPNTierSystem && e.Token == token && e.Profile == v.ID &&
+		e.Type == v.Type && e.Gateway == v.Gateway && e.Tier == v.Tier
 }
 
 // AllowEntry is one command the AI agent may run without asking on a

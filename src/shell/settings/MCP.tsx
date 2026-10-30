@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import * as api from "../../api";
 import { hostKind } from "../../api";
-import type { MCPAllowEntry, MCPNewToken, MCPStatus, MCPToken } from "../../api";
+import type { MCPAllowEntry, MCPNewToken, MCPStatus, MCPToken, MCPVPNAllow } from "../../api";
 import { t } from "../../i18n";
 import { useHosts } from "../../state/hosts";
 import { Button } from "../../ui/Button";
@@ -16,7 +16,8 @@ import { Group, Row } from "./Group";
 const date = (ms?: number) => (ms ? new Date(ms).toLocaleString() : t("mcp.token.never"));
 
 /** Settings > MCP (R63, KTD35): the server switch and port, the tokens,
- *  each token's exact allowlist entries and the MCP folder. All of it is
+ *  each token's exact allowlist entries, the VPN profiles each token
+ *  connects without asking, and the MCP folder. All of it is
  *  this computer's own and never syncs. A token is never shown here: Go
  *  copies a new one to the clipboard once. */
 export function MCP() {
@@ -33,6 +34,7 @@ export function MCP() {
       <Server status={status} onChange={reloadStatus} />
       <Tokens tokens={tokens} onChange={reloadTokens} />
       <Allowlist tokens={tokens} />
+      <VpnAllowlist tokens={tokens} />
       <Folder status={status} onChange={reloadStatus} />
     </>
   );
@@ -247,6 +249,93 @@ function Allowlist({ tokens }: { tokens: MCPToken[] }) {
             >
               <code className="font-mono allow-select">{e.command}</code>
               <span className="block text-xs text-muted">{t("mcp.allow.where", { token: e.tokenName, host: e.hostLabel })}</span>
+            </Row>
+          ))}
+        </ul>
+      )}
+    </Group>
+  );
+}
+
+/** A token's VPN entries (KTD6): picked here only, never for a system-wide
+ *  profile, which Go leaves out of the choices and refuses. */
+function VpnAllowlist({ tokens }: { tokens: MCPToken[] }) {
+  const run = useAsyncToast();
+  const failed = useWiden();
+  const [allow, setAllow] = useState<MCPVPNAllow>({ entries: [], profiles: [] });
+  const [tokenId, setTokenId] = useState("");
+  const [vpnId, setVpnId] = useState("");
+  const reload = () => api.mcpListVPNAllow().then(setAllow).catch(() => {});
+  useEffect(() => {
+    reload();
+  }, [tokens]);
+  const entries = allow.entries ?? [];
+  const profiles = allow.profiles ?? [];
+
+  const add = async () => {
+    try {
+      await api.mcpAddVPNAllow(tokenId || tokens[0]?.id, vpnId || profiles[0]?.id);
+    } catch (e) {
+      failed(e);
+    }
+    reload();
+  };
+
+  return (
+    <Group title={t("mcp.vpnAllowlist")} description={t("mcp.vpnAllowlistHint")}>
+      {tokens.length > 0 && profiles.length > 0 && (
+        <form
+          className="flex flex-wrap items-end gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            add();
+          }}
+        >
+          <Field label={t("mcp.allow.token")}>
+            <Select value={tokenId || tokens[0].id} onChange={(e) => setTokenId(e.target.value)}>
+              {tokens.map((tok) => (
+                <option key={tok.id} value={tok.id}>
+                  {tok.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label={t("mcp.vpnAllow.profile")}>
+            <Select value={vpnId || profiles[0].id} onChange={(e) => setVpnId(e.target.value)}>
+              {profiles.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Button type="submit" icon={AddIcon}>
+            {t("mcp.allow.add")}
+          </Button>
+        </form>
+      )}
+      {entries.length === 0 ? (
+        <p className="text-sm text-muted">{t("mcp.vpnAllow.empty")}</p>
+      ) : (
+        <ul className="flex flex-col max-w-xl">
+          {entries.map((e) => (
+            <Row
+              key={`${e.tokenId}-${e.vpnId}`}
+              actions={
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={async () => {
+                    await run(() => api.mcpRemoveVPNAllow(e.tokenId, e.vpnId));
+                    reload();
+                  }}
+                >
+                  {t("mcp.allow.remove")}
+                </Button>
+              }
+            >
+              <span>{t("mcp.vpnAllow.where", { token: e.tokenName, vpn: e.vpnName })}</span>
+              {e.stale && <span className="block text-xs text-danger">{t("mcp.vpnAllow.stale")}</span>}
             </Row>
           ))}
         </ul>

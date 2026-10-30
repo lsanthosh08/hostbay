@@ -11,5 +11,6 @@ export type {
     PostLoginStep,
     SettingsGroup,
     TermTheme,
+    VPNAllowEntry,
     WorkspaceNode
 } from "./models.js";

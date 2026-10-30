@@ -48,4 +48,14 @@ export interface Pending {
      */
     "name"?: string;
     "replaces"?: boolean;
+
+    /**
+     * A connect_vpn or disconnect_vpn request changes what this computer
+     * reaches: Target is the profile's ID, Host its name, Tag the tag the
+     * client named it by, and Tier and Gateway what the card shows. Bytes is
+     * empty.
+     */
+    "tag"?: string;
+    "tier"?: string;
+    "gateway"?: string;
 }

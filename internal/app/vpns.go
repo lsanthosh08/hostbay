@@ -104,6 +104,7 @@ type VPNService struct {
 type vpnRun struct {
 	stop chan struct{} // closed by DisconnectVPN
 	att  *vpnAttempt   // the current helper
+	by   string        // who connected it: "" the user, or an MCP token's principal (U14)
 }
 
 // vpnAttempt is one helper process.
@@ -283,9 +284,15 @@ func (s *VPNService) set(st VPNState) VPNState {
 // number of callers share one helper. ctx bounds only the wait: the
 // connection lives until DisconnectVPN, quit, or its own end.
 func (s *VPNService) ConnectVPN(ctx context.Context, id string) (VPNState, error) {
+	return s.connectAs(ctx, id, "")
+}
+
+// connectAs is ConnectVPN for by, who owns the run only if this call
+// starts it.
+func (s *VPNService) connectAs(ctx context.Context, id, by string) (VPNState, error) {
 	s.mu.Lock()
 	if s.runs[id] == nil {
-		r := &vpnRun{stop: make(chan struct{})}
+		r := &vpnRun{stop: make(chan struct{}), by: by}
 		s.runs[id] = r
 		s.set(VPNState{ID: id, Status: VPNConnecting})
 		go s.run(id, r)
@@ -522,6 +529,34 @@ func (s *VPNService) socks(id string) (addr, user, pass string, err error) {
 func (s *VPNService) DisconnectVPN(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.stop(id)
+	return nil
+}
+
+// disconnectAs stops the profile only if by connected it, checked under the
+// same lock, so a run the user started meanwhile is never stopped.
+func (s *VPNService) disconnectAs(id, by string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if r := s.runs[id]; r == nil || r.by != by {
+		return errors.New("this VPN profile is not connected by this client")
+	}
+	s.stop(id)
+	return nil
+}
+
+// connectedBy is who connected the profile's run, if it has one.
+func (s *VPNService) connectedBy(id string) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if r := s.runs[id]; r != nil {
+		return r.by, true
+	}
+	return "", false
+}
+
+// stop ends the profile's run; s.mu is held.
+func (s *VPNService) stop(id string) {
 	if r := s.runs[id]; r != nil {
 		delete(s.runs, id)
 		close(r.stop)
@@ -532,7 +567,6 @@ func (s *VPNService) DisconnectVPN(id string) error {
 	if _, known := s.states[id]; known {
 		s.set(VPNState{ID: id, Status: VPNDisconnected})
 	}
-	return nil
 }
 
 // ServiceShutdown disconnects every profile when the app quits (R19).

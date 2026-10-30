@@ -480,6 +480,34 @@ export interface MCPToken {
 }
 
 /**
+ * MCPVPNAllow is Settings > MCP's VPN entries, and the profiles one can
+ * name: app-scoped and external ones, since a system-wide profile always
+ * asks (KTD6).
+ */
+export interface MCPVPNAllow {
+    "entries": MCPVPNAllowEntry[] | null;
+    "profiles": MCPVPNChoice[] | null;
+}
+
+/**
+ * MCPVPNAllowEntry is one profile a token connects and disconnects without
+ * a card. Stale says the profile's type, gateway or tier changed since, so
+ * it asks again until the entry is added anew.
+ */
+export interface MCPVPNAllowEntry {
+    "tokenId": string;
+    "tokenName": string;
+    "vpnId": string;
+    "vpnName": string;
+    "stale"?: boolean;
+}
+
+export interface MCPVPNChoice {
+    "id": string;
+    "name": string;
+}
+
+/**
  * MonitorStart is what a tab starts from: its monitor ID for the other
  * calls and for MonitorEvent, the sampler's state, its kept samples (only
  * the newest carries processes and ports) and its interval in seconds.
