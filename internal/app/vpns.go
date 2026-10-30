@@ -1,16 +1,21 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"net/netip"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
@@ -87,6 +92,11 @@ type VPNState struct {
 	Routes  []string `json:"routes,omitempty"`  // connected: networks reached through it
 	Since   int64    `json:"since,omitempty"`   // connected: when it came up, Unix milliseconds
 	Iface   string   `json:"iface,omitempty"`   // connected external profile: its tunnel's interface
+	URL     string   `json:"url,omitempty"`     // signing_in at a browser: the sign-in page, only ever http or https
+	Code    string   `json:"code,omitempty"`    // failed: a proto.Code* reason the UI acts on
+	// ServerCert is the pin the gateway presented, with cert-unknown and
+	// cert-changed: what TrustVPNCert accepts (R21).
+	ServerCert string `json:"serverCert,omitempty"`
 
 	err error // failed: the coded error to return to callers
 }
@@ -105,12 +115,16 @@ const vpnDetectEvery = 5 * time.Second
 // VPNService saves VPN profiles and runs the app-scoped ones, one
 // hostbay-vpn helper per connected profile (KTD1).
 type VPNService struct {
-	st         *store.Store
-	vault      *secrets.Vault
-	helper     func() (string, error) // vpn.HelperPath; tests point it at a fake
-	detect     func(context.Context) (detect.Snapshot, error)
-	emit       func(name string, data any)
-	stopDetect context.CancelFunc // ends the detection loop
+	st      *store.Store
+	vault   *secrets.Vault
+	helper  func() (string, error) // vpn.HelperPath; tests point it at a fake
+	detect  func(context.Context) (detect.Snapshot, error)
+	emit    func(name string, data any)
+	openURL func(url string) // the default browser, for a browser sign-in
+	// checkConnect refuses a system-wide connect the routing plan cannot
+	// place (R13); RoutingService sets it.
+	checkConnect func(id string) error
+	stopDetect   context.CancelFunc // ends the detection loop
 
 	refreshing sync.Mutex // one detection at a time, so states apply in order
 
@@ -118,6 +132,9 @@ type VPNService struct {
 	runs    map[string]*vpnRun // profile ID -> run from connect until disconnect or the end
 	states  map[string]VPNState
 	changed chan struct{} // closed and replaced on every state change
+	// exited is closed once the profile's latest helper has exited; the
+	// next one starts only after, so two never share a profile's state.
+	exited map[string]chan struct{}
 }
 
 // vpnRun is one connected profile, across reconnects.
@@ -133,12 +150,22 @@ type vpnAttempt struct {
 	user, pass string      // the per-run SOCKS login (KTD2)
 	port       int         // the SOCKS port, once connected
 	end        chan proto.Msg
+	exited     chan struct{} // closed once the helper has exited, or never started
+	nodeAAD    []byte        // Tailscale: what the node's state is sealed to, as the profile was at start
+	pinned     string        // OpenConnect: the gateway pin the start carried
 }
 
 func NewVPNService(st *store.Store, vault *secrets.Vault) *VPNService {
 	return &VPNService{
-		st: st, vault: vault, helper: vpn.HelperPath, detect: detect.Detect, emit: emitEvent,
-		runs: map[string]*vpnRun{}, states: map[string]VPNState{}, changed: make(chan struct{}),
+		st: st, vault: vault, helper: vpn.HelperPath, detect: detect.Detect, emit: emitEvent, openURL: openInBrowser,
+		runs: map[string]*vpnRun{}, states: map[string]VPNState{}, changed: make(chan struct{}), exited: map[string]chan struct{}{},
+	}
+}
+
+// openInBrowser opens u in the user's default browser.
+func openInBrowser(u string) {
+	if a := application.Get(); a != nil {
+		a.Browser.OpenURL(u)
 	}
 }
 
@@ -184,10 +211,12 @@ func (s *VPNService) SaveVPN(profile VPN) (VPN, error) {
 		return VPN{}, err
 	}
 	var out store.VPN
+	moved := false // another tailnet, whose node this is not
 	err := s.st.Edit(func(d *store.Data) error {
 		v := store.VPN{Meta: store.Meta{ID: profile.ID}}
 		if e := d.VPN(profile.ID); profile.ID != "" && e != nil {
 			v = *e
+			moved = e.Type != profile.Type || e.Gateway != profile.Gateway
 		} else if v.ID == "" {
 			v.ID = store.NewID()
 		}
@@ -226,6 +255,9 @@ func (s *VPNService) SaveVPN(profile VPN) (VPN, error) {
 	err = s.st.EditLocal(func(l *store.Local) error {
 		l.VPNClients = setLocal(l.VPNClients, out.ID, profile.ClientPath)
 		l.VPNIfaces = setLocal(l.VPNIfaces, out.ID, profile.Iface)
+		if moved {
+			delete(l.VPNNodeStates, out.ID)
+		}
 		return nil
 	})
 	v := vpnToUI(out)
@@ -252,21 +284,66 @@ func (s *VPNService) DeleteVPN(id string) error {
 	if err := s.DisconnectVPN(id); err != nil {
 		return err
 	}
+	s.waitExited(id) // a closing node writes its state; it must not outlive the profile
 	if err := s.st.Edit(func(d *store.Data) error { return d.PurgeVPN(id) }); err != nil {
 		return err
 	}
 	if err := s.st.EditLocal(func(l *store.Local) error {
 		delete(l.VPNClients, id)
 		delete(l.VPNIfaces, id)
+		delete(l.VPNNodeStates, id)
+		delete(l.VPNNarrow, id)
 		return nil
 	}); err != nil {
 		return err
 	}
+	if err := os.RemoveAll(s.nodeDir(id)); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	delete(s.states, id)
+	delete(s.exited, id)
 	s.mu.Unlock()
 	return nil
 }
+
+// SignInAgainVPN disconnects a Tailscale profile and forgets its node, so
+// the next connect signs in afresh (R20).
+func (s *VPNService) SignInAgainVPN(id string) error {
+	if err := s.DisconnectVPN(id); err != nil {
+		return err
+	}
+	s.waitExited(id)
+	return s.st.EditLocal(func(l *store.Local) error {
+		delete(l.VPNNodeStates, id)
+		return nil
+	})
+}
+
+// waitExited waits until the profile's latest helper has exited, so nothing
+// it writes while closing lands after what the caller does next.
+func (s *VPNService) waitExited(id string) {
+	s.mu.Lock()
+	c := s.exited[id]
+	s.mu.Unlock()
+	if c != nil {
+		<-c
+	}
+}
+
+// nodeDir is a Tailscale profile's own folder, which holds what tsnet
+// writes besides the node's keys. A profile ID from sync is not trusted as
+// a path.
+func (s *VPNService) nodeDir(id string) string {
+	name := id
+	if !safeName.MatchString(id) {
+		sum := sha256.Sum256([]byte(id))
+		name = hex.EncodeToString(sum[:])
+	}
+	return filepath.Join(s.st.Dir(), "vpn", name)
+}
+
+var safeName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 // checkVPN refuses a profile whose fields could not work or could add lines
 // to the engine configuration Hostbay writes from them.
@@ -367,6 +444,11 @@ func (s *VPNService) connectAs(ctx context.Context, id, by string) (VPNState, er
 		return st, apperr.New(apperr.VPNFailed, fmt.Sprintf("VPN %s connects in its own app; open it there", d.VPN(id).Name)).
 			With("vpnId", id).With("reason", "external")
 	}
+	if d, err := s.st.Data(); err == nil && d.VPN(id) != nil && d.VPN(id).Tier == store.VPNTierSystem && s.checkConnect != nil {
+		if err := s.checkConnect(id); err != nil {
+			return VPNState{ID: id}, apperr.New(apperr.VPNFailed, err.Error()).With("vpnId", id).With("reason", "conflict")
+		}
+	}
 	s.mu.Lock()
 	if s.runs[id] == nil {
 		r := &vpnRun{stop: make(chan struct{}), by: by}
@@ -410,6 +492,10 @@ func (s *VPNService) run(id string, r *vpnRun) {
 		if err == nil {
 			select {
 			case m = <-end:
+				s.mu.Lock()
+				h := r.att.h
+				s.mu.Unlock()
+				h.Close() // one that reported its end but lingers must not hold up the next
 			case <-r.stop:
 				return
 			}
@@ -419,19 +505,26 @@ func (s *VPNService) run(id string, r *vpnRun) {
 			wait = vpnRetryMin
 		}
 		wasUp = wasUp || up
+		// A coded failure, or an openconnect too old, needs the user: retrying
+		// cannot fix it.
+		// shortcut: the version refusal carries no code, so it is matched by internal/vpn/openconnect's wording; give it a proto code if that wording changes.
+		needsUser := m.Code != "" || strings.HasPrefix(m.Reason, "Hostbay needs OpenConnect") || strings.HasPrefix(m.Reason, "Cannot tell which version")
 
 		d, _ := s.st.Data()
-		again := wasUp && d != nil && d.VPN(id) != nil && d.VPN(id).AutoReconnect
+		again := wasUp && !needsUser && d != nil && d.VPN(id) != nil && d.VPN(id).AutoReconnect
 		s.mu.Lock()
 		if s.runs[id] != r { // disconnected
 			s.mu.Unlock()
 			return
 		}
 		st := VPNState{ID: id, Status: VPNFailed, Reason: m.Reason, err: err}
-		if err != nil {
+		switch {
+		case err != nil:
 			st.Reason = err.Error()
+		case m.Code != "":
+			st = codedFailure(id, r.att.pinned, m)
 		}
-		if wasUp {
+		if wasUp && !needsUser {
 			st.Status, st.err = VPNDropped, nil
 		}
 		if !again {
@@ -458,11 +551,58 @@ func (s *VPNService) run(id string, r *vpnRun) {
 	}
 }
 
+// codedFailure is the failed state for a helper's coded failure, and the
+// error ConnectVPN returns for it: its details carry the certificate the
+// gateway presented and the one pinned, for the UI to ask (R21, AE8).
+func codedFailure(id, pinned string, m proto.Msg) VPNState {
+	st := VPNState{ID: id, Status: VPNFailed, Reason: m.Reason, Code: m.Code, ServerCert: m.ServerCert}
+	if m.Code == proto.CodeNeedsSystemWide {
+		st.Reason = "This VPN type needs system-wide mode on Windows, which Hostbay does not offer yet."
+	}
+	e := apperr.New(apperr.VPNFailed, "VPN: "+st.Reason).With("vpnId", id).With("reason", m.Code)
+	if m.ServerCert != "" {
+		e.With("serverCert", m.ServerCert)
+	}
+	if m.Code == proto.CodeCertChanged && pinned != "" {
+		e.With("pinned", pinned)
+	}
+	st.err = e
+	return st
+}
+
 // attempt starts one helper for the profile as saved now. Its states update
 // the profile's; the failed or dropped message that ends it comes back on
 // the returned channel.
 func (s *VPNService) attempt(id string, r *vpnRun) (<-chan proto.Msg, error) {
-	start, err := s.startMsg(id)
+	a := &vpnAttempt{end: make(chan proto.Msg, 1), exited: make(chan struct{})}
+	s.mu.Lock()
+	prev := s.exited[id]
+	s.exited[id], r.att = a.exited, a
+	s.mu.Unlock()
+	h, err := s.launch(id, r, a, prev)
+	if err != nil {
+		close(a.exited)
+		return nil, err
+	}
+	go func() {
+		<-h.Done()
+		close(a.exited)
+	}()
+	return a.end, nil
+}
+
+// launch starts a's helper once the profile's previous one has exited, so
+// two never run on one profile's state (a Tailscale node's), and the start
+// carries what the last one wrote as it closed.
+func (s *VPNService) launch(id string, r *vpnRun, a *vpnAttempt, prev <-chan struct{}) (*vpn.Helper, error) {
+	if prev != nil {
+		select {
+		case <-prev:
+		case <-r.stop:
+			return nil, errors.New("the VPN profile was disconnected")
+		}
+	}
+	start, v, err := s.startMsg(id)
 	if err != nil {
 		return nil, err
 	}
@@ -470,10 +610,10 @@ func (s *VPNService) attempt(id string, r *vpnRun) (<-chan proto.Msg, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &vpnAttempt{user: start.SocksUser, pass: start.SocksPass, end: make(chan proto.Msg, 1)}
-	s.mu.Lock()
-	r.att = a
-	s.mu.Unlock()
+	a.user, a.pass, a.pinned = start.SocksUser, start.SocksPass, v.PeerKey
+	if v.Type == proto.TypeTailscale {
+		a.nodeAAD = v.NodeStateAAD()
+	}
 	h, err := vpn.Start(context.Background(), path, start, func(m proto.Msg) { s.report(id, r, a, m) })
 	if err != nil {
 		return nil, err
@@ -485,11 +625,16 @@ func (s *VPNService) attempt(id string, r *vpnRun) (<-chan proto.Msg, error) {
 	if stopped {
 		h.Close()
 	}
-	return a.end, nil
+	return h, nil
 }
 
 // report applies one helper message to the profile's state.
 func (s *VPNService) report(id string, r *vpnRun, a *vpnAttempt, m proto.Msg) {
+	if m.T == proto.NodeState {
+		// Even from a stale run: a node writes its state as it closes.
+		s.keepNodeState(id, a, m.NodeState)
+		return
+	}
 	if m.State == proto.Failed || m.State == proto.Dropped {
 		select { // run sets the state, knowing whether it reconnects
 		case a.end <- m:
@@ -498,34 +643,104 @@ func (s *VPNService) report(id string, r *vpnRun, a *vpnAttempt, m proto.Msg) {
 		return
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.runs[id] != r || r.att != a {
+		s.mu.Unlock()
 		return
 	}
+	open := ""
 	switch {
 	case m.T == proto.Need:
-		s.set(VPNState{ID: id, Status: VPNSigningIn, Need: m.Need})
+		st := VPNState{ID: id, Status: VPNSigningIn, Need: m.Need}
+		if m.Need == proto.NeedBrowser && webURL(m.URL) {
+			st.URL, open = m.URL, m.URL
+		}
+		s.set(st)
 	case m.State == proto.Connecting && s.states[id].Status != VPNConnecting:
 		s.set(VPNState{ID: id, Status: VPNConnecting})
 	case m.State == proto.Connected:
 		a.port = m.SocksPort
 		s.set(VPNState{ID: id, Status: VPNConnected, Address: m.Address, Routes: m.Routes, Since: time.Now().UnixMilli()})
 	}
+	s.mu.Unlock()
+	if open != "" {
+		s.openURL(open)
+	}
+}
+
+// webURL reports whether u is an http or https URL with a host: the only
+// sign-in page a helper may have opened.
+func webURL(u string) bool {
+	p, err := url.Parse(u)
+	return err == nil && (p.Scheme == "http" || p.Scheme == "https") && p.Host != ""
+}
+
+// keepNodeState seals a Tailscale node's state into this computer's local
+// settings, which sync and backups never carry (KTD3). It is never logged.
+// A state for a profile deleted, or moved to another tailnet, since the
+// run began is dropped.
+func (s *VPNService) keepNodeState(id string, a *vpnAttempt, state string) {
+	if a.nodeAAD == nil || state == "" {
+		return
+	}
+	d, err := s.st.Data()
+	if err != nil {
+		return
+	}
+	if v := d.VPN(id); v == nil || !bytes.Equal(v.NodeStateAAD(), a.nodeAAD) {
+		return
+	}
+	sealed, err := s.vault.Seal([]byte(state), a.nodeAAD)
+	if err != nil {
+		return
+	}
+	s.st.EditLocal(func(l *store.Local) error {
+		l.VPNNodeStates = setLocal(l.VPNNodeStates, id, sealed)
+		return nil
+	})
 }
 
 // startMsg builds the helper's start message from the saved profile, with
 // its secrets opened and a fresh SOCKS login.
-func (s *VPNService) startMsg(id string) (proto.Msg, error) {
+// The engine for each of these runs the openconnect program
+// (internal/vpn/openconnect).
+var openConnectTypes = map[string]bool{
+	proto.TypeAnyConnect: true, proto.TypeSSLVPN: true, proto.TypeGlobalProtect: true, proto.TypePulse: true,
+	proto.TypeNetworkConnect: true, proto.TypeF5: true, proto.TypeArray: true,
+}
+
+// openConnectConfig and tailnetConfig are the engines' Config, field for
+// field: each refuses or ignores anything else.
+type openConnectConfig struct {
+	Gateway    string `json:"gateway"`
+	User       string `json:"user,omitempty"`
+	ServerCert string `json:"serverCert,omitempty"`
+	Browser    bool   `json:"browser,omitempty"`
+}
+
+type tailnetConfig struct {
+	Dir        string `json:"dir"`
+	ControlURL string `json:"controlURL"`
+	Hostname   string `json:"hostname"`
+}
+
+// startMsg builds the helper's start message from the saved profile, with
+// its secrets opened and a fresh SOCKS login. It returns the profile as it
+// was read.
+func (s *VPNService) startMsg(id string) (proto.Msg, *store.VPN, error) {
 	d, err := s.st.Data()
 	if err != nil {
-		return proto.Msg{}, err
+		return proto.Msg{}, nil, err
 	}
 	v := d.VPN(id)
 	if v == nil {
-		return proto.Msg{}, apperr.New(apperr.VPNFailed, "This VPN profile no longer exists").With("vpnId", id).With("reason", "missing")
+		return proto.Msg{}, nil, apperr.New(apperr.VPNFailed, "This VPN profile no longer exists").With("vpnId", id).With("reason", "missing")
 	}
-	if v.Tier != store.VPNTierApp || v.Type != proto.TypeWireGuard {
-		return proto.Msg{}, apperr.New(apperr.VPNFailed, fmt.Sprintf("Hostbay cannot connect %s profiles (tier %s) yet", v.Type, v.Tier)).
+	if v.Tier != store.VPNTierApp || v.Type != proto.TypeWireGuard && v.Type != proto.TypeTailscale && !openConnectTypes[v.Type] {
+		return proto.Msg{}, nil, apperr.New(apperr.VPNFailed, fmt.Sprintf("Hostbay cannot connect %s profiles (tier %s) yet", v.Type, v.Tier)).
+			With("vpnId", id).With("reason", "unsupported")
+	}
+	if openConnectTypes[v.Type] && v.Auth == "certificate" {
+		return proto.Msg{}, nil, apperr.New(apperr.VPNFailed, "Hostbay cannot sign in to this VPN with a client certificate yet; choose another sign-in in the profile").
 			With("vpnId", id).With("reason", "unsupported")
 	}
 	var sec store.VPNSecrets
@@ -536,17 +751,94 @@ func (s *VPNService) startMsg(id string) (proto.Msg, error) {
 			if errors.As(err, &ae) {
 				ae.With("vpnId", id)
 			}
-			return proto.Msg{}, err
+			return proto.Msg{}, nil, err
 		}
 		if err := json.Unmarshal(b, &sec); err != nil {
-			return proto.Msg{}, err
+			return proto.Msg{}, nil, err
 		}
 	}
-	return proto.Msg{
-		T: proto.Start, Type: v.Type, Config: wireGuardConfig(v),
-		Secrets:   map[string]string{"privateKey": sec.PrivateKey, "presharedKey": sec.PresharedKey},
-		SocksUser: rand.Text(), SocksPass: rand.Text(),
-	}, nil
+	m := proto.Msg{T: proto.Start, Type: v.Type, SocksUser: rand.Text(), SocksPass: rand.Text()}
+	switch v.Type {
+	case proto.TypeWireGuard:
+		m.Config = wireGuardConfig(v)
+		m.Secrets = map[string]string{"privateKey": sec.PrivateKey, "presharedKey": sec.PresharedKey}
+	case proto.TypeTailscale:
+		dir := s.nodeDir(id)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return proto.Msg{}, nil, err
+		}
+		node, err := s.nodeState(v)
+		if err != nil {
+			return proto.Msg{}, nil, err
+		}
+		host, _ := os.Hostname()
+		b, _ := json.Marshal(tailnetConfig{Dir: dir, ControlURL: v.Gateway, Hostname: nodeHostname(host)})
+		m.Config = string(b)
+		m.Secrets = map[string]string{"authKey": sec.AuthKey, "nodeState": node}
+	default:
+		c := openConnectConfig{Gateway: openConnectGateway(v.Gateway, v.Port), User: v.User, ServerCert: v.PeerKey,
+			Browser: v.Type == proto.TypeAnyConnect && v.Auth == "browser"}
+		pass := sec.Password
+		if c.Browser {
+			pass = "" // a stray line would answer openconnect's next prompt
+		}
+		b, _ := json.Marshal(c)
+		m.Config = string(b)
+		m.Secrets = map[string]string{"password": pass}
+	}
+	return m, v, nil
+}
+
+// nodeState opens the Tailscale profile's saved node. One that no longer
+// opens (sealed for another control server, say) is forgotten: the node
+// signs in again.
+func (s *VPNService) nodeState(v *store.VPN) (string, error) {
+	l, err := s.st.Local()
+	if err != nil || l.VPNNodeStates[v.ID] == "" {
+		return "", err
+	}
+	b, err := s.vault.Open(l.VPNNodeStates[v.ID], v.NodeStateAAD())
+	if ae := (*apperr.Error)(nil); errors.As(err, &ae) && ae.Details["reason"] == "decrypt" {
+		return "", s.st.EditLocal(func(l *store.Local) error {
+			delete(l.VPNNodeStates, v.ID)
+			return nil
+		})
+	}
+	return string(b), err
+}
+
+// nodeHostname is a Tailscale node's name from this computer's host name:
+// one DNS label ending in -hostbay.
+func nodeHostname(host string) string {
+	const suffix = "-hostbay"
+	host, _, _ = strings.Cut(host, ".")
+	name := strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			return r
+		}
+		return '-'
+	}, strings.ToLower(host))
+	name = strings.Trim(name, "-")
+	if len(name) > 63-len(suffix) {
+		name = strings.TrimRight(name[:63-len(suffix)], "-")
+	}
+	if name == "" {
+		return "hostbay"
+	}
+	return name + suffix
+}
+
+// openConnectGateway adds port to gw unless gw names one: openconnect takes
+// host, host:port and either followed by /path.
+func openConnectGateway(gw string, port int) string {
+	host, path, slash := strings.Cut(gw, "/")
+	if _, _, err := net.SplitHostPort(host); err != nil && port != 0 {
+		host = net.JoinHostPort(strings.Trim(host, "[]"), strconv.Itoa(port))
+	}
+	if slash {
+		return host + "/" + path
+	}
+	return host
 }
 
 // wireGuardConfig writes the profile as a wg-quick .conf without its keys,
@@ -585,6 +877,70 @@ func (s *VPNService) AnswerVPN(id, code string) error {
 	s.mu.Unlock()
 	return h.Answer(code) // the helper reports connecting again
 
+}
+
+// pinPattern is a gateway certificate pin as openconnect's --servercert takes it.
+var pinPattern = regexp.MustCompile(`^pin-sha256:[A-Za-z0-9+/]{43}=$`)
+
+// TrustVPNCert pins the gateway certificate an OpenConnect profile's last
+// connect found untrusted, once the user accepted it (R21): only the pin
+// the gateway presented. A changed certificate is refused, never trusted in
+// place of the pinned one (AE8): ForgetVPNCert first, and the next connect
+// asks again.
+func (s *VPNService) TrustVPNCert(id, pin string) error {
+	s.mu.Lock()
+	st := s.states[id]
+	s.mu.Unlock()
+	if st.Code == proto.CodeCertChanged {
+		return apperr.New(apperr.HostKeyChanged, "This VPN gateway's certificate changed, so Hostbay refuses it. Forget the saved certificate only if your VPN administrator confirms the change.").
+			With("vpnId", id).With("reason", proto.CodeCertChanged)
+	}
+	if !pinPattern.MatchString(pin) || pin != st.ServerCert || st.Code != proto.CodeCertUnknown {
+		return errors.New("this VPN gateway did not present that certificate; connect again to check it")
+	}
+	return s.repin(id, pin)
+}
+
+// ForgetVPNCert removes an OpenConnect profile's pinned gateway certificate
+// after OS verification, as removing a changed host key or certificate
+// does (KTD25); the next connect asks to trust whatever the gateway
+// presents.
+func (s *VPNService) ForgetVPNCert(ctx context.Context, id string) error {
+	if err := s.vault.Gate(ctx, "forget the VPN gateway's saved certificate"); err != nil {
+		return err
+	}
+	return s.repin(id, "")
+}
+
+// repin sets an OpenConnect profile's gateway pin, its PeerKey, which its
+// secrets are sealed to: they are opened under the old pin and sealed again
+// under the new, so the saved password survives. If they cannot be opened
+// (a locked vault) nothing changes.
+func (s *VPNService) repin(id, pin string) error {
+	return s.st.Edit(func(d *store.Data) error {
+		v := d.VPN(id)
+		if v == nil || !openConnectTypes[v.Type] {
+			return errors.New("this VPN profile has no gateway certificate")
+		}
+		var plain []byte
+		if v.Secret != "" {
+			b, err := s.vault.Open(v.Secret, v.SecretAAD())
+			if ae := (*apperr.Error)(nil); err != nil && !(errors.As(err, &ae) && ae.Details["reason"] == "decrypt") {
+				return err
+			}
+			plain = b // nil when they no longer open, which stays so
+		}
+		v.PeerKey = pin
+		if plain != nil {
+			sealed, err := s.vault.Seal(plain, v.SecretAAD())
+			if err != nil {
+				return err
+			}
+			v.Secret = sealed
+		}
+		d.PutVPN(*v)
+		return nil
+	})
 }
 
 // socks is where Hostbay dials through the connected app-scoped profile id:
@@ -660,6 +1016,10 @@ func (s *VPNService) ServiceShutdown() error {
 	s.mu.Unlock()
 	for _, id := range ids {
 		s.DisconnectVPN(id)
+	}
+	// A closing Tailscale node writes its keys; quitting first loses them.
+	for _, id := range ids {
+		s.waitExited(id)
 	}
 	return nil
 }
@@ -799,9 +1159,11 @@ func (s *VPNService) DetectVPNs(ctx context.Context) ([]detect.VPN, error) {
 			return strings.EqualFold(f.Name, v.Name) || strings.EqualFold(f.Name, v.Client)
 		}
 	}
-	// shortcut: only hosts count as users; per-destination routes (U11) must be added here.
+	// Hosts and routes both count as users (R23).
 	used := func(id string) bool {
-		return slices.ContainsFunc(d.Hosts.Items, func(h store.Host) bool { return store.Deref(h.VPNID) == id })
+		v := d.VPN(id)
+		return slices.ContainsFunc(d.Hosts.Items, func(h store.Host) bool { return store.Deref(h.VPNID) == id }) ||
+			(v != nil && len(v.Routes) > 0) || len(l.VPNNarrow[id]) > 0
 	}
 	for _, v := range d.VPNs.Items {
 		path := l.VPNClients[v.ID]

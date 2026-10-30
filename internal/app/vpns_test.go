@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -353,6 +354,26 @@ func TestConnectVPNFailsWithACode(t *testing.T) {
 	}
 	if _, err := e.svc.ConnectVPN(context.Background(), v.ID); apperr.CodeOf(err) != apperr.VPNFailed {
 		t.Fatalf("unsupported type: %v", err)
+	}
+}
+
+// A system-wide connect the routing plan cannot place is refused before
+// any helper starts, naming the conflict (R13).
+func TestSystemWideConnectRefusedOnConflict(t *testing.T) {
+	e := newVPNEnv(t, vpntest.OK)
+	v := e.save(t, false)
+	v.Tier = store.VPNTierSystem
+	if _, err := e.svc.SaveVPN(v); err != nil {
+		t.Fatal(err)
+	}
+	asked := ""
+	e.svc.checkConnect = func(id string) error { asked = id; return errors.New("Office is already a full tunnel") }
+	_, err := e.svc.ConnectVPN(context.Background(), v.ID)
+	if apperr.CodeOf(err) != apperr.VPNFailed || !strings.Contains(err.Error(), "Office") || asked != v.ID {
+		t.Fatalf("conflict: %v (asked %q)", err, asked)
+	}
+	if n := e.svc.ConnectedVPNs(); n != 0 {
+		t.Fatalf("ConnectedVPNs %d after a refused connect", n)
 	}
 }
 

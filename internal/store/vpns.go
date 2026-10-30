@@ -87,6 +87,13 @@ func (v *VPN) SecretAAD() []byte {
 	return []byte("vpn\x00" + v.ID + "\x00" + v.Type + "\x00" + v.Gateway + "\x00" + v.User + "\x00" + v.Tier + "\x00" + v.PeerKey)
 }
 
+// NodeStateAAD binds a Tailscale node's sealed state (Local.VPNNodeStates)
+// to its profile and tailnet: another profile, type or control server never
+// opens it. Its prefix keeps it apart from SecretAAD.
+func (v *VPN) NodeStateAAD() []byte {
+	return []byte("vpn-node\x00" + v.ID + "\x00" + v.Type + "\x00" + v.Gateway)
+}
+
 // VPN returns the profile with id, or nil.
 func (d *Data) VPN(id string) *VPN {
 	if i := find(d.VPNs.Items, id); i >= 0 {
