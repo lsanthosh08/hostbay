@@ -158,3 +158,39 @@ func TestWithoutSecretsBlanksVPNSecrets(t *testing.T) {
 		t.Fatal("WithoutSecrets changed the parsed bundle")
 	}
 }
+
+// An imported VPN profile is checked like a host: a gateway or route that
+// could add lines to an engine configuration is refused with a reason.
+func TestBuilderSkipsUnsafeVPNProfiles(t *testing.T) {
+	b := importer.NewBuilder("test")
+	ok := store.VPN{Name: "ok", Type: "openvpn", Tier: store.VPNTierSystem, Gateway: "vpn.example", Port: 1194}
+	nl, route, tier := ok, ok, ok
+	nl.Name, nl.Gateway = "nl", "vpn.example\nup /tmp/x"
+	route.Name, route.Routes = "route", []string{"10.0.0.0/8 x"}
+	tier.Name, tier.Tier = "tier", "root"
+	for _, p := range []store.VPN{ok, nl, route, tier} {
+		b.AddVPN(importer.VPN{Profile: p})
+	}
+	res := b.Result()
+	if len(res.Bundle.VPNs) != 1 || len(res.VPNs) != 1 || res.Bundle.VPNs[0].ID != res.VPNs[0].ID || len(res.Skipped) != 3 {
+		t.Fatalf("VPNs = %+v, skipped = %+v", res.Bundle.VPNs, res.Skipped)
+	}
+}
+
+// A keychain that refuses to seal still imports a VPN profile, without
+// its secrets, counts them as needed and marks the password as asked for.
+func TestImportWithoutKeychainKeepsNoVPNSecrets(t *testing.T) {
+	st, _, dir := importertest.Store(t)
+	keyring.MockInitWithError(errors.New("user denied access"))
+	v := secrets.New(st, nil)
+	b := importer.NewBuilder("test")
+	b.AddVPN(importer.VPN{Profile: store.VPN{Name: "office", Type: "openvpn", Tier: store.VPNTierSystem, Gateway: "vpn.example", Auth: "password"}, Secrets: store.VPNSecrets{Password: "Synthetic-Vpn-9!"}})
+	rep := importertest.Import(t, st, v, b.Result())
+	if len(rep.VPNs) != 1 || !rep.VPNs[0].AskPassword || rep.PasswordsNeeded != 1 {
+		t.Fatalf("report = %+v", rep)
+	}
+	if importertest.VPN(t, st, "office").Secret != "" {
+		t.Fatal("secret kept")
+	}
+	importertest.NoSecrets(t, dir, "Synthetic-Vpn-9!")
+}

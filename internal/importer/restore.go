@@ -6,11 +6,13 @@ package importer
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"maps"
 	"net"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -49,21 +51,61 @@ type Report struct {
 	// Notes name what imported but needs a look: a password that stayed
 	// behind, and every plaintext or weakening option imported as stated.
 	Notes []string `json:"notes"`
+	// VPNs are the VPN profiles added, each with what the file held that
+	// was dropped (R43).
+	VPNs []VPNImport `json:"vpns"`
+	// Browsers are browser-profile mappings the file holds. Browser routing
+	// is not built yet, so they are reported and not saved.
+	Browsers []BrowserMapping `json:"browsers"`
+}
+
+// VPNImport is one VPN profile an import read, by its ID in the bundle.
+type VPNImport struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Ignored lists each directive or setting that was dropped, such as a
+	// script hook, as the file stated it (R43).
+	Ignored []string `json:"ignored"`
+	// AskPassword: it signs in with a password the file did not hold, so
+	// Hostbay asks for it on first connect (R44).
+	AskPassword bool `json:"askPassword"`
+}
+
+// BrowserMapping sends a browser profile through a VPN profile, by name.
+type BrowserMapping struct {
+	Profile string `json:"profile"`
+	VPN     string `json:"vpn"`
 }
 
 // Result is one parsed export: a bundle to restore with plaintext passwords
 // that Restore seals, and what the parser could not map.
 type Result struct {
-	Bundle  backup.Bundle
-	Skipped []Skipped
-	Notes   []string
+	Bundle   backup.Bundle
+	Skipped  []Skipped
+	Notes    []string
+	VPNs     []VPNImport // one per Bundle.VPNs entry
+	Browsers []BrowserMapping
 }
 
 // Import restores res into st and reports what it added.
 func Import(st *store.Store, v *secrets.Vault, res Result) (Report, error) {
-	rep := Report{Ran: true, Skipped: append([]Skipped{}, res.Skipped...), Notes: append([]string{}, res.Notes...)}
+	rep := Report{Ran: true, Skipped: append([]Skipped{}, res.Skipped...), Notes: append([]string{}, res.Notes...), VPNs: []VPNImport{}, Browsers: append([]BrowserMapping{}, res.Browsers...)}
 	if err := Restore(st, v, res.Bundle, WithoutSecrets(res.Bundle), &rep); err != nil {
 		return Report{}, err
+	}
+	if len(res.VPNs) > 0 {
+		d, err := st.Data()
+		if err != nil {
+			return Report{}, err
+		}
+		// A profile matching a saved one was not added; parsers give each a
+		// fresh ID, so the added ones are those saved under it.
+		for _, x := range res.VPNs {
+			if p := d.VPN(x.ID); p != nil {
+				x.AskPassword = x.AskPassword || p.Auth == "password" && p.Secret == ""
+				rep.VPNs = append(rep.VPNs, x)
+			}
+		}
 	}
 	return rep, nil
 }
@@ -79,6 +121,11 @@ func Restore(st *store.Store, v *secrets.Vault, b, fallback backup.Bundle, rep *
 		rep.PasswordsNeeded = 0
 		for _, h := range b.Hosts {
 			if h.Password != "" {
+				rep.PasswordsNeeded++
+			}
+		}
+		for _, p := range b.VPNs {
+			if p.Secret != "" {
 				rep.PasswordsNeeded++
 			}
 		}
@@ -428,6 +475,76 @@ func (b *Builder) noteWeak(name string, h store.Host) {
 	if n := h.Algorithms.Names(); len(n) > 0 {
 		b.Note(name, "offers extra SSH algorithms: "+strings.Join(n, ", "))
 	}
+}
+
+// VPN is one VPN profile as a configuration file states it, before checks.
+type VPN struct {
+	Profile store.VPN
+	Secrets store.VPNSecrets // plaintext; only what the file held (R44)
+	Ignored []string         // what the file held that was dropped (R43)
+}
+
+// AddVPN checks e and adds it, or skips it with the reason, and reports
+// whether it added e. A field that could add lines to the engine
+// configuration Hostbay writes from it is refused rather than cleaned.
+func (b *Builder) AddVPN(e VPN) bool {
+	p := e.Profile
+	p.Name = strings.TrimSpace(p.Name)
+	if err := checkVPN(p); err != nil {
+		name := p.Name
+		if name == "" {
+			name = p.Gateway
+		}
+		b.Skip(name, err.Error())
+		return false
+	}
+	p.ID, p.Secret = store.NewID(), ""
+	if e.Secrets != (store.VPNSecrets{}) {
+		raw, _ := json.Marshal(e.Secrets) // Restore seals it
+		p.Secret = string(raw)
+	}
+	b.res.Bundle.VPNs = append(b.res.Bundle.VPNs, p)
+	b.res.VPNs = append(b.res.VPNs, VPNImport{ID: p.ID, Name: p.Name, Ignored: append([]string{}, e.Ignored...), AskPassword: p.Auth == "password" && e.Secrets.Password == ""})
+	return true
+}
+
+// checkVPN mirrors internal/app's checkVPN for profiles read from files.
+func checkVPN(v store.VPN) error {
+	bad := func(s string, spaces bool) bool {
+		return strings.IndexFunc(s, func(r rune) bool { return unicode.IsControl(r) || spaces && unicode.IsSpace(r) }) >= 0
+	}
+	switch {
+	case v.Name == "" || len(v.Name) > 200 || bad(v.Name, false):
+		return errors.New("no usable name")
+	case v.Type == "" || bad(v.Type, true):
+		return errors.New("no VPN type")
+	case v.Tier != store.VPNTierApp && v.Tier != store.VPNTierSystem && v.Tier != store.VPNTierExternal:
+		return fmt.Errorf("tier %q is not app, system or external", v.Tier)
+	case len(v.Gateway) > 253 || bad(v.Gateway, true) || strings.HasPrefix(v.Gateway, "-") || bad(v.PeerKey, true):
+		return fmt.Errorf("the gateway %q is not a valid address", v.Gateway)
+	case v.Port < 0 || v.Port > 65535:
+		return fmt.Errorf("port %d is out of range", v.Port)
+	case v.MTU != 0 && (v.MTU < 576 || v.MTU > 65535):
+		return fmt.Errorf("MTU %d is out of range", v.MTU)
+	case len(v.User) > 256 || bad(v.User, false) || bad(v.Auth, true) || bad(v.Client, false):
+		return errors.New("a field contains a line break or control character")
+	}
+	for _, p := range append(slices.Clone(v.Address), v.Routes...) {
+		if _, err := netip.ParsePrefix(p); err != nil {
+			return fmt.Errorf("%q is not a network such as 10.0.0.0/24", p)
+		}
+	}
+	for _, a := range v.DNSServers {
+		if _, err := netip.ParseAddr(a); err != nil {
+			return fmt.Errorf("DNS server %q is not an IP address", a)
+		}
+	}
+	for _, n := range v.DNSDomains {
+		if n == "" || bad(n, true) || strings.Contains(n, ",") {
+			return fmt.Errorf("DNS domain %q is not a domain name", n)
+		}
+	}
+	return nil
 }
 
 // MissingProxy stands in for a proxy the export names but does not carry.

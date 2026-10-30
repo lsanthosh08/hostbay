@@ -364,4 +364,252 @@ write("dbeaver/master/data-sources.json", json.dumps({"connections": {
     "postgres-jdbc-locked": {"provider": "postgresql", "name": "locked", "save-password": True, "configuration": {"host": "192.0.2.30", "port": "5432", "database": "app"}},
 }}, indent=2))
 write("dbeaver/master/credentials-config.json", dbv_creds({"postgres-jdbc-locked": {"#connection": {"user": "app", "password": "Dbv-Locked-6!"}}}, key=bytes(range(16))))
+
+# ---- VPN configuration files (U13). Keys are hash-derived filler: random-looking, never real.
+def fake_key(label):
+    return base64.b64encode(hashlib.sha256(("hostbay-fake-" + label).encode()).digest()).decode()
+
+
+def fake_pem(kind, marker):
+    body = marker + base64.b64encode(hashlib.sha512(marker.encode()).digest() * 2).decode()
+    lines = "\n".join(body[i:i + 64] for i in range(0, len(body), 64))
+    return f"-----BEGIN {kind}-----\n{lines}\n-----END {kind}-----"
+
+
+CA = fake_pem("CERTIFICATE", "FakeOvpnCA")
+CERT = fake_pem("CERTIFICATE", "FakeOvpnClientCert")
+KEY = fake_pem("PRIVATE KEY", "FakeOvpnClientKey")
+TLS_AUTH = "-----BEGIN OpenVPN Static key V1-----\n" + hashlib.sha256(b"FakeOvpnTlsAuth").hexdigest() * 2 + "\n-----END OpenVPN Static key V1-----"
+
+write("vpn/office.ovpn", f"""# synthetic split-tunnel profile
+client
+dev tun
+proto udp
+remote vpn1.example.test 1195 udp
+remote vpn2.example.test 1195 udp
+nobind
+persist-key
+auth-user-pass
+remote-cert-tls server
+verify-x509-name vpn1.example.test name
+cipher AES-256-GCM
+route 10.1.0.0 255.255.0.0
+route 192.168.40.0 255.255.255.0 vpn_gateway
+dhcp-option DNS 10.1.0.53
+dhcp-option DOMAIN corp.example.test
+tun-mtu 1400
+up /tmp/x.sh
+script-security 2
+plugin /usr/lib/openvpn/plugin-auth-pam.so login
+log /tmp/openvpn.log
+frobnicate yes
+key-direction 1
+<ca>
+{CA}
+</ca>
+<cert>
+{CERT}
+</cert>
+<key>
+{KEY}
+</key>
+<tls-auth>
+{TLS_AUTH}
+</tls-auth>
+""")
+write("vpn/full.ovpn", """client
+dev tun
+remote gw.example.test 443 tcp
+auth-user-pass /etc/openvpn/creds.txt
+redirect-gateway def1
+ca /etc/ssl/certs/ca.pem
+""")
+write("vpn/office.conf", f"""[Interface]
+PrivateKey = {fake_key("wg-private")}
+Address = 10.8.0.2/32, fd00:8::2/128
+DNS = 10.8.0.1, corp.example.test
+MTU = 1380
+PostUp = iptables -A FORWARD -i %i -j ACCEPT
+
+[Peer]
+PublicKey = {fake_key("wg-peer-public")}
+PresharedKey = {fake_key("wg-preshared")}
+Endpoint = wg.example.test:51821
+AllowedIPs = 10.8.0.0/24, 10.20.0.0/16
+PersistentKeepalive = 25
+""")
+write("vpn/anyconnect.xml", """<?xml version="1.0" encoding="UTF-8"?>
+<AnyConnectProfile xmlns="http://schemas.xmlsoap.org/encoding/">
+  <ClientInitialization><AutoUpdate>false</AutoUpdate></ClientInitialization>
+  <ServerList>
+    <HostEntry><HostName>HQ</HostName><HostAddress>vpn-hq.example.test</HostAddress><UserGroup>engineering</UserGroup></HostEntry>
+    <HostEntry><HostName>Branch</HostName><HostAddress>vpn-branch.example.test:8443</HostAddress></HostEntry>
+  </ServerList>
+</AnyConnectProfile>
+""")
+WGQ = f"[Interface]\\nPrivateKey = {fake_key('mc-wg-private')}\\nAddress = 10.9.0.2/32\\n\\n[Peer]\\nPublicKey = {fake_key('mc-wg-peer')}\\nEndpoint = mcwg.example.test:51820\\nAllowedIPs = 10.9.0.0/16\\n"
+write("vpn/profile.mobileconfig", f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>PayloadContent</key>
+  <array>
+    <dict>
+      <key>PayloadType</key><string>com.apple.vpn.managed</string>
+      <key>UserDefinedName</key><string>Corp IKEv2</string>
+      <key>VPNType</key><string>IKEv2</string>
+      <key>IKEv2</key>
+      <dict>
+        <key>RemoteAddress</key><string>ike.example.test</string>
+        <key>RemoteIdentifier</key><string>ike.example.test</string>
+        <key>AuthenticationMethod</key><string>SharedSecret</string>
+        <key>SharedSecret</key><string>Mc-Psk-1!</string>
+        <key>ExtendedAuthEnabled</key><integer>1</integer>
+        <key>AuthName</key><string>alice</string>
+        <key>AuthPassword</key><string>Mc-Pass-2!</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>PayloadType</key><string>com.apple.vpn.managed</string>
+      <key>UserDefinedName</key><string>Lab WireGuard</string>
+      <key>VPNType</key><string>VPN</string>
+      <key>VPNSubType</key><string>com.wireguard.macos</string>
+      <key>VendorConfig</key>
+      <dict><key>WgQuickConfig</key><string>{WGQ.replace(chr(92) + "n", chr(10))}</string></dict>
+      <key>VPN</key><dict><key>RemoteAddress</key><string>mcwg.example.test:51820</string></dict>
+    </dict>
+    <dict>
+      <key>PayloadType</key><string>com.apple.vpn.managed</string>
+      <key>UserDefinedName</key><string>Vendor App</string>
+      <key>VPNType</key><string>VPN</string>
+      <key>VPNSubType</key><string>com.example.vendorvpn</string>
+      <key>VPN</key><dict><key>RemoteAddress</key><string>vendor.example.test</string></dict>
+    </dict>
+    <dict>
+      <key>PayloadType</key><string>com.apple.wifi.managed</string>
+      <key>SSID_STR</key><string>office</string>
+    </dict>
+  </array>
+  <key>PayloadType</key><string>Configuration</string>
+</dict>
+</plist>
+""")
+write("vpn/branch.nmconnection", """[connection]
+id=Branch office
+type=vpn
+
+[vpn]
+service-type=org.freedesktop.NetworkManager.fortisslvpn
+gateway=ssl.example.test:10443
+user=bob
+password-flags=1
+
+[ipv4]
+method=auto
+never-default=true
+route1=10.30.0.0/16
+dns=10.30.0.53;
+dns-search=branch.example.test;
+""")
+write("vpn/lab.nmconnection", f"""[connection]
+id=Lab tunnel
+type=wireguard
+
+[wireguard]
+private-key={fake_key("nm-wg-private")}
+
+[wireguard-peer.{fake_key("nm-wg-peer")}]
+endpoint=nmwg.example.test:51820
+allowed-ips=10.40.0.0/16;10.41.0.0/16;
+
+[ipv4]
+method=manual
+address1=10.40.0.2/32
+dns=10.40.0.1;
+""")
+write("vpn/legacy.nmconnection", """[connection]
+id=Legacy IPsec
+type=vpn
+
+[vpn]
+service-type=org.freedesktop.NetworkManager.vpnc
+IPSec gateway=vpnc.example.test
+IPSec ID=staff
+Xauth username=carol
+
+[vpn-secrets]
+IPSec secret=Nm-Group-3!
+Xauth password=Nm-Pass-4!
+
+[ipv4]
+method=auto
+""")
+write("vpn/rasphone.pbk", """[Office IKEv2]
+Encoding=1
+Type=2
+PhoneNumber=ike-win.example.test
+VpnStrategy=7
+
+[Office L2TP]
+Type=2
+PhoneNumber=l2tp.example.test
+VpnStrategy=3
+
+[Office SSTP]
+Type=2
+PhoneNumber=sstp.example.test
+VpnStrategy=5
+
+[Old PPTP]
+Type=2
+PhoneNumber=pptp.example.test
+VpnStrategy=1
+
+[Dial-up]
+Type=1
+PhoneNumber=5551234
+""")
+TB = "Office.tblk/Contents/Resources/"
+write("vpn/" + TB + "config.ovpn", """client
+dev tun
+remote tb.example.test 1194 udp
+ca ca.crt
+cert client.crt
+key client.key
+tls-crypt ../../../../outside.key
+route 10.50.0.0 255.255.0.0
+""")
+write("vpn/" + TB + "ca.crt", CA + "\n")
+write("vpn/" + TB + "client.crt", CERT + "\n")
+write("vpn/" + TB + "client.key", fake_pem("PRIVATE KEY", "FakeTblkClientKey") + "\n")
+write("vpn/Home.visc/config.conf", """#-- Config Auto Generated By Viscosity --#
+#viscosity name Home Lab
+#viscosity autoreconnect true
+client
+dev tun
+remote visc.example.test 1194 udp
+auth-user-pass
+ca ca.crt
+key key.key
+redirect-gateway def1
+""")
+write("vpn/Home.visc/ca.crt", CA + "\n")
+write("vpn/Home.visc/key.key", fake_pem("PRIVATE KEY", "FakeViscClientKey") + "\n")
+write("tunnelhub/vpn-config.json", json.dumps({
+    "vpns": {
+        "sslvpn": {"display": "Branch SSL VPN", "match": "Branch", "exclude": "", "iface": "", "peer": "", "kind": "peerless", "socks": "", "mtu": 1280},
+        "wg-lab": {"display": "WireGuard Lab", "match": "WireGuard", "exclude": "", "iface": "utun7", "peer": "", "kind": "peer", "socks": "", "mtu": 1380},
+        "sase": {"display": "Harmony SASE", "match": "Harmony", "exclude": "Branch", "iface": "", "peer": "100.64.0.0/10", "kind": "peer", "socks": "127.0.0.1:1080", "mtu": 1280},
+    },
+    "routes": [
+        {"dest": "10.212.0.0/16", "vpn": "sslvpn"},
+        {"dest": "10.213.0.0/16", "vpn": "sslvpn"},
+        {"dest": "10.60.0.0/16", "vpn": "wg-lab"},
+        {"dest": "10.61.0.0/16", "vpn": "wg-lab"},
+        {"dest": "10.0.0.0/12", "vpn": "sase"},
+        {"dest": "172.20.0.0/16", "vpn": "sase"},
+        {"dest": "172.21.4.0/24", "vpn": "sase"},
+    ],
+    "chrome": [{"profile": "Work", "vpn": "sase"}],
+}, indent=2))
 print("ok")

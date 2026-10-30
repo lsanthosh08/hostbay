@@ -597,13 +597,15 @@ func matchProxy(d *store.Data, p store.Proxy) string {
 }
 
 // matchVPN returns the ID of the saved profile p matches: by ID, then by
-// type, gateway, port and user together; or "".
+// type, gateway, port and user together, and by name too for a profile
+// with no gateway (external clients), which those alone cannot tell apart;
+// or "".
 func matchVPN(d *store.Data, p store.VPN) string {
 	if p.ID != "" && d.VPN(p.ID) != nil {
 		return p.ID
 	}
 	for _, l := range d.VPNs.Items {
-		if l.Type == p.Type && l.Gateway == p.Gateway && l.Port == p.Port && l.User == p.User {
+		if l.Type == p.Type && l.Gateway == p.Gateway && l.Port == p.Port && l.User == p.User && (p.Gateway != "" || l.Name == p.Name) {
 			return l.ID
 		}
 	}

@@ -1,0 +1,16 @@
+[connection]
+id=Branch office
+type=vpn
+
+[vpn]
+service-type=org.freedesktop.NetworkManager.fortisslvpn
+gateway=ssl.example.test:10443
+user=bob
+password-flags=1
+
+[ipv4]
+method=auto
+never-default=true
+route1=10.30.0.0/16
+dns=10.30.0.53;
+dns-search=branch.example.test;

@@ -1,0 +1,15 @@
+[connection]
+id=Lab tunnel
+type=wireguard
+
+[wireguard]
+private-key=T28kPL0nfnZTVIgMsXO6aJoM4f0CENFRCWx4jUuIuQc=
+
+[wireguard-peer.wYfeMDubQWZpkROSKmA69WyjJ9Yub7zR0doPIQm2sKc=]
+endpoint=nmwg.example.test:51820
+allowed-ips=10.40.0.0/16;10.41.0.0/16;
+
+[ipv4]
+method=manual
+address1=10.40.0.2/32
+dns=10.40.0.1;
