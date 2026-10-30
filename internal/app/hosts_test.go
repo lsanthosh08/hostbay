@@ -14,6 +14,7 @@ import (
 	"hostbay/internal/importer/sshmanager"
 	"hostbay/internal/secrets"
 	"hostbay/internal/store"
+	"hostbay/internal/vpn/detect"
 )
 
 type fakeVerifier secrets.Result
@@ -34,7 +35,9 @@ func newHostService(t *testing.T, ver secrets.Verifier) (*HostService, *HostCred
 		t.Fatal(err)
 	}
 	creds := NewHostCredentials(st, v)
-	LinkVPNs(creds, NewVPNService(st, v))
+	vpns := NewVPNService(st, v)
+	vpns.detect = func(context.Context) (detect.Snapshot, error) { return detect.Snapshot{}, nil } // never this computer's VPNs
+	LinkVPNs(creds, vpns)
 	return NewHostService(st, v, ver), creds, dir
 }
 

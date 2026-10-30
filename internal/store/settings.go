@@ -122,6 +122,13 @@ type Local struct {
 	// computer, keyed by profile ID. A path from sync or a backup would let
 	// another computer choose what Hostbay runs, so it never leaves here (KTD4).
 	VPNClients map[string]string `json:"vpnClients,omitempty"`
+	// VPNIfaces pin external VPN profiles to a tunnel interface on this
+	// computer, keyed by profile ID, for when detection cannot tell two
+	// VPNs apart (R24). Interface names mean nothing on another computer.
+	VPNIfaces map[string]string `json:"vpnIfaces,omitempty"`
+	// KeepRunning hides the window when it closes instead of quitting, so
+	// Hostbay and its VPNs stay up in the menu bar (KTD10).
+	KeepRunning bool `json:"keepRunning,omitempty"`
 }
 
 // MCPSettings is this computer's MCP server. Its tokens' hashes are in

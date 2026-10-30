@@ -8,6 +8,10 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -15,10 +19,13 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/wailsapp/wails/v3/pkg/application"
+
 	"hostbay/internal/apperr"
 	"hostbay/internal/secrets"
 	"hostbay/internal/store"
 	"hostbay/internal/vpn"
+	"hostbay/internal/vpn/detect"
 	"hostbay/internal/vpn/proto"
 )
 
@@ -45,6 +52,11 @@ type VPN struct {
 	AutoApply     bool     `json:"autoApply,omitempty"`
 	RoutingMode   string   `json:"routingMode,omitempty"`
 	Client        string   `json:"client,omitempty"`
+	// This computer's own, kept in store.Local and never synced: the
+	// external client program LaunchVPNClient opens, and the tunnel
+	// interface the profile is pinned to (R24).
+	ClientPath string `json:"clientPath,omitempty"`
+	Iface      string `json:"iface,omitempty"`
 
 	Password     *string `json:"password,omitempty"`
 	PrivateKey   *string `json:"privateKey,omitempty"`
@@ -74,6 +86,7 @@ type VPNState struct {
 	Address []string `json:"address,omitempty"` // connected: the tunnel's own addresses
 	Routes  []string `json:"routes,omitempty"`  // connected: networks reached through it
 	Since   int64    `json:"since,omitempty"`   // connected: when it came up, Unix milliseconds
+	Iface   string   `json:"iface,omitempty"`   // connected external profile: its tunnel's interface
 
 	err error // failed: the coded error to return to callers
 }
@@ -86,13 +99,20 @@ var (
 
 const wireGuardPort = 51820
 
+// vpnDetectEvery is how often external profiles' states follow detection.
+const vpnDetectEvery = 5 * time.Second
+
 // VPNService saves VPN profiles and runs the app-scoped ones, one
 // hostbay-vpn helper per connected profile (KTD1).
 type VPNService struct {
-	st     *store.Store
-	vault  *secrets.Vault
-	helper func() (string, error) // vpn.HelperPath; tests point it at a fake
-	emit   func(name string, data any)
+	st         *store.Store
+	vault      *secrets.Vault
+	helper     func() (string, error) // vpn.HelperPath; tests point it at a fake
+	detect     func(context.Context) (detect.Snapshot, error)
+	emit       func(name string, data any)
+	stopDetect context.CancelFunc // ends the detection loop
+
+	refreshing sync.Mutex // one detection at a time, so states apply in order
 
 	mu      sync.Mutex
 	runs    map[string]*vpnRun // profile ID -> run from connect until disconnect or the end
@@ -117,7 +137,7 @@ type vpnAttempt struct {
 
 func NewVPNService(st *store.Store, vault *secrets.Vault) *VPNService {
 	return &VPNService{
-		st: st, vault: vault, helper: vpn.HelperPath, emit: emitEvent,
+		st: st, vault: vault, helper: vpn.HelperPath, detect: detect.Detect, emit: emitEvent,
 		runs: map[string]*vpnRun{}, states: map[string]VPNState{}, changed: make(chan struct{}),
 	}
 }
@@ -137,11 +157,21 @@ func (s *VPNService) ListVPNs() ([]VPN, error) {
 	if err != nil {
 		return nil, err
 	}
+	l, err := s.st.Local()
+	if err != nil {
+		return nil, err
+	}
 	out := []VPN{}
 	for _, v := range d.VPNs.Items {
-		out = append(out, vpnToUI(v))
+		out = append(out, withLocal(vpnToUI(v), l))
 	}
 	return out, nil
+}
+
+// withLocal adds this computer's own fields to v.
+func withLocal(v VPN, l store.Local) VPN {
+	v.ClientPath, v.Iface = l.VPNClients[v.ID], l.VPNIfaces[v.ID]
+	return v
 }
 
 // SaveVPN adds or updates a profile. New secrets are sealed together with
@@ -190,7 +220,30 @@ func (s *VPNService) SaveVPN(profile VPN) (VPN, error) {
 		out = d.PutVPN(v)
 		return nil
 	})
-	return vpnToUI(out), err
+	if err != nil {
+		return VPN{}, err
+	}
+	err = s.st.EditLocal(func(l *store.Local) error {
+		l.VPNClients = setLocal(l.VPNClients, out.ID, profile.ClientPath)
+		l.VPNIfaces = setLocal(l.VPNIfaces, out.ID, profile.Iface)
+		return nil
+	})
+	v := vpnToUI(out)
+	v.ClientPath, v.Iface = profile.ClientPath, profile.Iface
+	return v, err
+}
+
+// setLocal sets m[id] to v, or removes it when v is "".
+func setLocal(m map[string]string, id, v string) map[string]string {
+	if v == "" {
+		delete(m, id)
+		return m
+	}
+	if m == nil {
+		m = map[string]string{}
+	}
+	m[id] = v
+	return m
 }
 
 // DeleteVPN disconnects the profile and removes it, leaving a tombstone for
@@ -200,6 +253,13 @@ func (s *VPNService) DeleteVPN(id string) error {
 		return err
 	}
 	if err := s.st.Edit(func(d *store.Data) error { return d.PurgeVPN(id) }); err != nil {
+		return err
+	}
+	if err := s.st.EditLocal(func(l *store.Local) error {
+		delete(l.VPNClients, id)
+		delete(l.VPNIfaces, id)
+		return nil
+	}); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -227,8 +287,17 @@ func checkVPN(v VPN) error {
 		return errors.New("the VPN port must be between 1 and 65535")
 	case v.MTU != 0 && (v.MTU < 576 || v.MTU > 65535):
 		return errors.New("the MTU must be between 576 and 65535")
-	case bad(v.User, false) || bad(v.Auth, true) || bad(v.RoutingMode, true) || bad(v.Client, false):
+	case bad(v.User, false) || bad(v.Auth, true) || bad(v.RoutingMode, true) || bad(v.Client, false) || bad(v.Iface, false):
 		return errors.New("VPN profile fields cannot hold line breaks")
+	case v.ClientPath != "" && (bad(v.ClientPath, false) || !filepath.IsAbs(v.ClientPath)):
+		return errors.New("choose the VPN client program by its full path")
+	}
+	if v.ClientPath != "" {
+		// A refresh drops a profile whose client program is gone (R23), so
+		// a path that never existed would be dropped at once.
+		if _, err := os.Stat(v.ClientPath); err != nil {
+			return fmt.Errorf("the VPN client program %s is not on this computer", v.ClientPath)
+		}
 	}
 	for _, p := range append(slices.Clone(v.Address), v.Routes...) {
 		if _, err := netip.ParsePrefix(p); err != nil {
@@ -290,6 +359,14 @@ func (s *VPNService) ConnectVPN(ctx context.Context, id string) (VPNState, error
 // connectAs is ConnectVPN for by, who owns the run only if this call
 // starts it.
 func (s *VPNService) connectAs(ctx context.Context, id, by string) (VPNState, error) {
+	if d, err := s.st.Data(); err == nil && d.VPN(id) != nil && d.VPN(id).Tier == store.VPNTierExternal {
+		// Its own app connects it; Hostbay only sees the tunnel (KTD7).
+		s.mu.Lock()
+		st := s.states[id]
+		s.mu.Unlock()
+		return st, apperr.New(apperr.VPNFailed, fmt.Sprintf("VPN %s connects in its own app; open it there", d.VPN(id).Name)).
+			With("vpnId", id).With("reason", "external")
+	}
 	s.mu.Lock()
 	if s.runs[id] == nil {
 		r := &vpnRun{stop: make(chan struct{}), by: by}
@@ -564,13 +641,17 @@ func (s *VPNService) stop(id string) {
 			r.att.h.Close()
 		}
 	}
-	if _, known := s.states[id]; known {
+	// An external profile's state is its tunnel's, which this cannot end.
+	if st, known := s.states[id]; known && st.Iface == "" && st.Status != VPNDisconnected {
 		s.set(VPNState{ID: id, Status: VPNDisconnected})
 	}
 }
 
 // ServiceShutdown disconnects every profile when the app quits (R19).
 func (s *VPNService) ServiceShutdown() error {
+	if s.stopDetect != nil {
+		s.stopDetect()
+	}
 	s.mu.Lock()
 	var ids []string
 	for id := range s.runs {
@@ -580,5 +661,186 @@ func (s *VPNService) ServiceShutdown() error {
 	for _, id := range ids {
 		s.DisconnectVPN(id)
 	}
+	return nil
+}
+
+// ServiceStartup starts following external profiles' tunnels: while any
+// external profile is saved, detection runs every vpnDetectEvery and their
+// states change as their tunnels come and go (KTD7).
+func (s *VPNService) ServiceStartup(context.Context, application.ServiceOptions) error {
+	ctx, stop := context.WithCancel(context.Background())
+	s.stopDetect = stop
+	tick := func() {
+		if d, err := s.st.Data(); err == nil && slices.ContainsFunc(d.VPNs.Items, func(v store.VPN) bool { return v.Tier == store.VPNTierExternal }) {
+			s.refresh(ctx)
+		}
+	}
+	go func() {
+		tick()
+		t := time.NewTicker(vpnDetectEvery)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				tick()
+			}
+		}
+	}()
+	return nil
+}
+
+// refresh runs detection now and moves each external profile between
+// disconnected and connected as its tunnel is labeled (R24): one detection
+// cannot tell apart stays disconnected and asks for a pin.
+func (s *VPNService) refresh(ctx context.Context) error {
+	_, _, err := s.labelNow(ctx)
+	return err
+}
+
+// labelNow is refresh, returning what detection saw and each tunnel's
+// label: the routing engine (U11) routes only through labeled tunnels.
+func (s *VPNService) labelNow(ctx context.Context) (detect.Snapshot, []detect.Labeled, error) {
+	s.refreshing.Lock()
+	defer s.refreshing.Unlock()
+	d, err := s.st.Data()
+	if err != nil {
+		return detect.Snapshot{}, nil, err
+	}
+	l, err := s.st.Local()
+	if err != nil {
+		return detect.Snapshot{}, nil, err
+	}
+	snap, err := s.detect(ctx)
+	if err != nil {
+		return detect.Snapshot{}, nil, err
+	}
+	var ps []detect.Profile
+	for _, v := range d.VPNs.Items {
+		if v.Tier == store.VPNTierExternal {
+			ps = append(ps, detect.Profile{
+				ID: v.ID, Names: []string{v.Name, v.Client}, Shape: detect.ShapeFor(v.Type),
+				// Only the tunnel's own addresses: a route names where traffic
+				// goes, which a tunnel of another VPN may hold too.
+				Ranges: v.Address, Iface: l.VPNIfaces[v.ID],
+			})
+		}
+	}
+	labels := detect.Label(snap.Tunnels, ps)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, p := range ps {
+		st := VPNState{ID: p.ID, Status: VPNDisconnected}
+		if i := slices.IndexFunc(labels, func(t detect.Labeled) bool { return t.Profile == p.ID }); i >= 0 {
+			st = VPNState{ID: p.ID, Status: VPNConnected, Iface: labels[i].Iface, Address: []string{labels[i].Local}, Since: time.Now().UnixMilli()}
+		} else if slices.ContainsFunc(labels, func(t detect.Labeled) bool {
+			return t.Profile == "" && (t.Shape == "" || p.Shape == "" || t.Shape == p.Shape)
+		}) {
+			st.Reason = "Hostbay cannot tell which tunnel is this VPN's; pin its interface in the profile's settings"
+		}
+		old, known := s.states[p.ID]
+		if old.Status == VPNConnected && old.Iface == st.Iface {
+			st.Since = old.Since
+		}
+		if known && old.Status == st.Status && old.Iface == st.Iface && old.Reason == st.Reason || !known && st.Status == VPNDisconnected && st.Reason == "" {
+			continue
+		}
+		s.set(st)
+	}
+	// A profile moved off the external tier keeps no tunnel.
+	for id, st := range s.states {
+		if v := d.VPN(id); st.Iface != "" && (v == nil || v.Tier != store.VPNTierExternal) {
+			s.set(VPNState{ID: id, Status: VPNDisconnected})
+		}
+	}
+	return snap, labels, nil
+}
+
+// iface is the interface of external profile id's tunnel, labeled afresh:
+// a utun number a stale label named may by now be another VPN's.
+func (s *VPNService) iface(ctx context.Context, id, name string) (string, error) {
+	if err := s.refresh(ctx); err != nil {
+		return "", apperr.New(apperr.VPNFailed, fmt.Sprintf("VPN %s: Hostbay could not look for its tunnel: %v", name, err)).With("vpnId", id).With("reason", "detect")
+	}
+	s.mu.Lock()
+	st := s.states[id]
+	s.mu.Unlock()
+	if st.Status != VPNConnected {
+		msg := fmt.Sprintf("VPN %s is not connected; connect it in its own app, then try again", name)
+		if st.Reason != "" {
+			msg = fmt.Sprintf("VPN %s: %s", name, st.Reason)
+		}
+		return "", apperr.New(apperr.VPNDown, msg).With("vpnId", id)
+	}
+	return st.Iface, nil
+}
+
+// DetectVPNs looks for VPNs on this computer now and lists the ones no
+// profile names yet, to offer as external profiles (R22). It also drops an
+// external profile whose client program this computer saved and has since
+// removed, that detection no longer sees and no host uses (R23); a profile
+// with no client program here was set up elsewhere and stays.
+func (s *VPNService) DetectVPNs(ctx context.Context) ([]detect.VPN, error) {
+	snap, _, err := s.labelNow(ctx)
+	if err != nil {
+		return nil, err
+	}
+	d, err := s.st.Data()
+	if err != nil {
+		return nil, err
+	}
+	l, err := s.st.Local()
+	if err != nil {
+		return nil, err
+	}
+	names := func(v store.VPN) func(detect.VPN) bool {
+		return func(f detect.VPN) bool {
+			return strings.EqualFold(f.Name, v.Name) || strings.EqualFold(f.Name, v.Client)
+		}
+	}
+	// shortcut: only hosts count as users; per-destination routes (U11) must be added here.
+	used := func(id string) bool {
+		return slices.ContainsFunc(d.Hosts.Items, func(h store.Host) bool { return store.Deref(h.VPNID) == id })
+	}
+	for _, v := range d.VPNs.Items {
+		path := l.VPNClients[v.ID]
+		if _, err := os.Stat(path); v.Tier != store.VPNTierExternal || path == "" || !errors.Is(err, os.ErrNotExist) ||
+			slices.ContainsFunc(snap.VPNs, names(v)) || used(v.ID) {
+			continue
+		}
+		if err := s.DeleteVPN(v.ID); err != nil {
+			return nil, err
+		}
+	}
+	out := []detect.VPN{}
+	for _, f := range snap.VPNs {
+		if !slices.ContainsFunc(d.VPNs.Items, func(v store.VPN) bool { return names(v)(f) }) {
+			f.Connected = f.Connected || detect.CLIConnected(ctx, f.Type)
+			out = append(out, f)
+		}
+	}
+	return out, nil
+}
+
+// LaunchVPNClient opens external profile id's client program, the one saved
+// on this computer: a synced name never chooses what Hostbay runs (KTD4).
+func (s *VPNService) LaunchVPNClient(id string) error {
+	l, err := s.st.Local()
+	if err != nil {
+		return err
+	}
+	path := l.VPNClients[id]
+	if path == "" || !filepath.IsAbs(path) {
+		return errors.New("choose this VPN's client program in the profile's settings first")
+	}
+	cmd := exec.Command(path)
+	if runtime.GOOS == "darwin" {
+		cmd = exec.Command("open", "-a", path)
+	}
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("could not open %s: %w", path, err)
+	}
+	go cmd.Wait()
 	return nil
 }

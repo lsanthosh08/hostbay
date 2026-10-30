@@ -57,7 +57,12 @@ func (c *HostCredentials) vpnProxy(v *store.VPN, host string) (*sshx.Proxy, erro
 	case store.VPNTierSystem:
 		return nil, systemRoute(v, host)
 	case store.VPNTierExternal:
-		return nil, vpnErr(v, "unsupported", "VPN %s is an external profile, which Hostbay cannot dial through yet", v.Name)
+		// Pinned to the vendor tunnel's interface, labeled at each dial (KTD7).
+		id, name, dns := v.ID, v.Name, slices.Clone(v.DNSServers)
+		return &sshx.Proxy{Type: "vpn", Host: name, VPN: id, Iface: func(ctx context.Context) (string, []string, error) {
+			iface, err := c.vpns.iface(ctx, id, name)
+			return iface, dns, err
+		}}, nil
 	}
 	id, name := v.ID, v.Name
 	return &sshx.Proxy{Type: "vpn", Host: name, VPN: id, Socks: func() (string, string, string, error) {
@@ -123,7 +128,7 @@ func (c *HostCredentials) routed(d *store.Data, host string) (*sshx.Proxy, error
 // vpnUp connects the VPN profile p dials through when it is down, and waits
 // until it is up (R15): the UI's dials call it, an agent's never do (KTD6).
 func (c *HostCredentials) vpnUp(ctx context.Context, p *sshx.Proxy) error {
-	if p == nil || p.Type != "vpn" {
+	if p == nil || p.Type != "vpn" || p.Iface != nil { // an external profile's own app connects it
 		return nil
 	}
 	if _, _, _, err := c.vpns.socks(p.VPN); err == nil {
