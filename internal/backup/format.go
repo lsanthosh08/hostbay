@@ -293,7 +293,8 @@ func undecryptable(err error) bool {
 }
 
 // Restore merges b into d and returns how many hosts it added, with a note
-// for each added host that names no saved proxy or VPN profile. It only adds:
+// for each VPN profile left out as invalid and each added host that names
+// no saved proxy or VPN profile. It only adds:
 // hosts match by ID, then by alias, hostname, port and user together;
 // folders by ID, then by name and parent; scripts by ID, then by label and
 // command; keys by name and content. A matched local item is left exactly
@@ -385,9 +386,16 @@ func Restore(d *store.Data, v *secrets.Vault, b Bundle) (int, []string, error) {
 	}
 
 	vpnIDs := map[string]string{} // backup ID -> local ID
+	var notes []string
 	for _, p := range b.VPNs {
 		if local := matchVPN(d, p); local != "" {
 			vpnIDs[p.ID] = local
+			continue
+		}
+		// A crafted backup may hold what no profile saved here can: a line
+		// break in a route would add a WireGuard peer, say.
+		if err := store.CheckVPN(p); err != nil {
+			notes = append(notes, fmt.Sprintf("VPN profile %s was left out: %v", p.Name, err))
 			continue
 		}
 		if p.ID == "" {
@@ -460,7 +468,6 @@ func Restore(d *store.Data, v *secrets.Vault, b Bundle) (int, []string, error) {
 		}
 	}
 	// A host left naming no saved proxy cannot connect; say which.
-	var notes []string
 	for _, id := range added {
 		if h := d.Host(id); h.Proxied() && d.Proxy(*h.ProxyID) == nil {
 			notes = append(notes, h.Alias+": its jump host or proxy is not in this backup, so it will not connect until you choose its jump host or a proxy in its settings")

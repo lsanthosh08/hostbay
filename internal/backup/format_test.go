@@ -689,3 +689,29 @@ func TestExternalVPNsWithoutAGatewayMatchByName(t *testing.T) {
 		t.Fatalf("%d profiles, want 2", n)
 	}
 }
+
+// A crafted backup cannot plant a profile no save would accept: a line
+// break in a route would add a WireGuard peer. It is left out and named,
+// and the host using it keeps naming it, so it fails to connect.
+func TestRestoreLeavesOutAnInvalidVPN(t *testing.T) {
+	bad := store.VPN{Meta: store.Meta{ID: "bad-vpn"}, Name: "planted", Type: "wireguard", Tier: store.VPNTierApp, Gateway: "vpn.example",
+		Routes: []string{"10.0.0.0/8\nEndpoint = 203.0.113.66:51820"}}
+	ok := store.VPN{Meta: store.Meta{ID: "ok-vpn"}, Name: "office", Type: "wireguard", Tier: store.VPNTierApp, Gateway: "vpn.example", Routes: []string{"10.10.0.0/16"}}
+	b := Bundle{SchemaVersion: 5, VPNs: []store.VPN{bad, ok},
+		Hosts: []store.Host{{Alias: "inner", Hostname: "10.0.0.8", Port: 22, User: "root", VPNID: &bad.ID}}}
+	st, v := newEnv(t)
+	var notes []string
+	if err := st.Edit(func(d *store.Data) error { var err error; _, notes, err = Restore(d, v, b); return err }); err != nil {
+		t.Fatal(err)
+	}
+	d := data(t, st)
+	if len(d.VPNs.Items) != 1 || d.VPNs.Items[0].ID != ok.ID || d.VPN(bad.ID) != nil {
+		t.Fatalf("restored profiles %+v, want only %s", d.VPNs.Items, ok.Name)
+	}
+	if h := d.Hosts.Items[0]; h.VPNID == nil || *h.VPNID != bad.ID {
+		t.Fatalf("host names VPN %v, want it still naming the left-out profile", h.VPNID)
+	}
+	if len(notes) != 2 || !strings.Contains(notes[0], "planted") {
+		t.Fatalf("notes %q, want the left-out profile and the host named", notes)
+	}
+}

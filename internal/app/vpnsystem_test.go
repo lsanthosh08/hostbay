@@ -4,12 +4,14 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 	"hostbay/internal/netd"
 	"hostbay/internal/store"
 	"hostbay/internal/vpn/osvpn"
+	"hostbay/internal/vpn/routing"
 	"hostbay/internal/vpn/vpntest"
 )
 
@@ -410,5 +413,255 @@ func TestSystemWideRoutesApplyOnConnect(t *testing.T) {
 	if !e.has("10.30.0.0/16", "utun6") {
 		rs, _ := e.f.Routes()
 		t.Fatalf("routes %v", rs)
+	}
+}
+
+// saveSystemWG saves a system-wide WireGuard profile routing everything.
+func saveSystemWG(t *testing.T, s *VPNService, name string, autoReconnect bool) VPN {
+	t.Helper()
+	v, err := s.SaveVPN(VPN{Name: name, Type: "wireguard", Tier: store.VPNTierSystem, Gateway: "vpn.example.test", Port: 51820,
+		Address: []string{"10.9.0.2/32"}, PeerKey: testPeer, Routes: []string{"0.0.0.0/0"}, RoutingMode: routing.Full, AutoReconnect: autoReconnect})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+func (f *fakeTunnels) started() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.starts)
+}
+
+// A profile sync or a restore saved with a line break in a value refuses
+// to connect, in either tier, before any config is built from it: the
+// break would add a WireGuard Endpoint or peer.
+func TestSavedVPNWithALineBreakNeverConnects(t *testing.T) {
+	for _, tier := range []string{store.VPNTierApp, store.VPNTierSystem} {
+		t.Run(tier, func(t *testing.T) {
+			e := newVPNEnv(t, vpntest.OK)
+			f := useTunnels(e.svc)
+			v := e.save(t, false)
+			if err := e.svc.st.Edit(func(d *store.Data) error { // as sync applies it: no SaveVPN check
+				p := d.VPN(v.ID)
+				p.Tier, p.Routes = tier, []string{"10.0.0.0/8\nEndpoint = 203.0.113.66:51820"}
+				d.PutVPN(*p)
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			_, err := e.svc.ConnectVPN(context.Background(), v.ID)
+			if ae := vpnCode(t, err, apperr.VPNFailed, v.ID); ae.Details["reason"] != "invalid" {
+				t.Fatalf("err %+v", ae)
+			}
+			if n := len(e.fake.Starts(t)) + f.started(); n != 0 {
+				t.Fatalf("%d starts of a profile that cannot be checked", n)
+			}
+		})
+	}
+}
+
+// OpenVPN's management address comes from the helper's reply, and the
+// password goes there: only the shape the helper uses on each system is
+// dialed.
+func TestOpenVPNManagementAddressIsChecked(t *testing.T) {
+	for _, c := range []struct {
+		goos, addr, want string
+	}{
+		{"windows", "127.0.0.1:49152", "tcp"},
+		{"windows", "[::1]:49152", "tcp"},
+		{"windows", "203.0.113.9:49152", ""},
+		{"windows", "localhost:49152", ""},
+		{"windows", "127.0.0.1:0", ""},
+		{"windows", `C:\ProgramData\x.sock`, ""},
+		{"darwin", "/Library/PrivilegedHelperTools/dev.hostbay.netd/run/ab.sock", "unix"},
+		{"darwin", "127.0.0.1:49152", ""},
+		{"darwin", "run/ab.sock", ""},
+		{"darwin", "/tmp/../etc/ab.sock", ""},
+		{"linux", "/var/lib/hostbay-netd/run/ab", ""},
+	} {
+		got, err := mgmtNetwork(c.goos, c.addr)
+		if got != c.want || (err == nil) != (c.want != "") {
+			t.Errorf("mgmtNetwork(%s, %q) = %q, %v; want %q", c.goos, c.addr, got, err, c.want)
+		}
+	}
+
+	// A refused address ends the connect before anything is dialed.
+	e := newVPNEnv(t, vpntest.OK)
+	f := useTunnels(e.svc)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	dialed := make(chan struct{}, 1)
+	go func() {
+		if c, err := ln.Accept(); err == nil {
+			c.Close()
+			dialed <- struct{}{}
+		}
+	}()
+	f.reply = func(netd.Msg) (netd.Msg, error) { return netd.Msg{Mgmt: ln.Addr().String(), MgmtPass: "x"}, nil }
+	v := saveOpenVPN(t, e.svc)
+	_, err = e.svc.ConnectVPN(context.Background(), v.ID)
+	if err == nil || !strings.Contains(err.Error(), "refused") {
+		t.Fatalf("connect %v, want the management address refused", err)
+	}
+	select {
+	case <-dialed:
+		t.Fatal("Hostbay dialed a management address the helper never uses here")
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+// R13: a full tunnel still connecting holds its place, so a second one is
+// refused rather than both coming up.
+func TestSecondFullTunnelRefusedWhileFirstConnects(t *testing.T) {
+	e := newVPNEnv(t, vpntest.OK)
+	NewRoutingService(e.svc.st, e.svc, NewNetdService())
+	f := useTunnels(e.svc) // never reports up: the first stays connecting
+	a, b := saveSystemWG(t, e.svc, "Office", false), saveSystemWG(t, e.svc, "Lab", false)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	if _, err := e.svc.ConnectVPN(ctx, a.ID); err != context.DeadlineExceeded || stateOf(e.svc, a.ID).Status != VPNConnecting {
+		t.Fatalf("first connect %v, state %+v", err, stateOf(e.svc, a.ID))
+	}
+	ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err := e.svc.ConnectVPN(ctx, b.ID)
+	if ae := vpnCode(t, err, apperr.VPNFailed, b.ID); ae.Details["reason"] != "conflict" || !strings.Contains(ae.Message, "Office") {
+		t.Fatalf("second connect %+v", ae)
+	}
+	if n := f.started(); n != 1 {
+		t.Fatalf("%d tunnel starts, want 1", n)
+	}
+}
+
+// R13: a dropped profile is checked again before it reconnects; refused,
+// the run ends with the conflict and does not retry.
+func TestReconnectRefusedOnConflict(t *testing.T) {
+	old := vpnRetryMin
+	vpnRetryMin = 10 * time.Millisecond
+	t.Cleanup(func() { vpnRetryMin = old })
+	e := newVPNEnv(t, vpntest.OK)
+	f := useTunnels(e.svc)
+	var refuse atomic.Bool
+	e.svc.checkConnect = func(string) error {
+		if refuse.Load() {
+			return errors.New("Lab is already a full tunnel")
+		}
+		return nil
+	}
+	f.reply = func(m netd.Msg) (netd.Msg, error) {
+		go f.event(netd.Msg{Tunnel: m.Tunnel, State: netd.TunnelUp, Iface: "utun7"})
+		return netd.Msg{}, nil
+	}
+	a := saveSystemWG(t, e.svc, "Office", true)
+	if _, err := e.svc.ConnectVPN(context.Background(), a.ID); err != nil {
+		t.Fatal(err)
+	}
+	refuse.Store(true) // Lab connected meanwhile
+	f.event(netd.Msg{State: netd.TunnelEnded, Reason: "gone"})
+	st := e.waitFor(t, a.ID, VPNFailed)
+	if !strings.Contains(st.Reason, "Lab") {
+		t.Fatalf("state %+v", st)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if n := f.started(); n != 1 || e.svc.ConnectedVPNs() != 0 {
+		t.Fatalf("%d tunnel starts, %d runs; want 1 and 0", n, e.svc.ConnectedVPNs())
+	}
+}
+
+// R18: a profile that drops as soon as it connects keeps backing off
+// instead of retrying at the shortest wait each time.
+func TestReconnectBacksOffWhenItDropsAtOnce(t *testing.T) {
+	oldMin, oldMax := vpnRetryMin, vpnRetryMax
+	vpnRetryMin, vpnRetryMax = 20*time.Millisecond, 10*time.Second
+	t.Cleanup(func() { vpnRetryMin, vpnRetryMax = oldMin, oldMax })
+	e := newVPNEnv(t, vpntest.OK)
+	f := useTunnels(e.svc)
+	f.reply = func(m netd.Msg) (netd.Msg, error) {
+		go func() {
+			f.event(netd.Msg{Tunnel: m.Tunnel, State: netd.TunnelUp, Iface: "utun7"})
+			f.event(netd.Msg{Tunnel: m.Tunnel, State: netd.TunnelEnded, Reason: "AUTH_FAILED"})
+		}()
+		return netd.Msg{}, nil
+	}
+	a := saveSystemWG(t, e.svc, "Office", true)
+	e.svc.ConnectVPN(context.Background(), a.ID)
+	time.Sleep(600 * time.Millisecond) // waits of 20, 40, 80, 160, 320 ms
+	e.svc.DisconnectVPN(a.ID)
+	if n := f.started(); n < 2 || n > 6 {
+		t.Fatalf("%d starts in 600ms, want the waits to double", n)
+	}
+}
+
+// A hung OS VPN connect gives up once the profile is disconnected, so
+// deleting it does not wait forever.
+func TestHungOSVPNConnectDoesNotBlockDelete(t *testing.T) {
+	e := newVPNEnv(t, vpntest.OK)
+	nop := func(context.Context, string) error { return nil }
+	e.svc.osvpn = osVPN{
+		connect:    func(ctx context.Context, _ string) error { <-ctx.Done(); return ctx.Err() },
+		disconnect: nop,
+		state:      func(context.Context, string) (osvpn.Status, error) { return osvpn.Status{}, nil },
+	}
+	v, err := e.svc.SaveVPN(VPN{Name: "Branch IKEv2", Type: "ipsec", Tier: store.VPNTierSystem, Gateway: "ike.example.test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	e.svc.ConnectVPN(ctx, v.ID)
+	done := make(chan error, 1)
+	go func() { done <- e.svc.DeleteVPN(v.ID) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("DeleteVPN waited on a hung OS VPN connect")
+	}
+}
+
+// R25: Reset removes Hostbay's routes but leaves a connected system-wide
+// VPN up: ending the helper connection would end its tunnel.
+func TestResetLeavesSystemWideVPNConnected(t *testing.T) {
+	e := newRoutingEnv(t)
+	ft := &fakeTunnels{}
+	e.nd.dial = func(context.Context) (netdClient, error) {
+		e.f.reopen()
+		return tunnelHelper{e.f, ft}, nil
+	}
+	ft.reply = func(m netd.Msg) (netd.Msg, error) {
+		go ft.event(netd.Msg{Tunnel: m.Tunnel, State: netd.TunnelUp, Iface: "utun6", Address: []string{"10.30.0.2/32"}})
+		return netd.Msg{Iface: "utun6"}, nil
+	}
+	e.start(t)
+	e.settle(t, 1)
+	v := e.vpn.save(t, false)
+	key := testWGKey
+	v.Tier, v.PrivateKey, v.Routes, v.AutoApply = store.VPNTierSystem, &key, []string{"10.30.0.0/16"}, true
+	if _, err := e.vpn.svc.SaveVPN(v); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.vpn.svc.ConnectVPN(context.Background(), v.ID); err != nil {
+		t.Fatal(err)
+	}
+	e.settle(t, 2)
+	rep, err := e.svc.Reset(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Results) != 2 || rep.Results[0].Error != "" || rep.Results[1].Error != "" {
+		t.Fatalf("reset results %+v", rep.Results)
+	}
+	if e.has("10.30.0.0/16", "utun6") || e.has("10.1.0.0/16", "utun4") {
+		t.Fatal("reset left Hostbay's routes")
+	}
+	time.Sleep(100 * time.Millisecond)
+	if st := stateOf(e.vpn.svc, v.ID); st.Status != VPNConnected {
+		t.Fatalf("after reset the system-wide VPN is %+v", st)
 	}
 }
