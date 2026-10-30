@@ -1,0 +1,24 @@
+[Office IKEv2]
+Encoding=1
+Type=2
+PhoneNumber=ike-win.example.test
+VpnStrategy=7
+
+[Office L2TP]
+Type=2
+PhoneNumber=l2tp.example.test
+VpnStrategy=3
+
+[Office SSTP]
+Type=2
+PhoneNumber=sstp.example.test
+VpnStrategy=5
+
+[Old PPTP]
+Type=2
+PhoneNumber=pptp.example.test
+VpnStrategy=1
+
+[Dial-up]
+Type=1
+PhoneNumber=5551234

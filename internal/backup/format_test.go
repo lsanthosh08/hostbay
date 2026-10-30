@@ -671,3 +671,21 @@ func TestRestoredHostWithAMissingVPNNeverConnectsDirectly(t *testing.T) {
 		t.Fatalf("notes = %q, want one naming the host", notes)
 	}
 }
+
+// External profiles have no gateway, port or user, so their names tell
+// them apart; restoring the same ones again adds nothing.
+func TestExternalVPNsWithoutAGatewayMatchByName(t *testing.T) {
+	ext := func(name string) store.VPN {
+		return store.VPN{Meta: store.Meta{ID: store.NewID()}, Name: name, Type: "other", Tier: store.VPNTierExternal}
+	}
+	st, v := newEnv(t)
+	for range 2 {
+		b := Bundle{SchemaVersion: 5, VPNs: []store.VPN{ext("SASE"), ext("SSL VPN")}}
+		if err := st.Edit(func(d *store.Data) error { _, _, err := Restore(d, v, b); return err }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := len(data(t, st).VPNs.Items); n != 2 {
+		t.Fatalf("%d profiles, want 2", n)
+	}
+}

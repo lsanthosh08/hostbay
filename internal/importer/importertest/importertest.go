@@ -5,6 +5,7 @@ package importertest
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -145,7 +146,55 @@ func Noted(rep importer.Report, name, text string) bool {
 func Reimport(t *testing.T, st *store.Store, v *secrets.Vault, res importer.Result) {
 	t.Helper()
 	rep := Import(t, st, v, res)
-	if rep.Hosts+rep.Folders+rep.Keys != 0 {
-		t.Fatalf("second import added %d hosts, %d folders, %d keys", rep.Hosts, rep.Folders, rep.Keys)
+	if rep.Hosts+rep.Folders+rep.Keys+len(rep.VPNs) != 0 {
+		t.Fatalf("second import added %d hosts, %d folders, %d keys, %d VPN profiles", rep.Hosts, rep.Folders, rep.Keys, len(rep.VPNs))
 	}
+}
+
+// VPN returns the saved VPN profile named name, failing if there is not
+// exactly one.
+func VPN(t *testing.T, st *store.Store, name string) store.VPN {
+	t.Helper()
+	d, err := st.Data()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []store.VPN
+	for _, p := range d.VPNs.Items {
+		if p.Name == name {
+			out = append(out, p)
+		}
+	}
+	if len(out) != 1 {
+		t.Fatalf("%d VPN profiles named %q, want 1", len(out), name)
+	}
+	return out[0]
+}
+
+// VPNSecrets opens p's sealed secrets.
+func VPNSecrets(t *testing.T, v *secrets.Vault, p store.VPN) store.VPNSecrets {
+	t.Helper()
+	var s store.VPNSecrets
+	if p.Secret == "" {
+		return s
+	}
+	raw, err := v.Open(p.Secret, p.SecretAAD())
+	if err != nil {
+		t.Fatalf("%s: %v", p.Name, err)
+	}
+	if err := json.Unmarshal(raw, &s); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+// Ignored returns the directives the report lists as dropped from the VPN
+// profile named name.
+func Ignored(rep importer.Report, name string) []string {
+	for _, p := range rep.VPNs {
+		if p.Name == name {
+			return p.Ignored
+		}
+	}
+	return nil
 }

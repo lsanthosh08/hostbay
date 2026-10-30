@@ -46,6 +46,12 @@ type VPNSecrets struct {
 	PrivateKey   string `json:"privateKey,omitempty"`   // a WireGuard key, or a client certificate's key
 	PresharedKey string `json:"presharedKey,omitempty"` // WireGuard or IPsec
 	AuthKey      string `json:"authKey,omitempty"`      // Tailscale or Headscale
+	// OpenVPN holds an imported profile's directives that have no typed
+	// field (cipher, verify-x509-name, tls-crypt and the like) and its
+	// inline certificates, one directive or <block> per line. Import keeps
+	// only allowlisted directives, but sync and restore carry any text, so
+	// whatever builds a config from it checks every line again (R43).
+	OpenVPN string `json:"openvpn,omitempty"`
 }
 
 // VPN tiers (R2): inside Hostbay for Hostbay traffic only, the whole

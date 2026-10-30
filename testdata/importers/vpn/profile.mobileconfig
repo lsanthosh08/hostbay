@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>PayloadContent</key>
+  <array>
+    <dict>
+      <key>PayloadType</key><string>com.apple.vpn.managed</string>
+      <key>UserDefinedName</key><string>Corp IKEv2</string>
+      <key>VPNType</key><string>IKEv2</string>
+      <key>IKEv2</key>
+      <dict>
+        <key>RemoteAddress</key><string>ike.example.test</string>
+        <key>RemoteIdentifier</key><string>ike.example.test</string>
+        <key>AuthenticationMethod</key><string>SharedSecret</string>
+        <key>SharedSecret</key><string>Mc-Psk-1!</string>
+        <key>ExtendedAuthEnabled</key><integer>1</integer>
+        <key>AuthName</key><string>alice</string>
+        <key>AuthPassword</key><string>Mc-Pass-2!</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>PayloadType</key><string>com.apple.vpn.managed</string>
+      <key>UserDefinedName</key><string>Lab WireGuard</string>
+      <key>VPNType</key><string>VPN</string>
+      <key>VPNSubType</key><string>com.wireguard.macos</string>
+      <key>VendorConfig</key>
+      <dict><key>WgQuickConfig</key><string>[Interface]
+PrivateKey = dDapUie3Q0wG7CR/AbqjLrLlIrdgfQ7wH6ANlAhDLTY=
+Address = 10.9.0.2/32
+
+[Peer]
+PublicKey = 8nvdqyl6udtnOGSENzkdCclyFUfBK9gEUtdwBHzb8uM=
+Endpoint = mcwg.example.test:51820
+AllowedIPs = 10.9.0.0/16
+</string></dict>
+      <key>VPN</key><dict><key>RemoteAddress</key><string>mcwg.example.test:51820</string></dict>
+    </dict>
+    <dict>
+      <key>PayloadType</key><string>com.apple.vpn.managed</string>
+      <key>UserDefinedName</key><string>Vendor App</string>
+      <key>VPNType</key><string>VPN</string>
+      <key>VPNSubType</key><string>com.example.vendorvpn</string>
+      <key>VPN</key><dict><key>RemoteAddress</key><string>vendor.example.test</string></dict>
+    </dict>
+    <dict>
+      <key>PayloadType</key><string>com.apple.wifi.managed</string>
+      <key>SSID_STR</key><string>office</string>
+    </dict>
+  </array>
+  <key>PayloadType</key><string>Configuration</string>
+</dict>
+</plist>

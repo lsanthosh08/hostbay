@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<AnyConnectProfile xmlns="http://schemas.xmlsoap.org/encoding/">
+  <ClientInitialization><AutoUpdate>false</AutoUpdate></ClientInitialization>
+  <ServerList>
+    <HostEntry><HostName>HQ</HostName><HostAddress>vpn-hq.example.test</HostAddress><UserGroup>engineering</UserGroup></HostEntry>
+    <HostEntry><HostName>Branch</HostName><HostAddress>vpn-branch.example.test:8443</HostAddress></HostEntry>
+  </ServerList>
+</AnyConnectProfile>

@@ -1,0 +1,16 @@
+[connection]
+id=Legacy IPsec
+type=vpn
+
+[vpn]
+service-type=org.freedesktop.NetworkManager.vpnc
+IPSec gateway=vpnc.example.test
+IPSec ID=staff
+Xauth username=carol
+
+[vpn-secrets]
+IPSec secret=Nm-Group-3!
+Xauth password=Nm-Pass-4!
+
+[ipv4]
+method=auto
