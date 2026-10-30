@@ -434,27 +434,35 @@ func (s *RoutingService) Apply(ctx context.Context, id, mode string) (RoutingRep
 
 // Reset removes every route Hostbay added and restores the vendor routes it
 // narrowed: the helper sweeps them when the connection ends, and Hostbay
-// reconnects. Nothing re-applies until the next Apply.
+// reconnects. Ending the connection would also end every system-wide
+// tunnel, so while one runs Reset deletes each added route through the live
+// connection instead, and keeps the narrowing routes, whose vendor routes
+// only the sweep can restore. Nothing re-applies until the next Apply.
 func (s *RoutingService) Reset(ctx context.Context) (RoutingReport, error) {
 	s.applying.Lock()
 	defer s.applying.Unlock()
-	if s.netd.client() == nil {
+	c := s.netd.client()
+	if c == nil {
 		return RoutingReport{}, errors.New("the network helper is not connected")
 	}
 	s.mu.Lock()
 	s.state.Reset, s.state.Notice = true, ""
 	clear(s.state.Profiles)
+	added := slices.Clone(s.added)
+	s.announce()
+	s.mu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if s.tunnelsUp() {
+		return s.deleteAdded(ctx, c, added), nil
+	}
 	var dels []routing.Change
-	for _, c := range s.added {
+	for _, c := range added {
 		if c.Kind != routing.KindMTU {
 			c.Kind, c.Op, c.Reason = routing.KindDelete, netd.Delete, "added by Hostbay"
 			dels = append(dels, c)
 		}
 	}
-	s.announce()
-	s.mu.Unlock()
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
 	if err := s.netd.reconnect(ctx); err != nil {
 		return RoutingReport{}, err
 	}
@@ -471,6 +479,50 @@ func (s *RoutingService) Reset(ctx context.Context) (RoutingReport, error) {
 		rep.Results = append(rep.Results, r)
 	}
 	return rep, nil
+}
+
+// tunnelsUp reports whether a system-wide tunnel runs through the helper
+// connection: connected, connecting or waiting to reconnect.
+func (s *RoutingService) tunnelsUp() bool {
+	d, err := s.st.Data()
+	if err != nil {
+		return true // unsure: keep the connection, and the tunnels
+	}
+	return slices.ContainsFunc(s.vpns.active(), func(id string) bool {
+		v := d.VPN(id)
+		return v != nil && vpnTier(*v) == store.VPNTierSystem && v.Type != proto.TypeIPsec
+	})
+}
+
+// deleteAdded is Reset through the live connection c: each route in added
+// is deleted, except a narrowing route, which stays with the vendor route
+// it stands in for until the connection ends.
+func (s *RoutingService) deleteAdded(ctx context.Context, c netdClient, added []routing.Change) RoutingReport {
+	rep := RoutingReport{Results: []ChangeResult{}, Skipped: []routing.Skip{}, Partly: []string{}}
+	var kept []routing.Change
+	for _, ch := range added {
+		switch ch.Kind {
+		case routing.KindMTU:
+			continue
+		case routing.KindNarrow:
+			kept = append(kept, ch)
+			rep.Skipped = append(rep.Skipped, routing.Skip{Dst: ch.Dst, Profile: ch.Profile,
+				Reason: "kept while a system-wide VPN is connected: the vendor route it narrows comes back only once they disconnect; reset again then"})
+			continue
+		}
+		del := ch
+		del.Kind, del.Op, del.Reason = routing.KindDelete, netd.Delete, "added by Hostbay"
+		r := ChangeResult{Change: del}
+		if err := c.Delete(ctx, ch.Route()); err != nil {
+			r.Error = err.Error()
+			kept = append(kept, ch)
+		}
+		rep.Results = append(rep.Results, r)
+	}
+	s.mu.Lock()
+	s.added = kept
+	s.mu.Unlock()
+	return rep
 }
 
 // Narrow saves the subnets to keep of a greedy route on profile id's
@@ -539,8 +591,9 @@ func (s *RoutingService) PinInterface(id, iface string) error {
 }
 
 // conflict is R13's check before profile id connects system-wide: a plan
-// cannot place a second full tunnel, or a network another connected
-// system-wide or external VPN routes.
+// cannot place a second full tunnel, or a network another connected,
+// connecting or reconnecting system-wide VPN or connected external VPN
+// routes.
 func (s *RoutingService) conflict(id string) error {
 	d, err := s.st.Data()
 	if err != nil {
@@ -555,8 +608,8 @@ func (s *RoutingService) conflict(id string) error {
 		return errors.New("VPN profile not found")
 	}
 	var up []routing.Profile
-	for _, st := range s.vpns.VPNStates() {
-		if o := d.VPN(st.ID); o != nil && st.Status == VPNConnected {
+	for _, oid := range s.vpns.active() {
+		if o := d.VPN(oid); o != nil {
 			up = append(up, profileFor(*o, l))
 		}
 	}

@@ -104,6 +104,10 @@ var (
 	// vpnRetryMin and vpnRetryMax bound the wait between reconnects (R18).
 	vpnRetryMin = time.Second
 	vpnRetryMax = time.Minute
+	// vpnStableUp is how long a profile must stay up before a drop starts
+	// the backoff over: one that drops at once (a password rejected after
+	// the first connect) keeps backing off, so it cannot lock an account.
+	vpnStableUp = 2 * time.Minute
 )
 
 const wireGuardPort = 51820
@@ -123,6 +127,9 @@ type VPNService struct {
 	// checkConnect refuses a system-wide connect the routing plan cannot
 	// place (R13); RoutingService sets it.
 	checkConnect func(id string) error
+	// connecting is held across a system-wide connect's checkConnect and
+	// its run's start, so two connects never both pass the check (R13).
+	connecting sync.Mutex
 	// tunnels is the helper connection system-wide tunnels run through, or
 	// nil while there is none; RoutingService sets it.
 	tunnels    func() tunnelClient
@@ -409,6 +416,23 @@ func (s *VPNService) ConnectedVPNs() int {
 	return len(s.runs)
 }
 
+// active lists the profiles that are up or hold a run: one connecting,
+// signing in or waiting to reconnect takes its routes too (R13).
+func (s *VPNService) active() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var ids []string
+	for id := range s.runs {
+		ids = append(ids, id)
+	}
+	for id, st := range s.states {
+		if st.Status == VPNConnected && s.runs[id] == nil {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
 // set records and announces a state; call it with s.mu held so events go
 // out in order.
 func (s *VPNService) set(st VPNState) VPNState {
@@ -443,9 +467,12 @@ func (s *VPNService) connectAs(ctx context.Context, id, by string) (VPNState, er
 		return st, apperr.New(apperr.VPNFailed, fmt.Sprintf("VPN %s connects in its own app; open it there", v.Name)).
 			With("vpnId", id).With("reason", "external")
 	}
-	if v != nil && vpnTier(*v) == store.VPNTierSystem && s.checkConnect != nil {
-		if err := s.checkConnect(id); err != nil {
-			return VPNState{ID: id}, apperr.New(apperr.VPNFailed, err.Error()).With("vpnId", id).With("reason", "conflict")
+	system := v != nil && vpnTier(*v) == store.VPNTierSystem && s.checkConnect != nil
+	if system {
+		s.connecting.Lock()
+		if err := s.conflict(id); err != nil {
+			s.connecting.Unlock()
+			return VPNState{ID: id}, err
 		}
 	}
 	s.mu.Lock()
@@ -456,6 +483,9 @@ func (s *VPNService) connectAs(ctx context.Context, id, by string) (VPNState, er
 		go s.run(id, r)
 	}
 	s.mu.Unlock()
+	if system {
+		s.connecting.Unlock()
+	}
 	for {
 		s.mu.Lock()
 		st, running, changed := s.states[id], s.runs[id] != nil, s.changed
@@ -481,6 +511,32 @@ func (s *VPNService) connectAs(ctx context.Context, id, by string) (VPNState, er
 	}
 }
 
+// conflict is checkConnect's refusal as the coded error connects return.
+func (s *VPNService) conflict(id string) error {
+	if err := s.checkConnect(id); err != nil {
+		return apperr.New(apperr.VPNFailed, err.Error()).With("vpnId", id).With("reason", "conflict")
+	}
+	return nil
+}
+
+// refusedStart reports whether err is a start the profile itself refuses:
+// a routing conflict, or settings no config may be built from. Retrying
+// cannot fix either.
+func refusedStart(err error) bool {
+	var ae *apperr.Error
+	return errors.As(err, &ae) && ae.Code == apperr.VPNFailed && (ae.Details["reason"] == "conflict" || ae.Details["reason"] == "invalid")
+}
+
+// checkSaved refuses a profile that sync or a restore saved with a value no
+// config may carry, such as a line break that would add a WireGuard peer.
+func checkSaved(v *store.VPN) error {
+	if err := store.CheckVPN(*v); err != nil {
+		return apperr.New(apperr.VPNFailed, fmt.Sprintf("VPN %s cannot connect: %v; fix it in the profile's settings", v.Name, err)).
+			With("vpnId", v.ID).With("reason", "invalid")
+	}
+	return nil
+}
+
 // run brings the profile up and keeps it up: a dropped profile reconnects,
 // with backoff, while its auto-reconnect setting is on (R18).
 func (s *VPNService) run(id string, r *vpnRun) {
@@ -488,11 +544,15 @@ func (s *VPNService) run(id string, r *vpnRun) {
 	for {
 		end, err := s.attempt(id, r)
 		var m proto.Msg
+		var upFor time.Duration
 		if err == nil {
 			select {
 			case m = <-end:
 				s.mu.Lock()
 				att := r.att
+				if st := s.states[id]; st.Status == VPNConnected {
+					upFor = time.Since(time.UnixMilli(st.Since))
+				}
 				s.mu.Unlock()
 				att.close() // one that reported its end but lingers must not hold up the next
 			case <-r.stop:
@@ -500,13 +560,13 @@ func (s *VPNService) run(id string, r *vpnRun) {
 			}
 		}
 		up := m.State == proto.Dropped
-		if up {
+		if up && upFor >= vpnStableUp {
 			wait = vpnRetryMin
 		}
 		wasUp = wasUp || up
 		// A coded failure (an untrusted certificate, an openconnect too old)
-		// needs the user: retrying cannot fix it.
-		needsUser := m.Code != ""
+		// or a refused start needs the user: retrying cannot fix it.
+		needsUser := m.Code != "" || refusedStart(err)
 
 		d, _ := s.st.Data()
 		again := wasUp && !needsUser && d != nil && d.VPN(id) != nil && d.VPN(id).AutoReconnect
@@ -608,6 +668,13 @@ func (s *VPNService) launch(id string, r *vpnRun, a *vpnAttempt, prev <-chan str
 	}
 	v := d.VPN(id)
 	if v != nil && vpnTier(*v) == store.VPNTierSystem {
+		// A reconnect is checked again: another profile may have taken its
+		// routes while it was down (R13).
+		if s.checkConnect != nil {
+			if err := s.conflict(id); err != nil {
+				return nil, err
+			}
+		}
 		return s.launchSystem(id, r, a, v)
 	}
 	start, err := s.startMsgFor(id, v)
@@ -750,6 +817,9 @@ func (s *VPNService) startMsg(id string) (proto.Msg, *store.VPN, error) {
 func (s *VPNService) startMsgFor(id string, v *store.VPN) (proto.Msg, error) {
 	if v == nil {
 		return proto.Msg{}, apperr.New(apperr.VPNFailed, "This VPN profile no longer exists").With("vpnId", id).With("reason", "missing")
+	}
+	if err := checkSaved(v); err != nil {
+		return proto.Msg{}, err
 	}
 	if v.Tier != store.VPNTierApp || v.Type != proto.TypeWireGuard && v.Type != proto.TypeTailscale && !openConnectTypes[v.Type] {
 		return proto.Msg{}, apperr.New(apperr.VPNFailed, fmt.Sprintf("Hostbay cannot connect %s profiles (tier %s) yet", v.Type, v.Tier)).

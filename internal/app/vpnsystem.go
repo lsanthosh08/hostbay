@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -58,6 +60,9 @@ var (
 	osVPNPoll = time.Second
 	// tunnelStartWait bounds a start request to the helper.
 	tunnelStartWait = 30 * time.Second
+	// osVPNCallWait bounds each state and disconnect call to the OS VPN
+	// service, so a hung one cannot hold up disconnect, delete or quit.
+	osVPNCallWait = 10 * time.Second
 )
 
 // systemRun is one system-wide run: Close ends it without waiting, and Done
@@ -69,6 +74,9 @@ type systemRun interface {
 
 // launchSystem starts v's system-wide run.
 func (s *VPNService) launchSystem(id string, r *vpnRun, a *vpnAttempt, v *store.VPN) (<-chan struct{}, error) {
+	if err := checkSaved(v); err != nil {
+		return nil, err
+	}
 	sec, err := s.openSecrets(v)
 	if err != nil {
 		return nil, err
@@ -82,7 +90,7 @@ func (s *VPNService) launchSystem(id string, r *vpnRun, a *vpnAttempt, v *store.
 	}
 	var run systemRun
 	if v.Type == proto.TypeIPsec {
-		run, err = s.startOSVPN(v, up, rep)
+		run, err = s.startOSVPN(v, r.stop, up, rep)
 	} else {
 		run, err = s.startTunnel(v, sec, up, rep)
 	}
@@ -189,9 +197,10 @@ func (t *netdTunnel) event(m netd.Msg) {
 // manage follows OpenVPN through its management interface and gives it the
 // user name and password, which never pass through the helper.
 func (t *netdTunnel) manage(r netd.Msg, user, pass string) {
-	network := "unix"
-	if r.MgmtPass != "" {
-		network = "tcp"
+	network, err := mgmtNetwork(vpnGOOS, r.Mgmt)
+	if err != nil {
+		t.end(err.Error())
+		return
 	}
 	conn, err := net.DialTimeout(network, r.Mgmt, 10*time.Second)
 	if err != nil {
@@ -224,6 +233,23 @@ func (t *netdTunnel) manage(r netd.Msg, user, pass string) {
 		reason = err.Error()
 	}
 	t.end(reason)
+}
+
+// mgmtNetwork is the network to reach OpenVPN's management interface at
+// addr, in the only shape the helper answers with on goos: a loopback TCP
+// port on Windows, an absolute socket path elsewhere. The helper's reply
+// chooses where the user name and password go, so anything else is refused.
+// shortcut: the socket path is not pinned to the helper's run folder, whose
+// location netd does not export; pin it if netd ever exports its folder.
+func mgmtNetwork(goos, addr string) (string, error) {
+	if goos == "windows" {
+		if ap, err := netip.ParseAddrPort(addr); err == nil && ap.Addr().IsLoopback() && ap.Port() != 0 {
+			return "tcp", nil
+		}
+	} else if filepath.IsAbs(addr) && filepath.Clean(addr) == addr && strings.HasSuffix(addr, ".sock") {
+		return "unix", nil
+	}
+	return "", fmt.Errorf("Hostbay's network helper named an OpenVPN management address it does not use (%q), so Hostbay refused it", addr)
 }
 
 // ifaceWith is the interface that holds address a, which OpenVPN reports
@@ -292,14 +318,35 @@ type osTunnel struct {
 	once       sync.Once
 }
 
-func (s *VPNService) startOSVPN(v *store.VPN, up func(string, []string), rep func(proto.Msg)) (systemRun, error) {
+// startOSVPN connects v through the OS VPN service; the connect gives up
+// after vpnConnectWait, or once stop closes.
+func (s *VPNService) startOSVPN(v *store.VPN, stop <-chan struct{}, up func(string, []string), rep func(proto.Msg)) (systemRun, error) {
 	name := v.Client
 	if name == "" {
 		name = v.Name
 	}
 	rep(proto.Msg{T: proto.State, State: proto.Connecting})
-	if err := s.osvpn.connect(context.Background(), name); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), vpnConnectWait)
+	defer cancel()
+	go func() {
+		select {
+		case <-stop:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	if err := s.osvpn.connect(ctx, name); err != nil {
 		return nil, err
+	}
+	disconnect := func() {
+		ctx, cancel := context.WithTimeout(context.Background(), osVPNCallWait)
+		defer cancel()
+		s.osvpn.disconnect(ctx, name)
+	}
+	state := func() (osvpn.Status, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), osVPNCallWait)
+		defer cancel()
+		return s.osvpn.state(ctx, name)
 	}
 	t := &osTunnel{stop: make(chan struct{}), done: make(chan struct{})}
 	go func() {
@@ -308,11 +355,11 @@ func (s *VPNService) startOSVPN(v *store.VPN, up func(string, []string), rep fun
 		for {
 			select {
 			case <-t.stop:
-				s.osvpn.disconnect(context.Background(), name)
+				disconnect()
 				return
 			case <-time.After(osVPNPoll):
 			}
-			st, err := s.osvpn.state(context.Background(), name)
+			st, err := state()
 			switch {
 			case err == nil && st.Connected && !wasUp:
 				wasUp = true
@@ -322,7 +369,7 @@ func (s *VPNService) startOSVPN(v *store.VPN, up func(string, []string), rep fun
 				ended(rep, true, fmt.Sprintf("The system disconnected VPN %s.", name))
 				return
 			case err != nil || time.Since(started) > vpnConnectWait:
-				s.osvpn.disconnect(context.Background(), name)
+				disconnect()
 				reason := fmt.Sprintf("VPN %s did not connect in the system's VPN settings.", name)
 				if err != nil {
 					reason = err.Error()
