@@ -54,7 +54,7 @@ export type Connection = {
 /** activeId while the Settings tab shows. */
 export const SETTINGS_TAB = "settings";
 /** The Settings tab's categories, in its list order. */
-export const SETTINGS_SECTIONS = ["general", "appearance", "terminal", "keyboard", "security", "keys", "proxies", "ai", "sync", "backup", "about", "logging", "skills", "mcp"] as const;
+export const SETTINGS_SECTIONS = ["general", "appearance", "terminal", "keyboard", "security", "keys", "proxies", "vpns", "ai", "sync", "backup", "about", "logging", "skills", "mcp"] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 export const SECTION_LABEL: Record<SettingsSection, MessageKey> = {
   general: "settings.general",
@@ -64,6 +64,7 @@ export const SECTION_LABEL: Record<SettingsSection, MessageKey> = {
   security: "settings.security",
   keys: "settings.keys",
   proxies: "settings.proxies",
+  vpns: "settings.vpns",
   ai: "settings.ai",
   sync: "settings.sync",
   backup: "settings.backup",
@@ -99,6 +100,20 @@ export const neverConnected = (c: Connection) => !!c.dialing && c.status === "er
 /** A session's state in words: a tab that never connected has not "lost"
  *  anything. */
 export const connLabel = (c: Connection) => (neverConnected(c) ? t("status.failed") : statusLabel(c.status));
+
+/** What a tab says about its host's VPN profile (F1): "Connecting VPN P"
+ *  while the profile comes up for the first connect, "via P" once live. */
+export function vpnTabNote(
+  c: Connection,
+  vpns: api.Vpn[],
+  states: Record<string, api.VpnState>
+): { kind: "pending"; name: string; state: api.VpnState } | { kind: "via"; name: string } | undefined {
+  const v = c.host.vpnId ? vpns.find((x) => x.id === c.host.vpnId) : undefined;
+  if (!v) return undefined;
+  const s = states[v.id];
+  if (c.dialing) return !c.step && (s?.status === "connecting" || s?.status === "signing_in") ? { kind: "pending", name: v.name, state: s } : undefined;
+  return c.status === "live" ? { kind: "via", name: v.name } : undefined;
+}
 
 /** The port a database server listens on when its host leaves it 0. */
 const DB_PORTS = { postgres: 5432, mysql: 3306, mssql: 1433, oracle: 1521 } as const;

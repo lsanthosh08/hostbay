@@ -1,4 +1,4 @@
-import { hostKind, isDatabaseHost, isFileHost, type Host, type HostKind, type Proxy } from "../api";
+import { hostKind, isDatabaseHost, isFileHost, type Host, type HostKind, type Proxy, type Vpn } from "../api";
 import type { MessageKey } from "../i18n";
 
 export type HostField =
@@ -14,6 +14,7 @@ export type HostField =
   | "url"
   | "bucket"
   | "proxyId"
+  | "vpnId"
   | "keepalive"
   | "file"
   | "namespace"
@@ -44,6 +45,8 @@ export function validateHost(h: Host, hosts: Host[]): Partial<Record<HostField, 
   // Mosh's UDP would go around a proxy (the backend refuses both too).
   if (h.proxyId && h.jumpHostId && !isFileHost(h)) e.proxyId = "hostForm.error.proxyJump";
   else if (h.proxyId && kind === "mosh") e.proxyId = "hostForm.error.proxyMosh";
+  // A VPN profile is dialled through like a proxy, so not both (KTD5).
+  if (h.vpnId && h.proxyId) e.vpnId = "hostForm.error.vpnProxy";
   if (h.keepalive != null && !(Number.isInteger(h.keepalive) && h.keepalive >= 0 && h.keepalive <= 86400))
     e.keepalive = "hostForm.error.keepalive";
   if (isFileHost(h)) {
@@ -135,6 +138,10 @@ export function validateHost(h: Host, hosts: Host[]): Partial<Record<HostField, 
   }
   return jumpLoop(h, hosts, e);
 }
+
+/** The host names a profile that is not saved here: deleted, or held for
+ *  sync's confirmation (store.HeldVPNID). Either fails to connect. */
+export const missingVpn = (h: Host, vpns: Vpn[]) => !!h.vpnId && !vpns.some((v) => v.id === h.vpnId);
 
 /** A chain that comes back to this host would loop (the backend refuses it too). */
 function jumpLoop(h: Host, hosts: Host[], e: Partial<Record<HostField, MessageKey>>) {

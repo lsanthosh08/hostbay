@@ -1,7 +1,8 @@
 import { useEffect, useRef, type MouseEvent } from "react";
 import { t } from "../i18n";
 import { keysFor } from "../actions/registry";
-import { SETTINGS_TAB, activeTab, connLabel, tabsOf, useSessions, type Connection } from "../state/sessions";
+import { useVpns } from "../components/VpnPanel";
+import { SETTINGS_TAB, activeTab, connLabel, tabsOf, useSessions, vpnTabNote, type Connection } from "../state/sessions";
 import { useContextMenu } from "../ui/contextmenu";
 import { IconButton } from "../ui/IconButton";
 import { AddIcon, CommandIcon, ExpandedIcon, SettingsIcon, WorkspaceIcon } from "../ui/icons";
@@ -16,12 +17,17 @@ import { sessionIcon } from "./kindIcon";
 export function SessionTabBar({ onStart, onPalette }: { onStart: () => void; onPalette: () => void }) {
   const state = useSessions();
   const { sessions, activate, disconnect, move, settings, showSettings, layouts } = state;
+  const { vpns, states } = useVpns();
   const tabs = tabsOf(state).map((tab) => {
     const l = layouts.find((x) => x.id === tab.id);
     const panes = tab.sessions.map((id) => sessions.find((c) => c.sessionId === id)!);
     const c: Connection = panes.find((x) => x.sessionId === l?.focus) ?? panes[0];
     const name = l ? l.name ?? panes.map((x) => x.host.alias).join(" + ") : c.host.alias;
-    return { id: tab.id, c, name, icon: l ? WorkspaceIcon : sessionIcon(c), close: () => panes.forEach((x) => disconnect(x.sessionId)) };
+    // "Connecting VPN P" while the host's profile comes up, "via P" once live.
+    const note = vpnTabNote(c, vpns, states);
+    const status = note?.kind === "pending" ? t("connect.vpnPending", { name: note.name }) : connLabel(c);
+    const via = note?.kind === "via" ? t("tab.via", { name: note.name }) : "";
+    return { id: tab.id, c, name, status, via, icon: l ? WorkspaceIcon : sessionIcon(c), close: () => panes.forEach((x) => disconnect(x.sessionId)) };
   });
   const current = activeTab(state);
   const { at, node: menuNode } = useContextMenu();
@@ -37,7 +43,7 @@ export function SessionTabBar({ onStart, onPalette }: { onStart: () => void; onP
     const r = e.currentTarget.getBoundingClientRect();
     at(
       tabs.map((tab, i) => ({
-        label: `${tab.name} — ${connLabel(tab.c)}`,
+        label: `${tab.name} — ${tab.status}`,
         icon: tab.icon,
         shortcut: keysFor(`tab.${i + 1}`),
         onClick: () => activate(tab.id),
@@ -56,15 +62,16 @@ export function SessionTabBar({ onStart, onPalette }: { onStart: () => void; onP
           onChange={activate}
           onReorder={move}
           className="h-10"
-          items={tabs.map<TabItem<string>>(({ id, c, name, icon, close }) => ({
+          items={tabs.map<TabItem<string>>(({ id, c, name, status, via, icon, close }) => ({
             id,
             icon,
-            title: `${name} — ${connLabel(c)}`,
+            title: `${name} — ${status}${via ? ` (${via})` : ""}`,
             label: (
               <span className="flex items-center gap-1.5 max-w-48">
                 <StatusDot status={c.status} />
                 <span className="truncate">{name}</span>
-                {c.status !== "live" && <span className="text-xs text-muted">{connLabel(c)}</span>}
+                {c.status !== "live" && <span className="text-xs text-muted truncate">{status}</span>}
+                {via && <span className="text-xs text-muted truncate shrink-0 max-w-24">{via}</span>}
               </span>
             ),
             onClose: close,

@@ -78,6 +78,7 @@ export {
   Keyboard as KeyboardIcon,
   ArrowRightLeft as TunnelIcon,
   Unplug as UnplugIcon,
+  ShieldCheck as VpnIcon,
   Upload as UploadIcon,
   ScreenShare as VncIcon,
   MonitorCog as SpiceIcon,

@@ -27,13 +27,14 @@ import {
   TransfersIcon,
   TunnelIcon,
   UnplugIcon,
+  VpnIcon,
   WorkspaceIcon,
   type Icon,
 } from "../ui/icons";
 import { settings } from "../state/settings";
 import { formatShortcut, overridden, platform, type Shortcut } from "./shortcuts";
 
-export type PanelId = "hosts" | "tunnels" | "quickCommands" | "history";
+export type PanelId = "hosts" | "tunnels" | "vpns" | "quickCommands" | "history";
 
 /** What actions act on; the shell implements it (src/shell/AppShell.tsx). */
 export type AppCommands = {
@@ -76,6 +77,9 @@ export type AppCommands = {
   toggleAISidebar(): void;
   /** Moves focus to the app-wide approval tray. */
   focusApprovals(): void;
+  /** Connects or disconnects a VPN profile; the palette lists one entry per profile. */
+  connectVpn(id: string): void;
+  disconnectVpn(id: string): void;
 };
 
 export type Action = {
@@ -121,6 +125,7 @@ export const actions: Action[] = [
   // A tab, not a side panel: the two-pane Files view with Local on the left.
   { id: "files.open", label: "nav.files", icon: FilesIcon, rail: "top", run: (app) => app.openFiles() },
   { id: "panel.tunnels", label: "nav.tunnels", icon: TunnelIcon, rail: "top", run: (app) => app.showPanel("tunnels") },
+  { id: "panel.vpns", label: "nav.vpns", icon: VpnIcon, rail: "top", run: (app) => app.showPanel("vpns") },
   { id: "ai.sidebar", label: "ai.toggle", icon: AIIcon, rail: "top", run: (app) => app.toggleAISidebar() },
   { id: "ai.approvals", label: "ai.focusTray", icon: AIIcon, run: (app) => app.focusApprovals() },
   {

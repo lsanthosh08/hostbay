@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import * as api from "../api";
 import { hostKind, isDatabaseHost, isFileHost, type Folder, type Host, type HostKeyPrompt, type HostKind, type Proxy, type SshAlgorithms } from "../api";
+import { TagEditor } from "../components/TagEditor";
 import { TrustDialog } from "../components/TrustDialog";
+import { reloadVpns, useVpns } from "../components/VpnPanel";
 import { answerTrust } from "../connect/useConnect";
 import { open } from "../dialogs";
 import { t, type MessageKey } from "../i18n";
@@ -13,7 +15,7 @@ import { usePrompt } from "../ui/prompt";
 import { SegmentedControl } from "../ui/SegmentedControl";
 import { Select } from "../ui/Select";
 import { useAsyncToast, useToast } from "../ui/toast";
-import { asksPasswordAgain, formHost, passwordForKind, SQL_SERVERS, unencrypted, validateHost, type HostField } from "./hostForm";
+import { asksPasswordAgain, formHost, missingVpn, passwordForKind, SQL_SERVERS, unencrypted, validateHost, type HostField } from "./hostForm";
 import { SSH_ALGORITHMS } from "./sshAlgorithms";
 import { PostLoginEditor } from "./PostLoginEditor";
 import { TERMINAL_KINDS } from "./settings/Logging";
@@ -95,7 +97,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 
 /**
  * The host editor, a wide drawer with sections: Connection, Authentication,
- * Jump host, Proxy, Advanced, Wake-on-LAN and Test connection. Errors show
+ * Jump host, Proxy, VPN, Advanced, Wake-on-LAN and Test connection. Errors show
  * inline once Save is tried, and closing with unsaved changes asks first
  * (R74). File hosts (FTP, SMB, WebDAV, S3) show their own connection fields
  * and an optional password (S3: the secret key), and no jump host. Options
@@ -124,11 +126,14 @@ export function HostEditor({
   const [savedKeys, setSavedKeys] = useState<string[]>([]);
   const [sshKeys, setSshKeys] = useState<string[]>([]);
   const [proxies, setProxies] = useState<Proxy[]>([]);
+  const { vpns } = useVpns();
   const reloadSavedKeys = () => api.listIdentityKeys().then(setSavedKeys).catch(() => {});
   useEffect(() => {
     reloadSavedKeys();
     api.listSshKeys().then(setSshKeys).catch(() => {});
     api.listProxies().then(setProxies).catch(() => {});
+    // Sync may have brought a profile since the list was read.
+    reloadVpns();
   }, []);
   // Test connection's outcome, and an unknown host key it stopped at.
   const [test, setTest] = useState<{ busy?: boolean; ok?: boolean; text?: string; detail?: string } | null>(null);
@@ -598,6 +603,9 @@ export function HostEditor({
               </Select>
             </Field>
           </div>
+          <Field label={t("hostForm.tags")} hint={t("hostForm.tagsHint")}>
+            <TagEditor tags={h.tags ?? []} onChange={(tags) => set({ tags })} />
+          </Field>
           {kind === "tcp" && (
             <label className="flex items-center gap-2 text-sm w-fit">
               <input
@@ -756,6 +764,28 @@ export function HostEditor({
             </Select>
           </Field>
         </Section>
+        )}
+
+        {!sqlite && (
+          <Section title={t("hostForm.vpn")}>
+            {/* Like the proxy, the conflict shows at once (R15, KTD5). */}
+            <Field label={t("hostForm.vpnVia")} hint={t("hostForm.vpnHint")} error={errors.vpnId && t(errors.vpnId)}>
+              <Select
+                className="w-full"
+                value={h.vpnId ?? ""}
+                aria-invalid={!!errors.vpnId}
+                onChange={(e) => set({ vpnId: e.target.value || null })}
+              >
+                <option value="">{t("hostForm.vpnNone")}</option>
+                {vpns.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.name}
+                  </option>
+                ))}
+                {missingVpn(h, vpns) && <option value={h.vpnId!}>{t("hostForm.vpnMissing")}</option>}
+              </Select>
+            </Field>
+          </Section>
         )}
 
         {(kind === "rdp" || kind === "ssh") && (
