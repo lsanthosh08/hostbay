@@ -42,6 +42,7 @@ func main() {
 	}
 	var mainWindow *application.WebviewWindow
 	var tunnels *app.TunnelService
+	var vpns *app.VPNService
 	var quitConfirmed atomic.Bool
 	var st *store.Store
 	a := application.New(application.Options{
@@ -62,23 +63,34 @@ func main() {
 			application.NewService(app.New()),
 		},
 		MarshalError: app.MarshalError,
-		// Quitting stops running tunnels, which may be carrying someone's
-		// work, so ask first.
+		// Quitting stops running tunnels and disconnects the VPN profiles
+		// Hostbay connected, either of which may be carrying someone's work,
+		// so ask first (R19).
 		ShouldQuit: func() bool {
 			// Quit runs ShouldQuit again, so the dialog's answer has to stick.
 			if quitConfirmed.Load() {
 				return true
 			}
-			n := 0
+			n, v := 0, 0
 			if tunnels != nil {
 				n = tunnels.RunningTunnels()
 			}
-			if n == 0 {
+			if vpns != nil {
+				v = vpns.ConnectedVPNs()
+			}
+			if n == 0 && v == 0 {
 				return true
+			}
+			msg := fmt.Sprintf("%d tunnel(s) are running. Quitting stops them.", n)
+			switch {
+			case n == 0:
+				msg = fmt.Sprintf("%d VPN(s) are connected. Quitting disconnects them.", v)
+			case v > 0:
+				msg = fmt.Sprintf("%d tunnel(s) are running and %d VPN(s) are connected. Quitting stops them.", n, v)
 			}
 			d := application.Get().Dialog.Question().
 				SetTitle("Quit " + app.Name + "?").
-				SetMessage(fmt.Sprintf("%d tunnel(s) are running. Quitting stops them.", n))
+				SetMessage(msg)
 			yes, no := container.Buttons(runtime.GOOS, "Quit", "Cancel")
 			d.AddButton(yes).OnClick(func() {
 				quitConfirmed.Store(true)
@@ -201,6 +213,8 @@ func main() {
 	a.HandleStream(app.ZmodemStreamName, app.ServeZmodemStream(zmodem))
 	tunnels = app.NewTunnelService(st, connSvc)
 	a.RegisterService(application.NewService(tunnels))
+	vpns = app.NewVPNService(st, vault)
+	a.RegisterService(application.NewService(vpns))
 	a.RegisterService(application.NewService(app.NewMonitorService(connSvc)))
 	a.RegisterService(application.NewService(app.NewTerminalToolsService(connSvc)))
 	a.RegisterService(application.NewService(app.NewWorkspaceService(st)))

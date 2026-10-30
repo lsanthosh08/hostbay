@@ -21,6 +21,7 @@ import * as TerminalToolsService from "./terminaltoolsservice.js";
 import * as TransferService from "./transferservice.js";
 import * as TunnelService from "./tunnelservice.js";
 import * as UpdateService from "./updateservice.js";
+import * as VPNService from "./vpnservice.js";
 import * as VncService from "./vncservice.js";
 import * as WorkspaceService from "./workspaceservice.js";
 import * as X11Service from "./x11service.js";
@@ -46,6 +47,7 @@ export {
     TransferService,
     TunnelService,
     UpdateService,
+    VPNService,
     VncService,
     WorkspaceService,
     X11Service,
@@ -101,6 +103,8 @@ export type {
     Tunnel,
     TunnelState,
     UpdateStatus,
+    VPN,
+    VPNState,
     WinDashboard,
     Workspace,
     X11Status,

@@ -39,3 +39,7 @@ const TransferEvent = "transfer"
 // TerminalNoticeEvent carries a line the terminal's tab shows about its
 // tools: a post-login rule that stopped, or a log that could not be written.
 func TerminalNoticeEvent(ptyID string) string { return "terminal-notice://" + ptyID }
+
+// VPNStateEvent carries a VPNState each time a VPN profile's state changes.
+// It is one app-wide name because the VPN panel shows every profile.
+const VPNStateEvent = "vpn-state"

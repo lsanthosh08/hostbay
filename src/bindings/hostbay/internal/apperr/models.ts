@@ -41,7 +41,7 @@ export enum Code {
     VerifyFailed = "VerifyFailed",
 
     /**
-     * the bundled RDP helper could not be started
+     * a bundled helper (RDP or VPN) is missing, of another version or could not be started
      */
     HelperMissing = "HelperMissing",
 
@@ -49,6 +49,24 @@ export enum Code {
      * a database refused or failed a request; details.category and details.detail say how
      */
     DatabaseError = "DatabaseError",
+
+    /**
+     * VPN profiles' failures (KTD2, KTD5). None falls back to a direct
+     * connection; details.vpnId names the profile.
+     *
+     * the profile could not connect, or the dial through it failed
+     */
+    VPNFailed = "VPNFailed",
+
+    /**
+     * the host's profile is not connected, and the caller may not connect it
+     */
+    VPNDown = "VPNDown",
+
+    /**
+     * two connected profiles route the destination; details name both
+     */
+    VPNAmbiguous = "VPNAmbiguous",
 
     /**
      * The AI agent's approval gate (KTD32).
