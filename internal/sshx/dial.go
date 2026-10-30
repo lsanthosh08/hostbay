@@ -44,7 +44,8 @@ func (d *Dialer) dialHop(ctx context.Context, prev *ssh.Client, i int, h Hop, au
 	} else {
 		nc, err = prev.DialContext(ctx, "tcp", addr)
 	}
-	if apperr.CodeOf(err) == apperr.ProxyFailed {
+	switch apperr.CodeOf(err) {
+	case apperr.ProxyFailed, apperr.VPNFailed, apperr.VPNDown:
 		return nil, err
 	}
 	if err != nil {

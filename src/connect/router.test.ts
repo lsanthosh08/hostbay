@@ -131,6 +131,16 @@ describe("connect router", () => {
     expect(step).toEqual({ kind: "failure", message: "ProxyFailed message", proxy: true });
   });
 
+  // R16, R17, AE2: a VPN problem never offers a direct connection or Wake-on-LAN.
+  it("sends a held VPN to Sync settings and a missing or ambiguous one to Edit host", () => {
+    const mac = host({ mac: "aa:bb:cc:dd:ee:ff" });
+    expect(route(err("VPNFailed", { vpnId: "v1", reason: "held" }), { host: mac })).toEqual({ kind: "vpnHeld", message: "VPNFailed message" });
+    expect(route(err("VPNFailed", { vpnId: "v1", reason: "missing" }), { host: mac })).toEqual({ kind: "vpnChoose", message: "VPNFailed message" });
+    expect(route(err("VPNAmbiguous", { vpnIds: "a,b" }), { host: mac })).toEqual({ kind: "vpnChoose", message: "VPNAmbiguous message" });
+    for (const code of ["VPNFailed", "VPNDown"])
+      expect(route(err(code, { vpnId: "v1", reason: "failed" }), { host: mac })).toEqual({ kind: "failure", message: `${code} message` });
+  });
+
   it("asks to run kinit for a missing Kerberos ticket, not for a password", () => {
     const krb = host({ authType: "kerberos" });
     expect(route(err("SecretNeeded", { kind: "kerberos" }), { host: krb, hosts: [krb] })).toEqual({

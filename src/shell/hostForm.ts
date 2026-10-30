@@ -165,7 +165,7 @@ export function formHost(h: Host): Host {
   const port = (file || vnc || spice || db) && Number.isNaN(h.port) ? 0 : h.port;
   const ssh = kind === "ssh";
   // A SQLite host is a file here: no address, sign-in, TLS or route.
-  const local = kind === "sqlite" ? { hostname: "", user: "", tls: null, jumpHostId: null, proxyId: null, port: 0 } : {};
+  const local = kind === "sqlite" ? { hostname: "", user: "", tls: null, jumpHostId: null, proxyId: null, vpnId: null, port: 0 } : {};
   // An Elasticsearch node is its URL: no host name, port or TLS mode of its
   // own; nor an rqlite node, which has no database name either. A database
   // server's address is its host name and port, not a URL.

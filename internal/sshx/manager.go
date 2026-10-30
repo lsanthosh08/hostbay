@@ -128,6 +128,15 @@ func (l *Lease) LoginPassword() string {
 	return hops[len(hops)-1].Auth.Password
 }
 
+// Proxy is what the connection's first hop is dialled through, or nil.
+func (l *Lease) Proxy() *Proxy {
+	hops := l.c.target.Hops // set once when the connection is created
+	if len(hops) == 0 {
+		return nil
+	}
+	return hops[0].Proxy
+}
+
 // Reconnect returns a live client. While the connection answers, it is
 // returned as is and the caller reopens only its own channel. Once the
 // connection has dropped, one rebuild runs for all concurrent callers: it

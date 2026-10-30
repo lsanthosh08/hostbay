@@ -157,8 +157,8 @@ export interface ComposeProject {
 
 /**
  * ConnTest is TestConnection's outcome. Step is "ok", or the step that
- * failed: "proxy", "tcp", "ssh" (negotiation), "hostKey" or "auth", or for
- * DatabaseTest "database" (signed in, but the database refused). Error
+ * failed: "proxy", "vpn", "tcp", "ssh" (negotiation), "hostKey" or "auth",
+ * or for DatabaseTest "database" (signed in, but the database refused). Error
  * carries the code and details the UI acts on: a HostKeyUnknown's
  * requestId for TrustHostKey, a HostKeyChanged's removeId, a
  * SecretNeeded's kind.
@@ -364,6 +364,11 @@ export interface Host {
      * "kerberos" for SSH.
      */
     "proxyId"?: string | null;
+
+    /**
+     * the VPN profile every dial goes through (R15)
+     */
+    "vpnId"?: string | null;
     "forwardAgent"?: boolean | null;
     "algorithms"?: store$0.Algorithms | null;
 

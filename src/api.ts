@@ -108,6 +108,8 @@ export type Host = {
   // Connection extras (R48–R52). A host with a proxy dials only through it;
   // a missing or failed proxy is an error, never a direct connection.
   proxyId?: string | null;
+  // The VPN profile every dial goes through, never with a proxy (R15, KTD5).
+  vpnId?: string | null;
   forwardAgent?: boolean | null; // ssh; off unless set
   algorithms?: SshAlgorithms | null; // ssh; legacy algorithms on top of the defaults
   keepalive?: number | null; // ssh; seconds, 0 or unset is 30
@@ -344,7 +346,7 @@ export const removeKnownHost = (host: string, port: number, typedHost: string) =
 // Tests the editor's unsaved form (R53) and saves nothing. step is "ok" or
 // the step that failed: proxy, tcp, ssh (negotiation), hostKey or auth.
 // database: signed in, but the database itself refused (databaseTest).
-export type ConnTest = { step: "ok" | "proxy" | "tcp" | "ssh" | "hostKey" | "auth" | "database"; message?: string; error?: AppError | null };
+export type ConnTest = { step: "ok" | "proxy" | "vpn" | "tcp" | "ssh" | "hostKey" | "auth" | "database"; message?: string; error?: AppError | null };
 export const testConnection = (host: Host) => unlocking(() => ConnService.TestConnection(host) as Promise<ConnTest>);
 
 // ---- Exec ----

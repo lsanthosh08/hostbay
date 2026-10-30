@@ -40,6 +40,7 @@ type Host struct {
 	// Connection extras (R48–R52); authType may also be "agent" or
 	// "kerberos" for SSH.
 	ProxyID      *string           `json:"proxyId,omitempty"`
+	VPNID        *string           `json:"vpnId,omitempty"` // the VPN profile every dial goes through (R15)
 	ForwardAgent *bool             `json:"forwardAgent,omitempty"`
 	Algorithms   *store.Algorithms `json:"algorithms,omitempty"`
 	Keepalive    *int              `json:"keepalive,omitempty"` // seconds; 0 or unset means 30
@@ -77,8 +78,8 @@ type Proxy struct {
 }
 
 // ConnTest is TestConnection's outcome. Step is "ok", or the step that
-// failed: "proxy", "tcp", "ssh" (negotiation), "hostKey" or "auth", or for
-// DatabaseTest "database" (signed in, but the database refused). Error
+// failed: "proxy", "vpn", "tcp", "ssh" (negotiation), "hostKey" or "auth",
+// or for DatabaseTest "database" (signed in, but the database refused). Error
 // carries the code and details the UI acts on: a HostKeyUnknown's
 // requestId for TrustHostKey, a HostKeyChanged's removeId, a
 // SecretNeeded's kind.

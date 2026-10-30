@@ -214,6 +214,7 @@ func main() {
 	tunnels = app.NewTunnelService(st, connSvc)
 	a.RegisterService(application.NewService(tunnels))
 	vpns = app.NewVPNService(st, vault)
+	app.LinkVPNs(creds, vpns) // before any dial, which runs only once the app does
 	a.RegisterService(application.NewService(vpns))
 	a.RegisterService(application.NewService(app.NewMonitorService(connSvc)))
 	a.RegisterService(application.NewService(app.NewTerminalToolsService(connSvc)))

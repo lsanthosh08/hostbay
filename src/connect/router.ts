@@ -19,6 +19,11 @@ export type Step =
   // exists. Neither ever falls back to a direct connection (KTD22).
   | { kind: "proxyHeld"; message: string }
   | { kind: "proxyMissing"; message: string }
+  // Likewise the host's VPN profile waits for confirmation in Sync settings;
+  // or it no longer exists, or two connected profiles reach an unbound host,
+  // and the user names one on the host (R16, R17, AE2).
+  | { kind: "vpnHeld"; message: string }
+  | { kind: "vpnChoose"; message: string }
   | { kind: "unlock"; message: string }
   | { kind: "wake"; message: string }
   | { kind: "verify"; message: string }
@@ -69,6 +74,12 @@ export function route(err: AppError, ctx: { host?: Host; hosts?: Host[]; wasLive
       if (details?.reason === "held") return { kind: "proxyHeld", message };
       if (details?.reason === "missing") return { kind: "proxyMissing", message };
       return { kind: "failure", message, proxy: true };
+    case "VPNFailed":
+      if (details?.reason === "held") return { kind: "vpnHeld", message };
+      if (details?.reason === "missing") return { kind: "vpnChoose", message };
+      break;
+    case "VPNAmbiguous":
+      return { kind: "vpnChoose", message };
     case "VerifyFailed":
       return { kind: "verify", message };
     case "HelperMissing":

@@ -65,6 +65,7 @@ function portFor(k: HostKind, h: Host): number {
 const TEST_TEXT: Record<api.ConnTest["step"], MessageKey> = {
   ok: "hostForm.test.ok",
   proxy: "hostForm.test.proxy",
+  vpn: "hostForm.test.vpn",
   tcp: "hostForm.test.tcp",
   ssh: "hostForm.test.ssh",
   hostKey: "hostForm.test.hostKey",
