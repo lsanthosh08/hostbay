@@ -3,7 +3,7 @@ import * as api from "../api";
 import { hostKind, isDatabaseHost, isFileHost, type Folder, type Host, type HostKeyPrompt, type HostKind, type Proxy, type SshAlgorithms } from "../api";
 import { TagEditor } from "../components/TagEditor";
 import { TrustDialog } from "../components/TrustDialog";
-import { reloadVpns, useVpns } from "../components/VpnPanel";
+import { reloadVpns, useVpns } from "../state/vpns";
 import { answerTrust } from "../connect/useConnect";
 import { open } from "../dialogs";
 import { t, type MessageKey } from "../i18n";

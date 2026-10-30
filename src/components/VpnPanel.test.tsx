@@ -4,7 +4,8 @@ import { describe, expect, it } from "vitest";
 import type { DetectedVpn, Host, Vpn, VpnState } from "../api";
 import { en } from "../i18n/en";
 import { vpnCertPrompt } from "../connect/vpnCert";
-import { VpnCertBody, VpnPanelView, vpnCancelled } from "./VpnPanel";
+import { VpnCertBody, VpnPanelView } from "./VpnPanel";
+import { vpnCancelled } from "../state/vpns";
 
 const noop = () => {};
 const vpn = (over: Partial<Vpn> = {}): Vpn => ({ id: "v1", name: "Atlas VPN", type: "wireguard", tier: "app", tags: ["atlas"], ...over });

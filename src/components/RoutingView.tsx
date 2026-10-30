@@ -11,7 +11,7 @@ import { SegmentedControl } from "../ui/SegmentedControl";
 import { Select } from "../ui/Select";
 import { useAsyncToast } from "../ui/toast";
 import { TagEditor } from "./TagEditor";
-import { reloadVpns, useVpns } from "./VpnPanel";
+import { reloadVpns, useVpns } from "../state/vpns";
 
 type Mode = "" | "full" | "split";
 const MODES: { value: Mode | "per"; label: MessageKey }[] = [

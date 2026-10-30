@@ -1,15 +1,16 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Browser } from "@wailsio/runtime";
 import * as api from "../api";
 import type { DetectedVpn, Host, Vpn, VpnState } from "../api";
 import { useConnect } from "../connect/useConnect";
 import { vpnCertPrompt, type VpnCert } from "../connect/vpnCert";
-import { t, type MessageKey } from "../i18n";
+import { t } from "../i18n";
 import { PanelHeader } from "../shell/SidePanel";
 import { VpnForm, NEW_VPN } from "../shell/settings/Vpns";
 import { filterVpns, tagCounts, typeLabel } from "../shell/vpnForm";
 import { useHosts } from "../state/hosts";
 import { useSessions } from "../state/sessions";
+import { isVpnActive, reloadVpns, useVpns, vpnCancelled, vpnStatusText, type VpnStates } from "../state/vpns";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 import { EmptyState } from "../ui/EmptyState";
@@ -22,62 +23,6 @@ import { onFilesDropped } from "../importApi";
 import { Fingerprint } from "./TrustDialog";
 import { VpnImport } from "./VpnImport";
 import { BrowserMappings } from "./BrowserMappings";
-
-type VpnStates = Record<string, VpnState>;
-
-// One copy of the profiles and their live states for every view that shows
-// them (panel, tabs, host menus, palette). It subscribes on first use and
-// stays subscribed for the app's life, as the backend's states do.
-let snap: { vpns: Vpn[]; states: VpnStates } = { vpns: [], states: {} };
-const subs = new Set<() => void>();
-let started = false;
-let loaded = false;
-const emit = (next: typeof snap) => {
-  snap = next;
-  subs.forEach((f) => f());
-};
-/** Reads the saved profiles again, after a save or delete. */
-export const reloadVpns = () =>
-  api
-    .listVpns()
-    .then((vpns) => {
-      // An unchanged list keeps its array, so its readers do not refetch.
-      if (loaded && JSON.stringify(vpns) === JSON.stringify(snap.vpns)) return;
-      loaded = true;
-      emit({ ...snap, vpns });
-    })
-    .catch(() => {});
-function subscribe(cb: () => void) {
-  subs.add(cb);
-  if (!started) {
-    started = true;
-    reloadVpns();
-    // An event that arrived first is newer than the list.
-    api
-      .vpnStates()
-      .then((all) => emit({ ...snap, states: { ...Object.fromEntries(all.map((s) => [s.id, s])), ...snap.states } }))
-      .catch(() => {});
-    api.onVpnState((s) => emit({ ...snap, states: { ...snap.states, [s.id]: s } }));
-  }
-  return () => {
-    subs.delete(cb);
-  };
-}
-/** The saved profiles and every known live state (unknown is disconnected). */
-export const useVpns = () => useSyncExternalStore(subscribe, () => snap);
-
-/** On its way up, or up: Disconnect rather than Connect. */
-export const isVpnActive = (s?: VpnState) => !!s && (s.status === "connecting" || s.status === "signing_in" || s.status === "connected");
-
-const STATUS: Record<api.VpnStatus, MessageKey> = {
-  disconnected: "vpn.status.disconnected",
-  connecting: "vpn.status.connecting",
-  signing_in: "vpn.status.signingIn",
-  connected: "vpn.status.connected",
-  failed: "vpn.status.failed",
-  dropped: "vpn.status.dropped",
-};
-export const vpnStatusText = (s?: VpnState) => t(STATUS[s?.status ?? "disconnected"] ?? "vpn.status.disconnected");
 
 const DOT: Record<api.VpnStatus, ConnStatus | undefined> = {
   disconnected: undefined,
@@ -93,12 +38,6 @@ const dot = (s?: VpnState) => DOT[s?.status ?? "disconnected"];
 export function uptime(since: number, now: number) {
   const m = Math.max(0, Math.floor((now - since) / 60000));
   return m >= 60 ? t("vpn.duration.hm", { h: Math.floor(m / 60), m: m % 60 }) : t("vpn.duration.m", { m });
-}
-
-/** A connect the user ended on purpose (disconnect while connecting) is not a failure to report. */
-export function vpnCancelled(e: unknown): boolean {
-  const { code, details } = api.errorInfo(e);
-  return code === "VPNFailed" && details?.reason === "disconnected";
 }
 
 /** What the dialog says about a gateway certificate: a changed one shows

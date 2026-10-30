@@ -10,7 +10,7 @@ import { Dialog } from "../ui/Dialog";
 import { Field, Input } from "../ui/Field";
 import { useAsyncToast, useToast } from "../ui/toast";
 import { TagEditor } from "./TagEditor";
-import { reloadVpns } from "./VpnPanel";
+import { reloadVpns } from "../state/vpns";
 
 /** How far the review is: drafts decided so far and the ones kept. */
 export type Review = { at: number; kept: Vpn[] };
