@@ -26,7 +26,10 @@ import (
 // A "vpn" proxy is an app-scoped VPN profile (KTD2): VPN is its ID, Host its
 // name for messages, and Socks looks up its helper's loopback SOCKS5 address
 // and login at each dial, so a connection that outlives a reconnect never
-// dials a stale port.
+// dials a stale port. An external profile's "vpn" proxy has Iface instead
+// (KTD7): it looks up the vendor tunnel's interface at each dial, and the
+// DNS servers names resolve through, and the socket is pinned to that
+// interface, so nothing leaves by another route.
 type Proxy struct {
 	Type     string // "socks5", "http" or "vpn"
 	Host     string
@@ -36,6 +39,7 @@ type Proxy struct {
 
 	VPN   string
 	Socks func() (addr, user, pass string, err error)
+	Iface func(ctx context.Context) (iface string, dns []string, err error)
 }
 
 // maxProxyReply caps an HTTP proxy's reply headers.
@@ -49,6 +53,9 @@ const maxProxyReply = 16 << 10
 func DialTCP(ctx context.Context, p *Proxy, addr string) (net.Conn, error) {
 	if p == nil {
 		return (&net.Dialer{}).DialContext(ctx, "tcp", addr)
+	}
+	if p.Type == "vpn" && p.Iface != nil {
+		return p.dialBound(ctx, "tcp", addr)
 	}
 	if p.Type == "vpn" {
 		paddr, user, pass, err := p.Socks()
@@ -92,6 +99,42 @@ func dialSOCKS5(ctx context.Context, paddr, user, pass, addr string) (net.Conn, 
 		return nil, err
 	}
 	return d.(proxy.ContextDialer).DialContext(ctx, "tcp", addr)
+}
+
+// dnsPort is where an external profile's DNS servers listen.
+var dnsPort = "53"
+
+// dialBound dials addr with the socket pinned to the external profile's
+// tunnel interface (KTD7). A name resolves through the profile's DNS
+// servers, over the same interface, when it names any: never the system's
+// resolver, which would answer from outside the VPN.
+func (p *Proxy) dialBound(ctx context.Context, network, addr string) (net.Conn, error) {
+	iface, dns, err := p.Iface(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ifi, err := net.InterfaceByName(iface)
+	if err != nil {
+		return nil, p.vpnErr(addr, fmt.Errorf("its interface %s is gone", iface))
+	}
+	d := &net.Dialer{Control: bindTo(ifi)}
+	if len(dns) > 0 {
+		d.Resolver = &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			var err error
+			for _, s := range dns {
+				var c net.Conn
+				if c, err = (&net.Dialer{Control: bindTo(ifi)}).DialContext(ctx, network, net.JoinHostPort(s, dnsPort)); err == nil {
+					return c, nil
+				}
+			}
+			return nil, err
+		}}
+	}
+	c, err := d.DialContext(ctx, network, addr)
+	if err != nil {
+		return nil, p.vpnErr(addr, err)
+	}
+	return c, nil
 }
 
 // vpnErr is a dial through the VPN that failed at or beyond its helper.
@@ -181,6 +224,9 @@ func (c *bufConn) Read(b []byte) (int, error) { return c.r.Read(b) }
 func (p *Proxy) DialUDP(ctx context.Context, addr *net.UDPAddr) (net.Conn, error) {
 	if p.Type != "vpn" {
 		return nil, errors.New("only a VPN profile carries UDP")
+	}
+	if p.Iface != nil {
+		return p.dialBound(ctx, "udp", addr.String())
 	}
 	paddr, user, pass, err := p.Socks()
 	if err != nil {

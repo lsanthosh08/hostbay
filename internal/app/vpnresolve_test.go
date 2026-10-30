@@ -14,6 +14,7 @@ import (
 	"hostbay/internal/sshx/proxytest"
 	"hostbay/internal/store"
 	"hostbay/internal/tlstrust"
+	"hostbay/internal/vpn/detect"
 	"hostbay/internal/vpn/socks"
 	"hostbay/internal/vpn/vpntest"
 )
@@ -386,7 +387,8 @@ func TestReconnectDialsTheVPNsNewPort(t *testing.T) {
 func TestHostOnASystemWideVPNSendsNothing(t *testing.T) {
 	srv := newCountingServer(t)
 	c, s, f := vpnConn(t, vpntest.OK, srv.knownLine())
-	for _, tier := range []string{store.VPNTierSystem, store.VPNTierExternal} {
+	// An external profile whose tunnel detection does not see is down.
+	for tier, code := range map[string]apperr.Code{store.VPNTierSystem: apperr.VPNFailed, store.VPNTierExternal: apperr.VPNDown} {
 		p := saveProfile(t, c.creds.vpns, tier, func(v *VPN) { v.Tier = tier })
 		form := srv.form("pw")
 		form.VPNID = &p.ID
@@ -395,10 +397,50 @@ func TestHostOnASystemWideVPNSendsNothing(t *testing.T) {
 			t.Fatal(err)
 		}
 		_, err = c.Connect(context.Background(), h.ID)
-		vpnCode(t, err, apperr.VPNFailed, p.ID)
+		vpnCode(t, err, code, p.ID)
 	}
 	if srv.conns.Load() != 0 || len(f.Starts(t)) != 0 {
 		t.Fatal("a host on a system-wide or external VPN was dialled")
+	}
+}
+
+// A host on an external profile dials with its socket pinned to the
+// vendor tunnel's interface, looked up at each dial (KTD7): no tunnel is
+// VPNDown, a tunnel whose interface is gone is VPNFailed, both naming the
+// profile, and the server sees a connection only through the tunnel.
+func TestExternalHostDialsThroughItsTunnelOnly(t *testing.T) {
+	srv := newCountingServer(t)
+	c, s, f := vpnConn(t, vpntest.OK, srv.knownLine())
+	fd := &fakeDetect{}
+	c.creds.vpns.detect = fd.detect
+	p := saveProfile(t, c.creds.vpns, "Loop VPN", func(v *VPN) { v.Tier, v.Type, v.Gateway = store.VPNTierExternal, "other", "" })
+	form := srv.form("pw")
+	form.VPNID = &p.ID
+	h, err := s.SaveHost(form)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	_, err = c.Connect(ctx, h.ID)
+	vpnCode(t, err, apperr.VPNDown, p.ID)
+
+	fd.set(detect.Snapshot{Tunnels: []detect.Tunnel{{Iface: "hostbay-none0", Local: "10.0.0.1", VPN: "Loop VPN"}}})
+	_, err = c.Connect(ctx, h.ID)
+	if ae := vpnCode(t, err, apperr.VPNFailed, p.ID); !strings.Contains(ae.Message, "Loop VPN") {
+		t.Fatalf("message %q does not name the profile", ae.Message)
+	}
+	if srv.conns.Load() != 0 {
+		t.Fatal("the server was dialled with no tunnel")
+	}
+
+	ifs, _ := net.Interfaces()
+	lo := ifs[slices.IndexFunc(ifs, func(i net.Interface) bool { return i.Flags&net.FlagLoopback != 0 })].Name
+	fd.set(detect.Snapshot{Tunnels: []detect.Tunnel{{Iface: lo, Local: "127.0.0.1", VPN: "Loop VPN"}}})
+	if _, err := c.Connect(ctx, h.ID); err != nil {
+		t.Fatal(err)
+	}
+	if srv.conns.Load() != 1 || len(f.Starts(t)) != 0 {
+		t.Fatalf("server saw %d connections, helper started %d times", srv.conns.Load(), len(f.Starts(t)))
 	}
 }
 
