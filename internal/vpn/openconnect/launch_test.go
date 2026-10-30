@@ -150,3 +150,23 @@ func TestParseNet(t *testing.T) {
 		t.Fatal("no address accepted")
 	}
 }
+
+// On Windows the helper runs openconnect on its Wintun adapter (U12): the
+// adapter by --interface, no --script-tun, and still no password in argv.
+func TestSystemArgs(t *testing.T) {
+	const script = `"C:\Program Files\HostbayNetd\hostbay-netd.exe" oc-script`
+	args, err := SystemArgs(proto.TypeAnyConnect, `{"gateway":"vpn.example.test","user":"alice"}`, map[string]string{"password": testPass}, "Hostbay AB12CD34", script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"--protocol=anyconnect", "--non-inter", "--interface=Hostbay AB12CD34", "--script=" + script, "--user=alice", "--passwd-on-stdin", "--", "vpn.example.test"}
+	if !slices.Equal(args, want) {
+		t.Errorf("argv %q\nwant %q", args, want)
+	}
+	if _, err := SystemArgs(proto.TypeAnyConnect, `{"gateway":"vpn.example.test","browser":true}`, nil, "x", script); err == nil {
+		t.Error("browser sign-in accepted system-wide")
+	}
+	if _, err := SystemArgs(proto.TypeAnyConnect, `{"gateway":"-vpn"}`, nil, "x", script); err == nil {
+		t.Error("an option as the gateway accepted")
+	}
+}

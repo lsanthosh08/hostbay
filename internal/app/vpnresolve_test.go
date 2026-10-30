@@ -382,8 +382,8 @@ func TestReconnectDialsTheVPNsNewPort(t *testing.T) {
 	}
 }
 
-// KTD5: system-wide and external profiles cannot carry a dial yet, and a
-// host bound to one sends nothing.
+// KTD5: a host bound to a system-wide profile that cannot connect (no
+// helper) or an external one that is down sends nothing.
 func TestHostOnASystemWideVPNSendsNothing(t *testing.T) {
 	srv := newCountingServer(t)
 	c, s, f := vpnConn(t, vpntest.OK, srv.knownLine())

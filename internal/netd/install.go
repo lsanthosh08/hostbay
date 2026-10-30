@@ -36,13 +36,71 @@ const (
 
 // The admin prompt says what the helper may do (R30).
 const (
-	installPrompt   = "Hostbay wants to install its network helper. It runs as an administrator and lets only Hostbay add and remove routes through VPN tunnels and the default gateway, and set tunnel MTUs."
+	installPrompt   = "Hostbay wants to install its network helper. It runs as an administrator and lets only Hostbay add and remove routes through VPN tunnels and the default gateway, set tunnel MTUs, and start and stop the VPNs you connect system-wide."
 	uninstallPrompt = "Hostbay wants to remove its network helper."
 )
 
 // vpnClients are copied into the helper's directory at install when they sit
-// beside Hostbay, so the helper starts only copies nobody else can replace.
+// beside Hostbay, with the libraries they load, so the helper starts only
+// copies nobody else can replace.
 var vpnClients = []string{"openvpn", "openconnect"}
+
+// clientDir is where install puts the VPN clients: on macOS in bin beside
+// Frameworks, the layout their @executable_path/../Frameworks install names
+// expect (build/darwin/bundle-openconnect.sh); on Windows beside the
+// helper, where both the clients and the helper's own Wintun load their
+// DLLs from.
+func clientDir(dir, goos string) string {
+	if goos == "darwin" {
+		return filepath.Join(dir, "bin")
+	}
+	return dir
+}
+
+// libDir is where a client's libraries come from beside Hostbay and go in
+// dir, and the suffix that marks them; none on Linux, whose clients use the
+// system's.
+func libDir(dir, appDir, goos string) (src, dst, suffix string) {
+	switch goos {
+	case "darwin":
+		return filepath.Join(appDir, "..", "Frameworks"), filepath.Join(dir, "Frameworks"), ".dylib"
+	case "windows":
+		return appDir, dir, ".dll"
+	}
+	return "", "", ""
+}
+
+// ClientPath is the installed copy of VPN client name in the helper's
+// directory dir.
+func ClientPath(dir, name string) string {
+	return filepath.Join(clientDir(dir, runtime.GOOS), exeName(name))
+}
+
+// CheckClient refuses to start VPN client name unless its copy and every
+// library beside it belong to owner (root outside tests) and nobody else
+// can write them (checkOwned).
+func CheckClient(dir, name string, owner int) error {
+	p := ClientPath(dir, name)
+	if err := checkOwned(p, owner); err != nil {
+		return err
+	}
+	_, libs, suffix := libDir(dir, "", runtime.GOOS)
+	if libs == "" {
+		return nil
+	}
+	es, err := os.ReadDir(libs)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	for _, e := range es {
+		if strings.HasSuffix(strings.ToLower(e.Name()), suffix) {
+			if err := checkOwned(filepath.Join(libs, e.Name()), owner); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
 
 func exeName(name string) string {
 	if runtime.GOOS == "windows" {
@@ -261,19 +319,63 @@ func setUpDir(dir, uid string) error {
 	if err := copyFile(self, filepath.Join(dir, exeName(helperName)), 0o755); err != nil {
 		return err
 	}
-	for _, name := range vpnClients {
-		src := filepath.Join(filepath.Dir(app), exeName(name))
-		if _, err := os.Stat(src); err == nil {
-			if err := copyFile(src, filepath.Join(dir, exeName(name)), 0o755); err != nil {
-				return err
-			}
-		}
+	if err := copyClients(dir, filepath.Dir(app), runtime.GOOS); err != nil {
+		return err
 	}
 	b, err := json.Marshal(Config{UID: uid, App: app})
 	if err != nil {
 		return err
 	}
 	return writeFile(filepath.Join(dir, "config.json"), b, 0o644)
+}
+
+// copyClients copies each VPN client in appDir, and the libraries beside
+// it, into dir; a reinstall replaces the libraries whole.
+func copyClients(dir, appDir, goos string) error {
+	cdir := clientDir(dir, goos)
+	if err := os.MkdirAll(cdir, 0o755); err != nil {
+		return err
+	}
+	if err := os.Chmod(cdir, 0o755); err != nil {
+		return err
+	}
+	for _, name := range vpnClients {
+		if goos == "windows" {
+			name += ".exe"
+		}
+		src := filepath.Join(appDir, name)
+		if _, err := os.Stat(src); err == nil {
+			if err := copyFile(src, filepath.Join(cdir, name), 0o755); err != nil {
+				return err
+			}
+		}
+	}
+	src, dst, suffix := libDir(dir, appDir, goos)
+	if src == "" {
+		return nil
+	}
+	es, err := os.ReadDir(src)
+	if os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	if dst != dir {
+		if err := os.RemoveAll(dst); err != nil {
+			return err
+		}
+		if err := os.MkdirAll(dst, 0o755); err != nil {
+			return err
+		}
+	}
+	for _, e := range es {
+		if e.Type().IsRegular() && strings.HasSuffix(strings.ToLower(e.Name()), suffix) {
+			if err := copyFile(filepath.Join(src, e.Name()), filepath.Join(dst, e.Name()), 0o755); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func copyFile(src, dst string, mode os.FileMode) error {

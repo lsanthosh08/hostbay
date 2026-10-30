@@ -12,20 +12,25 @@
 // The helper does only what KTD8 names, each argument validated here and
 // each route kept within bounds it checks itself (server.go): add or delete a
 // route through a tunnel interface or the local default gateway, set a tunnel
-// interface's MTU. Every route it adds and every vendor route it deletes is
-// journaled first and swept back when Hostbay disconnects or the helper
-// restarts (journal.go).
+// interface's MTU, and start or stop a system-wide tunnel (U12): OpenVPN
+// from a configuration it writes itself, OpenConnect on a Wintun adapter on
+// Windows, or WireGuard on a real TUN. Every route it adds and every vendor
+// route it deletes is journaled first and swept back when Hostbay
+// disconnects or the helper restarts (journal.go); every tunnel stops then
+// too.
 package netd
 
 import (
 	"net/netip"
 	"regexp"
+
+	"hostbay/internal/vpn/openvpn"
 )
 
 // Version is bumped on any incompatible change to the messages below. A
 // helper and a Hostbay that disagree refuse each other with CodeVersion, and
 // Hostbay offers to reinstall the helper.
-const Version = 1
+const Version = 2
 
 // Message tags.
 const (
@@ -36,14 +41,20 @@ const (
 	Reply  = "reply"  // helper: ID, and Code and Reason on failure
 	Event  = "event"  // helper: the system route table changed
 
-	// Reserved for system-wide profiles (U12). Today's helper answers them
-	// with CodeUnsupported.
-	OpenVPNStart     = "openvpn-start"
-	OpenVPNStop      = "openvpn-stop"
-	OpenConnectStart = "openconnect-start"
-	OpenConnectStop  = "openconnect-stop"
-	WireGuardStart   = "wireguard-start"
-	WireGuardStop    = "wireguard-stop"
+	// System-wide tunnels (U12). Each start names a handle Hostbay chose in
+	// Tunnel; the helper's TunnelEvent messages and Hostbay's StopTunnel
+	// name it too. A helper built without tunnels answers CodeUnsupported.
+	OpenVPNStart     = "openvpn-start"     // Hostbay: Tunnel, OpenVPN; reply: Mgmt, MgmtPass
+	OpenConnectStart = "openconnect-start" // Hostbay: Tunnel, OpenConnect (Windows)
+	WireGuardStart   = "wireguard-start"   // Hostbay: Tunnel, WireGuard
+	StopTunnel       = "tunnel-stop"       // Hostbay: Tunnel
+	TunnelEvent      = "tunnel"            // helper: Tunnel, State, and Iface and Address when up, Reason when ended
+)
+
+// Tunnel event states.
+const (
+	TunnelUp    = "up"
+	TunnelEnded = "ended"
 )
 
 // Reply codes. An empty code is success.
@@ -99,9 +110,41 @@ type Msg struct {
 	Iface string `json:"iface,omitempty"`
 	MTU   int    `json:"mtu,omitempty"`
 
+	Tunnel      string           `json:"tunnel,omitempty"`
+	OpenVPN     *openvpn.Profile `json:"openvpn,omitempty"`
+	OpenConnect *OpenConnect     `json:"openconnect,omitempty"`
+	WireGuard   *WireGuard       `json:"wireguard,omitempty"`
+	// An OpenVPN start's reply: its management interface, a Unix socket
+	// path, or on Windows a loopback host:port and its password.
+	Mgmt     string `json:"mgmt,omitempty"`
+	MgmtPass string `json:"mgmtPass,omitempty"`
+	// A tunnel event's state, and the tunnel's own addresses when up.
+	State   string   `json:"state,omitempty"`
+	Address []string `json:"address,omitempty"`
+
 	Code   string `json:"code,omitempty"`
 	Reason string `json:"reason,omitempty"`
 }
+
+// OpenConnect is a system-wide OpenConnect run (Windows): the hostbay-vpn
+// start message's type, Config and password, checked the same way.
+type OpenConnect struct {
+	Type     string `json:"type"`
+	Config   string `json:"config"`
+	Password string `json:"password,omitempty"`
+}
+
+// WireGuard is a system-wide WireGuard tunnel: a wg-quick .conf without its
+// keys, which travel beside it.
+type WireGuard struct {
+	Conf         string `json:"conf"`
+	PrivateKey   string `json:"privateKey,omitempty"`
+	PresharedKey string `json:"presharedKey,omitempty"`
+}
+
+// tunnelHandle admits the handles Hostbay chooses: they name files in the
+// helper's directory.
+var tunnelHandle = regexp.MustCompile(`^[A-Za-z0-9]{8,32}$`)
 
 // ifaceName admits interface names as each system spells them, Windows
 // friendly names with spaces included, and nothing a shell or an option
@@ -149,6 +192,16 @@ func validate(m Msg) *Error {
 		}
 		if m.MTU < MinMTU || m.MTU > MaxMTU {
 			return invalid("MTU %d is outside %d to %d.", m.MTU, MinMTU, MaxMTU)
+		}
+	case OpenVPNStart, OpenConnectStart, WireGuardStart, StopTunnel:
+		if !tunnelHandle.MatchString(m.Tunnel) {
+			return invalid("%q is not a tunnel handle.", m.Tunnel)
+		}
+		sent := map[string]bool{OpenVPNStart: m.OpenVPN != nil, OpenConnectStart: m.OpenConnect != nil, WireGuardStart: m.WireGuard != nil}
+		for t, set := range sent {
+			if set != (t == m.T) {
+				return invalid("The request carries the wrong tunnel settings.")
+			}
 		}
 	default:
 		return invalid("Unknown request %q.", m.T)

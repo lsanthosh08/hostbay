@@ -8,11 +8,23 @@ import (
 	"sync"
 )
 
+// Tunnels runs system-wide tunnels for the helper (U12). Start gets a
+// request validate passed and returns the reply's fields once the tunnel
+// is launched, not once it is up: event then reports it up or ended.
+type Tunnels interface {
+	Start(m Msg, event func(Msg)) (Msg, *Error)
+	Stop(handle string) *Error
+	StopAll()
+}
+
 // Server is the helper's side of the protocol. It serves one Hostbay at a
-// time and sweeps the journal when that Hostbay goes away.
+// time and, when that Hostbay goes away, stops its tunnels and sweeps the
+// journal.
 type Server struct {
 	Table   Table
 	Journal *Journal
+	// Tunnels is nil in a helper that runs none.
+	Tunnels Tunnels
 	// Auth admits or refuses a connection before the helper reads from it.
 	Auth func(net.Conn) error
 
@@ -53,6 +65,9 @@ func (s *Server) Stop() {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
 	s.stopped = true
+	if s.Tunnels != nil {
+		s.Tunnels.StopAll()
+	}
 	if err := Sweep(s.Table, s.Journal); err != nil {
 		log.Printf("hostbay-netd: sweep: %v", err)
 	}
@@ -95,6 +110,9 @@ func (s *Server) handle(c net.Conn) {
 		return
 	}
 	defer func() {
+		if s.Tunnels != nil {
+			s.Tunnels.StopAll() // before the sweep: their routes go with their interfaces
+		}
 		s.Sweep()
 		s.mu.Lock()
 		s.sub = nil
@@ -128,8 +146,9 @@ func (s *Server) handle(c net.Conn) {
 				Reason: fmt.Sprintf("The helper speaks protocol %d and Hostbay %d; reinstall the helper.", Version, m.V)})
 			return
 		}
-		r := Msg{T: Reply, ID: m.ID}
-		if err := s.do(m); err != nil {
+		r, err := s.do(m, func(e Msg) { e.T = TunnelEvent; send(e) })
+		r.T, r.ID = Reply, m.ID
+		if err != nil {
 			r.Code, r.Reason = err.Code, err.Reason
 		}
 		if send(r) != nil {
@@ -138,12 +157,33 @@ func (s *Server) handle(c net.Conn) {
 	}
 }
 
-// do performs one request within the helper's bounds (KTD8).
-func (s *Server) do(m Msg) *Error {
+// do performs one request within the helper's bounds (KTD8); a tunnel's
+// events go to event.
+func (s *Server) do(m Msg, event func(Msg)) (Msg, *Error) {
 	switch m.T {
-	case OpenVPNStart, OpenVPNStop, OpenConnectStart, OpenConnectStop, WireGuardStart, WireGuardStop:
-		return &Error{CodeUnsupported, "This helper cannot run system-wide VPNs yet."}
+	case OpenVPNStart, OpenConnectStart, WireGuardStart, StopTunnel:
+		if s.Tunnels == nil {
+			return Msg{}, &Error{CodeUnsupported, "This helper cannot run system-wide VPNs."}
+		}
+		if err := validate(m); err != nil {
+			return Msg{}, err
+		}
+		if m.T == StopTunnel {
+			return Msg{}, s.Tunnels.Stop(m.Tunnel)
+		}
+		s.opMu.Lock()
+		stopped := s.stopped
+		s.opMu.Unlock()
+		if stopped {
+			return Msg{}, refused("The helper is stopping.")
+		}
+		return s.Tunnels.Start(m, event)
 	}
+	return Msg{}, s.route(m)
+}
+
+// route performs a route or MTU change.
+func (s *Server) route(m Msg) *Error {
 	if err := validate(m); err != nil {
 		return err
 	}

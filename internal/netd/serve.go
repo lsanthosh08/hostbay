@@ -8,6 +8,19 @@ import (
 	"path/filepath"
 )
 
+// TunnelEnv is what the helper's tunnel runner works with.
+type TunnelEnv struct {
+	Dir   string // the helper's root-owned directory, holding the VPN clients
+	User  string // the installing user: a uid, or a SID on Windows
+	Owner int    // who must own the VPN client copies: root outside tests
+}
+
+// NewTunnels builds the runner for system-wide tunnels (U12). cmd/hostbay-netd
+// sets it: this package links none of the tunnel code, since Hostbay links
+// this package too. Unset, the helper answers tunnel requests
+// CodeUnsupported.
+var NewTunnels func(TunnelEnv) Tunnels
+
 // Serve runs the installed helper until ctx ends: it sweeps whatever a
 // previous run left journaled, then serves the paired Hostbay, and sweeps
 // again on the way out so stopping or uninstalling the helper leaves no
@@ -32,6 +45,9 @@ func Serve(ctx context.Context) error {
 			}
 			return authorize(p, cfg)
 		},
+	}
+	if NewTunnels != nil {
+		s.Tunnels = NewTunnels(TunnelEnv{Dir: dir, User: cfg.UID})
 	}
 	s.Sweep()
 

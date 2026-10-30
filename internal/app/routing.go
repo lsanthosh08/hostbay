@@ -106,6 +106,10 @@ func NewRoutingService(st *store.Store, vpns *VPNService, nd *NetdService) *Rout
 	}
 	nd.onEvent = s.kick
 	vpns.checkConnect = s.conflict
+	vpns.tunnels = func() tunnelClient {
+		c, _ := nd.client().(tunnelClient)
+		return c
+	}
 	// VPNService emits with its lock held, so this only signals.
 	emit := vpns.emit
 	vpns.emit = func(name string, data any) {
@@ -304,9 +308,9 @@ func (s *RoutingService) plan(ctx context.Context, id, mode string) (routing.Pla
 			continue
 		}
 		switch {
-		case v.Tier == store.VPNTierSystem && st.Iface != "":
+		case vpnTier(*v) == store.VPNTierSystem && st.Iface != "":
 			in.Labels = append(in.Labels, detect.Labeled{Tunnel: detect.Tunnel{Iface: st.Iface}, Profile: v.ID})
-		case v.Tier == store.VPNTierApp && v.Gateway != "" && v.Type != "tailscale" && v.Type != "headscale":
+		case vpnTier(*v) == store.VPNTierApp && v.Gateway != "" && v.Type != "tailscale" && v.Type != "headscale":
 			as, _ := s.resolve(ctx, v.Gateway)
 			for _, a := range as {
 				in.Endpoints = append(in.Endpoints, routing.Endpoint{Profile: v.ID, Name: v.Name, Addr: a.Unmap()})
@@ -317,7 +321,7 @@ func (s *RoutingService) plan(ctx context.Context, id, mode string) (routing.Pla
 }
 
 func profileFor(v store.VPN, l store.Local) routing.Profile {
-	return routing.Profile{ID: v.ID, Name: v.Name, Tier: v.Tier, Mode: v.RoutingMode, Routes: v.Routes, MTU: v.TunnelMTU(), Narrow: l.VPNNarrow[v.ID]}
+	return routing.Profile{ID: v.ID, Name: v.Name, Tier: vpnTier(v), Mode: v.RoutingMode, Routes: v.Routes, MTU: v.TunnelMTU(), Narrow: l.VPNNarrow[v.ID]}
 }
 
 // execute sends each change to the helper in order and records each

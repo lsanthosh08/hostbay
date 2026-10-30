@@ -7,8 +7,11 @@ import (
 	"net"
 	"path/filepath"
 	"slices"
+	"sync"
 	"testing"
 	"time"
+
+	"hostbay/internal/vpn/openvpn"
 )
 
 // session is one Hostbay connection to a helper serving a fake table.
@@ -214,10 +217,10 @@ func TestOldProtocolVersionRefused(t *testing.T) {
 	}
 }
 
-func TestReservedOperationsUnsupported(t *testing.T) {
+func TestTunnelsUnsupportedWithoutARunner(t *testing.T) {
 	enc, in := rawSession(t, newServer(t, newFakeTable()))
-	for i, op := range []string{OpenVPNStart, OpenVPNStop, OpenConnectStart, OpenConnectStop, WireGuardStart, WireGuardStop} {
-		enc.Encode(Msg{T: op, V: Version, ID: uint64(i + 1)})
+	for i, op := range []string{OpenVPNStart, OpenConnectStart, WireGuardStart, StopTunnel} {
+		enc.Encode(Msg{T: op, V: Version, ID: uint64(i + 1), Tunnel: "AB12CD34"})
 		if m := readMsg(t, in); m.Code != CodeUnsupported {
 			t.Errorf("%s: reply = %+v, want %s", op, m, CodeUnsupported)
 		}
@@ -280,5 +283,88 @@ func TestNoChangeAfterStop(t *testing.T) {
 	s.server.Stop()
 	if err := s.client.Add(context.Background(), Route{Dst: "10.0.0.0/8", Iface: "utun3"}); errCode(err) != CodeRefused || table.has(sr("10.0.0.0/8", "utun3")) {
 		t.Errorf("add after Stop = %v", err)
+	}
+}
+
+// fakeTunnels records what the helper asks of its tunnel runner.
+type fakeTunnels struct {
+	mu      sync.Mutex
+	started []Msg
+	stopped []string
+	all     int
+	event   func(Msg)
+}
+
+func (f *fakeTunnels) Start(m Msg, event func(Msg)) (Msg, *Error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.started, f.event = append(f.started, m), event
+	return Msg{Mgmt: "/run/" + m.Tunnel + ".sock"}, nil
+}
+
+func (f *fakeTunnels) Stop(h string) *Error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.stopped = append(f.stopped, h)
+	return nil
+}
+
+func (f *fakeTunnels) StopAll() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.all++
+}
+
+// A start reaches the runner validated and its reply carries the runner's
+// fields; the tunnel's events reach the client under its handle; stop
+// names the handle; and a disconnect stops every tunnel.
+func TestTunnelStartEventsStopAndDisconnect(t *testing.T) {
+	ctx := context.Background()
+	table := newFakeTable(defaultRoute)
+	srv := newServer(t, table)
+	tun := &fakeTunnels{}
+	srv.Tunnels = tun
+	conn, done := srv.pipe()
+	c, err := newClient(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := make(chan Msg, 4)
+	r, err := c.Tunnel(ctx, Msg{T: OpenVPNStart, Tunnel: "AB12CD34", OpenVPN: &openvpn.Profile{Remote: "vpn.example.test"}}, func(m Msg) { events <- m })
+	if err != nil || r.Mgmt != "/run/AB12CD34.sock" {
+		t.Fatalf("start: %+v %v", r, err)
+	}
+	tun.mu.Lock()
+	event := tun.event
+	tun.mu.Unlock()
+	event(Msg{Tunnel: "AB12CD34", State: TunnelUp, Iface: "utun7"})
+	event(Msg{Tunnel: "other123", State: TunnelUp})
+	if m := <-events; m.State != TunnelUp || m.Iface != "utun7" {
+		t.Fatalf("event %+v", m)
+	}
+	if err := c.StopTunnel(ctx, "AB12CD34"); err != nil {
+		t.Fatal(err)
+	}
+	for name, m := range map[string]Msg{
+		"bad handle":     {T: WireGuardStart, Tunnel: "../../x", WireGuard: &WireGuard{}},
+		"short handle":   {T: WireGuardStart, Tunnel: "ab", WireGuard: &WireGuard{}},
+		"wrong settings": {T: WireGuardStart, Tunnel: "AB12CD34", OpenVPN: &openvpn.Profile{}},
+		"two settings":   {T: WireGuardStart, Tunnel: "AB12CD34", WireGuard: &WireGuard{}, OpenConnect: &OpenConnect{}},
+	} {
+		if _, err := c.Tunnel(ctx, m, func(Msg) {}); errCode(err) != CodeInvalid {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	c.Close()
+	<-done
+	tun.mu.Lock()
+	defer tun.mu.Unlock()
+	if len(tun.started) != 1 || !slices.Equal(tun.stopped, []string{"AB12CD34"}) || tun.all != 1 {
+		t.Fatalf("started %d, stopped %v, stop-all %d", len(tun.started), tun.stopped, tun.all)
+	}
+	select {
+	case m := <-events:
+		t.Fatalf("another tunnel's event arrived: %+v", m)
+	default:
 	}
 }

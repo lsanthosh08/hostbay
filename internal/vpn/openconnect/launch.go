@@ -120,6 +120,33 @@ func (l launch) args(self string) []string {
 	return append(a, "--", l.cfg.Gateway)
 }
 
+// SystemArgs is openconnect's command line for a system-wide run under
+// hostbay-netd on Windows (U12): the tunnel on the Wintun adapter iface,
+// configured by script, a command line Windows runs without a shell. The
+// start message is checked as for an app-scoped run; browser sign-in is
+// refused, since the helper runs as SYSTEM with no browser. The password,
+// if any, goes on stdin.
+func SystemArgs(typ, conf string, secrets map[string]string, iface, script string) ([]string, error) {
+	l, err := prepare(typ, conf, secrets)
+	if err != nil {
+		return nil, err
+	}
+	if l.cfg.Browser {
+		return nil, errors.New("A system-wide VPN cannot sign in in the browser.")
+	}
+	a := []string{"--protocol=" + protocols[l.typ], "--non-inter", "--interface=" + iface, "--script=" + script}
+	if l.cfg.User != "" {
+		a = append(a, "--user="+l.cfg.User)
+	}
+	if l.password != "" {
+		a = append(a, "--passwd-on-stdin")
+	}
+	if l.cfg.ServerCert != "" {
+		a = append(a, "--servercert="+l.cfg.ServerCert)
+	}
+	return append(a, "--", l.cfg.Gateway), nil
+}
+
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

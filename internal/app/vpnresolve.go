@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/netip"
 	"slices"
 	"strconv"
@@ -53,9 +54,17 @@ func (c *HostCredentials) dialVia(d *store.Data, h *store.Host, vpnID string) (*
 
 // vpnProxy is the dial path through v, of any tier.
 func (c *HostCredentials) vpnProxy(v *store.VPN, host string) (*sshx.Proxy, error) {
-	switch v.Tier {
+	switch vpnTier(*v) {
 	case store.VPNTierSystem:
-		return nil, systemRoute(v, host)
+		// Checked at each dial, once vpnUp has had its chance to connect it.
+		id, name := v.ID, v.Name
+		return &sshx.Proxy{Type: "vpn", Host: name, VPN: id, Route: func(ctx context.Context, addr string) error {
+			iface, err := c.vpns.systemIface(id, name)
+			if err != nil {
+				return err
+			}
+			return systemRoute(ctx, id, name, iface, addr)
+		}}, nil
 	case store.VPNTierExternal:
 		// Pinned to the vendor tunnel's interface, labeled at each dial (KTD7).
 		id, name, dns := v.ID, v.Name, slices.Clone(v.DNSServers)
@@ -74,16 +83,46 @@ func (c *HostCredentials) vpnProxy(v *store.VPN, host string) (*sshx.Proxy, erro
 	}}, nil
 }
 
-// systemRoute checks that the OS sends host's traffic through system-wide
-// profile v's interface, so a dial with no proxy goes through v (KTD5).
-// shortcut: system-wide profiles arrive with U12; until then every dial
-// through one fails, sending nothing.
-func systemRoute(v *store.VPN, host string) error {
-	return vpnErr(v, "unsupported", "VPN %s is a system-wide profile, which Hostbay cannot dial %s through yet", v.Name, host)
-}
-
-func vpnErr(v *store.VPN, reason, format string, args ...any) error {
-	return apperr.New(apperr.VPNFailed, fmt.Sprintf(format, args...)).With("vpnId", v.ID).With("reason", reason)
+// systemRoute checks that the system sends addr's traffic through
+// system-wide profile id's tunnel interface, so a dial with no proxy goes
+// through it (KTD5): a UDP socket connected to addr, which sends nothing,
+// takes the source address the route table picks, and that must be one of
+// iface's. A name resolves through the system's resolver, as the dial's
+// does.
+func systemRoute(ctx context.Context, id, name, iface, addr string) error {
+	fail := func(reason, format string, args ...any) error {
+		return apperr.New(apperr.VPNFailed, fmt.Sprintf(format, args...)).With("vpnId", id).With("reason", reason)
+	}
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fail("route", "%q is not host:port", addr)
+	}
+	ips, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+	if err != nil || len(ips) == 0 {
+		return fail("resolve", "VPN %s: cannot resolve %s: %v", name, host, err)
+	}
+	ifi, err := net.InterfaceByName(iface)
+	var own []net.Addr
+	if err == nil {
+		own, err = ifi.Addrs()
+	}
+	if err != nil {
+		return fail("route", "VPN %s: its interface %s is gone", name, iface)
+	}
+	conn, err := net.Dial("udp", net.JoinHostPort(ips[0].Unmap().String(), port))
+	if err != nil {
+		return fail("route", "VPN %s: this computer has no route to %s: %v", name, host, err)
+	}
+	local := conn.LocalAddr().(*net.UDPAddr).AddrPort().Addr().Unmap()
+	conn.Close()
+	for _, a := range own {
+		if n, ok := a.(*net.IPNet); ok {
+			if ip, ok := netip.AddrFromSlice(n.IP); ok && ip.Unmap() == local {
+				return nil
+			}
+		}
+	}
+	return fail("route", "VPN %s is connected, but this computer does not send %s through it; check the profile's routes", name, host)
 }
 
 // routed is the one connected app-scoped profile that reaches host (R17):
@@ -97,7 +136,7 @@ func (c *HostCredentials) routed(d *store.Data, host string) (*sshx.Proxy, error
 	var hits []*store.VPN
 	for _, st := range c.vpns.VPNStates() {
 		v := d.VPN(st.ID)
-		if st.Status != VPNConnected || v == nil || v.Tier != store.VPNTierApp {
+		if st.Status != VPNConnected || v == nil || vpnTier(*v) != store.VPNTierApp {
 			continue
 		}
 		if isIP && slices.ContainsFunc(st.Routes, func(r string) bool {
@@ -131,7 +170,7 @@ func (c *HostCredentials) vpnUp(ctx context.Context, p *sshx.Proxy) error {
 	if p == nil || p.Type != "vpn" || p.Iface != nil { // an external profile's own app connects it
 		return nil
 	}
-	if _, _, _, err := c.vpns.socks(p.VPN); err == nil {
+	if c.vpns.connected(p.VPN) {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, vpnConnectWait)
