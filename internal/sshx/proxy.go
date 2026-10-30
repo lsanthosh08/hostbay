@@ -24,15 +24,15 @@ import (
 // every non-SSH dial go through (R49). Both send their credentials and the
 // target's name in the clear to the proxy.
 //
-// A "vpn" proxy is an app-scoped VPN profile (KTD2): VPN is its ID, Host its
+// A TypeVPN proxy is an app-scoped VPN profile (KTD2): VPN is its ID, Host its
 // name for messages, and Socks looks up its helper's loopback SOCKS5 address
 // and login at each dial, so a connection that outlives a reconnect never
-// dials a stale port. An external profile's "vpn" proxy has Iface instead
+// dials a stale port. An external profile's VPN proxy has Iface instead
 // (KTD7): it looks up the vendor tunnel's interface at each dial, and the
 // DNS servers names resolve through, and the socket is pinned to that
 // interface, so nothing leaves by another route.
 type Proxy struct {
-	Type     string // "socks5", "http" or "vpn"
+	Type     string // "socks5", "http" or TypeVPN
 	Host     string
 	Port     int
 	User     string
@@ -48,6 +48,16 @@ type Proxy struct {
 	Route func(ctx context.Context, addr string) (to netip.AddrPort, local netip.Addr, err error)
 }
 
+// TypeVPN is the Type of a proxy that is a VPN profile.
+const TypeVPN = "vpn"
+
+// IsVPN reports whether p is a VPN profile's proxy.
+func (p *Proxy) IsVPN() bool { return p != nil && p.Type == TypeVPN }
+
+// External reports whether p is an external profile's VPN proxy, which dials
+// pinned to the vendor tunnel's interface and which Hostbay does not connect.
+func (p *Proxy) External() bool { return p.IsVPN() && p.Iface != nil }
+
 // maxProxyReply caps an HTTP proxy's reply headers.
 const maxProxyReply = 16 << 10
 
@@ -60,7 +70,7 @@ func DialTCP(ctx context.Context, p *Proxy, addr string) (net.Conn, error) {
 	if p == nil {
 		return (&net.Dialer{}).DialContext(ctx, "tcp", addr)
 	}
-	if p.Type == "vpn" {
+	if p.IsVPN() {
 		return p.dialVPN(ctx, "tcp", addr, func(paddr, user, pass string) (net.Conn, error) {
 			return dialSOCKS5(ctx, paddr, user, pass, addr)
 		})
@@ -103,7 +113,7 @@ func dialSOCKS5(ctx context.Context, paddr, user, pass, addr string) (net.Conn, 
 // its helper's SOCKS5 server with socks.
 func (p *Proxy) dialVPN(ctx context.Context, network, addr string, socks func(paddr, user, pass string) (net.Conn, error)) (net.Conn, error) {
 	switch {
-	case p.Iface != nil:
+	case p.External():
 		return p.dialBound(ctx, network, addr)
 	case p.Route != nil:
 		return p.dialRouted(ctx, network, addr)
@@ -263,9 +273,9 @@ type bufConn struct {
 func (c *bufConn) Read(b []byte) (int, error) { return c.r.Read(b) }
 
 // DialUDP opens a datagram connection to addr through a VPN's helper, over
-// SOCKS5 UDP ASSOCIATE, for mosh (KTD2). Only a "vpn" proxy carries UDP.
+// SOCKS5 UDP ASSOCIATE, for mosh (KTD2). Only a VPN proxy carries UDP.
 func (p *Proxy) DialUDP(ctx context.Context, addr *net.UDPAddr) (net.Conn, error) {
-	if p.Type != "vpn" {
+	if !p.IsVPN() {
 		return nil, errors.New("only a VPN profile carries UDP")
 	}
 	return p.dialVPN(ctx, "udp", addr.String(), func(paddr, user, pass string) (net.Conn, error) {

@@ -143,7 +143,7 @@ func TestVPNProxyDialsTheLiveSOCKSEndpoint(t *testing.T) {
 	var mu sync.Mutex
 	live, user, pass := a, "u1", "p1"
 	hop := s.hop()
-	hop.Proxy = &Proxy{Type: "vpn", Host: "office", VPN: "v1", Socks: func() (string, string, string, error) {
+	hop.Proxy = &Proxy{Type: TypeVPN, Host: "office", VPN: "v1", Socks: func() (string, string, string, error) {
 		mu.Lock()
 		defer mu.Unlock()
 		return net.JoinHostPort(live.Host, strconv.Itoa(live.Port)), user, pass, nil
@@ -200,7 +200,7 @@ func TestFailedVPNNeverFallsBackToDirect(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s := newTestServer(t, serverOpts{})
 			hop := s.hop()
-			hop.Proxy = &Proxy{Type: "vpn", Host: "office", VPN: "v1", Socks: tc.socks}
+			hop.Proxy = &Proxy{Type: TypeVPN, Host: "office", VPN: "v1", Socks: tc.socks}
 			d := &Dialer{KnownHostsPath: writeKnownHosts(t, s.knownLine(t))}
 			_, err := d.Dial(context.Background(), Target{Key: "k", Hops: []Hop{hop}})
 			var ae *apperr.Error
@@ -233,7 +233,7 @@ func TestRoutedVPNDialsOnlyTheCheckedAddress(t *testing.T) {
 	defer pc.Close()
 	local := netip.MustParseAddr("127.0.0.1")
 	var asked []string
-	p := &Proxy{Type: "vpn", Host: "office", VPN: "v1", Route: func(_ context.Context, addr string) (netip.AddrPort, netip.Addr, error) {
+	p := &Proxy{Type: TypeVPN, Host: "office", VPN: "v1", Route: func(_ context.Context, addr string) (netip.AddrPort, netip.Addr, error) {
 		asked = append(asked, addr)
 		return checked.Addr().(*net.TCPAddr).AddrPort(), local, nil
 	}}

@@ -30,7 +30,7 @@ func loopback(t *testing.T) string {
 
 // external is an external profile's dial path pinned to iface (KTD7).
 func external(iface string, dns ...string) *Proxy {
-	return &Proxy{Type: "vpn", Host: "Office SASE", VPN: "v1", Iface: func(context.Context) (string, []string, error) { return iface, dns, nil }}
+	return &Proxy{Type: TypeVPN, Host: "Office SASE", VPN: "v1", Iface: func(context.Context) (string, []string, error) { return iface, dns, nil }}
 }
 
 func echoListener(t *testing.T) net.Listener {
