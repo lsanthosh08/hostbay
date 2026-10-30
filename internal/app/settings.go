@@ -264,8 +264,13 @@ func (s *SettingsService) ImportLegacy(theme string, fontSize int) error {
 	return s.st.MarkSettingsImported()
 }
 
-// GetLocal returns this computer's own settings.
-func (s *SettingsService) GetLocal() (store.Local, error) { return s.st.Local() }
+// GetLocal returns this computer's own settings, except sealed Tailscale
+// node keys, which stay in Go.
+func (s *SettingsService) GetLocal() (store.Local, error) {
+	l, err := s.st.Local()
+	l.VPNNodeStates = nil
+	return l, err
+}
 
 // SetLocal changes AI suggestions, per-host logging and keeping running in
 // the menu bar. Any other key is

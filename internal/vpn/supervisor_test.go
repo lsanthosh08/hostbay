@@ -148,3 +148,27 @@ func TestHelperPathIsBesideTheExecutable(t *testing.T) {
 		t.Fatalf("HelperPath %q", p)
 	}
 }
+
+// A Tailscale node's state reaches Hostbay, including what it writes while
+// closing, and is not taken for a tunnel state.
+func TestNodeStatePassesThroughEvenWhileClosing(t *testing.T) {
+	_, h, msgs, err := start(t, vpntest.Node)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recv(t, msgs) // connecting
+	recv(t, msgs) // connected
+	if m := recv(t, msgs); m.T != proto.NodeState || m.NodeState != vpntest.NodeUp {
+		t.Fatalf("report %+v, want the node state", m)
+	}
+	h.Close()
+	if m := recv(t, msgs); m.T != proto.NodeState || m.NodeState != vpntest.NodeClosing {
+		t.Fatalf("report %+v, want the closing node state", m)
+	}
+	<-h.Done()
+	select {
+	case m := <-msgs:
+		t.Fatalf("report after close %+v", m)
+	default:
+	}
+}

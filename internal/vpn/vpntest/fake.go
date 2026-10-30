@@ -30,6 +30,16 @@ const (
 	Silent     = "silent"     // never says hello
 	BadVersion = "badversion" // says hello with another protocol version
 	Down       = "down"       // never connects: the gateway does not answer
+	// Cert connects only when the start's config pins Pin: no pin fails as
+	// cert-unknown, another pin as cert-changed.
+	Cert = "cert"
+	// CrashThenCert: the first start connects, then exits; later starts fail
+	// as cert-changed.
+	CrashThenCert = "crashthencert"
+	Browser       = "browser"    // waits on a browser sign-in at the URL SetURL set
+	Node          = "node"       // reports NodeUp once connected and NodeClosing as it exits
+	SlowExit      = "slowexit"   // takes a while to exit; a start while another runs writes an overlap mark
+	SystemWide    = "systemwide" // fails as needs-system-wide
 )
 
 // What the fake reports once connected.
@@ -38,12 +48,20 @@ const (
 	Port    = 41080
 	Address = "10.9.0.2/32"
 	Route   = "10.9.0.0/24"
+	// Pin is the fake gateway's certificate.
+	Pin = "pin-sha256:RmFrZS1nYXRld2F5LWNlcnRpZmljYXRlLXBpbi0wMDA="
+	// The node states Node reports, base64 like a real store's.
+	NodeUp      = "bm9kZS1rZXlzLXVw"
+	NodeClosing = "bm9kZS1rZXlzLWNsb3Npbmc="
 )
 
 const (
 	name     = "hostbay-vpn" // internal/vpn.HelperName, which this package cannot import
 	modeFile = "mode"
 	portFile = "socksport"
+	urlFile  = "url"
+	runFile  = "running"
+	overlap  = "overlap"
 	startDir = "starts"
 )
 
@@ -99,6 +117,21 @@ func (f *Fake) SetSocksPort(t testing.TB, port int) {
 	}
 }
 
+// SetURL is the sign-in URL Browser sends.
+func (f *Fake) SetURL(t testing.TB, url string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(f.Dir, urlFile), []byte(url), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Overlapped reports whether a SlowExit helper started while another was
+// still running.
+func (f *Fake) Overlapped() bool {
+	_, err := os.Stat(filepath.Join(f.Dir, overlap))
+	return err == nil
+}
+
 // Starts returns every start message the fake was sent, in order.
 func (f *Fake) Starts(t testing.TB) []proto.Msg {
 	t.Helper()
@@ -152,7 +185,59 @@ func run() int {
 	}
 	connected := proto.Msg{T: proto.State, State: proto.Connected, Address: []string{Address}, Routes: []string{Route}, SocksPort: port}
 	send(proto.Msg{T: proto.State, State: proto.Connecting})
+	certFail := func(pinned string) int {
+		code := proto.CodeCertUnknown
+		if pinned != "" {
+			code = proto.CodeCertChanged
+		}
+		send(proto.Msg{T: proto.State, State: proto.Failed, Code: code, ServerCert: Pin, Reason: "The gateway's certificate is not trusted."})
+		return 1
+	}
 	switch mode {
+	case Cert:
+		var c struct {
+			ServerCert string `json:"serverCert"`
+		}
+		json.Unmarshal([]byte(start.Config), &c)
+		if c.ServerCert != Pin {
+			return certFail(c.ServerCert)
+		}
+	case CrashThenCert:
+		if n > 1 {
+			return certFail(Pin + "x")
+		}
+		send(connected)
+		time.Sleep(50 * time.Millisecond)
+		return 1
+	case Browser:
+		url, _ := os.ReadFile(filepath.Join(dir, urlFile))
+		send(proto.Msg{T: proto.Need, Need: proto.NeedBrowser, URL: string(url)})
+		for in.Scan() {
+		}
+		return 0
+	case Node:
+		send(connected)
+		send(proto.Msg{T: proto.NodeState, NodeState: NodeUp})
+		for in.Scan() {
+		}
+		send(proto.Msg{T: proto.NodeState, NodeState: NodeClosing}) // a node writes as it closes
+		return 0
+	case SlowExit:
+		lock, err := os.OpenFile(filepath.Join(dir, runFile), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err != nil {
+			os.WriteFile(filepath.Join(dir, overlap), nil, 0o600)
+		} else {
+			lock.Close()
+		}
+		send(connected)
+		for in.Scan() {
+		}
+		time.Sleep(300 * time.Millisecond)
+		os.Remove(filepath.Join(dir, runFile))
+		return 0
+	case SystemWide:
+		send(proto.Msg{T: proto.State, State: proto.Failed, Code: proto.CodeNeedsSystemWide, Reason: "Not here."})
+		return 1
 	case Down:
 		send(proto.Msg{T: proto.State, State: proto.Failed, Reason: "The gateway did not answer."})
 		return 1

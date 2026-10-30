@@ -66,8 +66,9 @@ type Helper struct {
 
 // Start launches the helper at path (absolute), checks its version and
 // sends start, which carries the profile's secrets and SOCKS login: stdin
-// is the only place they go. It returns once start is sent. Every state and
-// need message after that goes to report, in order, from one goroutine. A
+// is the only place they go. It returns once start is sent. Every state,
+// need and nodeState message after that goes to report, in order, from one
+// goroutine, nodeState even after Close: a node writes while it closes. A
 // helper that exits without saying why, other than through Close, is
 // reported as dropped when it was connected and failed otherwise. ctx
 // bounds only the handshake; the helper runs until Close or its own end.
@@ -148,7 +149,7 @@ func (h *Helper) readLoop(r *bufio.Reader, report func(proto.Msg)) {
 			}
 			break
 		}
-		if m.T != proto.State && m.T != proto.Need {
+		if m.T != proto.State && m.T != proto.Need && m.T != proto.NodeState {
 			continue
 		}
 		if m.T == proto.State {

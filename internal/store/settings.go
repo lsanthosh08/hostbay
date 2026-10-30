@@ -126,6 +126,16 @@ type Local struct {
 	// computer, keyed by profile ID, for when detection cannot tell two
 	// VPNs apart (R24). Interface names mean nothing on another computer.
 	VPNIfaces map[string]string `json:"vpnIfaces,omitempty"`
+	// VPNNodeStates are Tailscale profiles' node keys, keyed by profile ID
+	// and sealed to VPN.NodeStateAAD. A node is this computer's own: another
+	// computer using it would take over its place in the tailnet (KTD3).
+	VPNNodeStates map[string]string `json:"vpnNodeStates,omitempty"`
+	// RoutingLocal is the destinations per-destination routing sends to the
+	// local network instead of a VPN (R25); VPNNarrow is, by profile ID, the
+	// subnets to keep of each greedy route its VPN pushes (R27). Both follow
+	// this computer's network and VPN agents, so they stay here.
+	RoutingLocal []string                       `json:"routingLocal,omitempty"`
+	VPNNarrow    map[string]map[string][]string `json:"vpnNarrow,omitempty"`
 	// KeepRunning hides the window when it closes instead of quitting, so
 	// Hostbay and its VPNs stay up in the menu bar (KTD10).
 	KeepRunning bool `json:"keepRunning,omitempty"`
