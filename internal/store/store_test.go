@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -69,7 +70,7 @@ func TestSavedHostsReadBackAfterReopen(t *testing.T) {
 		t.Fatalf("Touch set %+v, want revision 1 by %s", h.Meta, deviceID)
 	}
 	raw := readT(t, filepath.Join(dir, "hosts.json"))
-	for _, want := range []string{`"schemaVersion": 3`, `"folderId": "f1"`, `"deviceId": "` + deviceID + `"`, `"modifiedAt"`, `"revision": 1`} {
+	for _, want := range []string{`"schemaVersion": 4`, `"folderId": "f1"`, `"deviceId": "` + deviceID + `"`, `"modifiedAt"`, `"revision": 1`} {
 		if !bytes.Contains(raw, []byte(want)) {
 			t.Errorf("hosts.json lacks %s:\n%s", want, raw)
 		}
@@ -114,7 +115,7 @@ func TestNewerSchemaIsRefusedAndNotOverwritten(t *testing.T) {
 	s := openT(t, dir)
 	defer s.Close()
 	path := filepath.Join(dir, "hosts.json")
-	newer := []byte(`{"schemaVersion": 4, "data": {"hosts": []}}`)
+	newer := []byte(fmt.Sprintf(`{"schemaVersion": %d, "data": {"hosts": []}}`, SchemaVersion+1))
 	if err := os.WriteFile(path, newer, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -131,25 +132,29 @@ func TestNewerSchemaIsRefusedAndNotOverwritten(t *testing.T) {
 }
 
 // Release 2 keeps proxies and new host settings, which a Release 1 build
-// would drop when it rewrites the files. Opening a layout 1 store backs it
-// up and stamps it the current layout, which Release 1 refuses.
-func TestOpenUpgradesLayout1AndKeepsABackup(t *testing.T) {
-	dir := t.TempDir()
-	old := []byte(`{"schemaVersion": 1, "data": [{"alias": "web"}]}`)
-	if err := os.WriteFile(filepath.Join(dir, "hosts.json"), old, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	s := openT(t, dir)
-	defer s.Close()
-	if raw := readT(t, filepath.Join(dir, "hosts.json")); !bytes.Contains(raw, []byte(`"schemaVersion": 3`)) {
-		t.Fatalf("hosts.json not upgraded:\n%s", raw)
-	}
-	if got, err := Load[[]testHost](s, "hosts.json"); err != nil || len(got) != 1 || got[0].Alias != "web" {
-		t.Fatalf("got %+v, %v; want the host kept", got, err)
-	}
-	backups, _ := filepath.Glob(filepath.Join(dir, "backups", "v1-*", "hosts.json"))
-	if len(backups) != 1 || !bytes.Equal(readT(t, backups[0]), old) {
-		t.Fatalf("backup copies = %v, want one copy of the layout 1 hosts.json", backups)
+// would drop when it rewrites the files, and layout 4 keeps VPN profiles
+// and host VPN bindings, which a layout 3 build would drop. Opening an older
+// store backs it up and stamps it the current layout, which the older build
+// refuses.
+func TestOpenUpgradesOlderLayoutsAndKeepsABackup(t *testing.T) {
+	for _, from := range []int{1, 3} {
+		dir := t.TempDir()
+		old := []byte(fmt.Sprintf(`{"schemaVersion": %d, "data": [{"alias": "web"}]}`, from))
+		if err := os.WriteFile(filepath.Join(dir, "hosts.json"), old, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		s := openT(t, dir)
+		if raw := readT(t, filepath.Join(dir, "hosts.json")); !bytes.Contains(raw, []byte(`"schemaVersion": 4`)) {
+			t.Fatalf("layout %d: hosts.json not upgraded:\n%s", from, raw)
+		}
+		if got, err := Load[[]testHost](s, "hosts.json"); err != nil || len(got) != 1 || got[0].Alias != "web" {
+			t.Fatalf("layout %d: got %+v, %v; want the host kept", from, got, err)
+		}
+		backups, _ := filepath.Glob(filepath.Join(dir, "backups", fmt.Sprintf("v%d-*", from), "hosts.json"))
+		if len(backups) != 1 || !bytes.Equal(readT(t, backups[0]), old) {
+			t.Fatalf("backup copies = %v, want one copy of the layout %d hosts.json", backups, from)
+		}
+		s.Close()
 	}
 }
 

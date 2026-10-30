@@ -40,16 +40,17 @@ type State struct {
 // Hold is a synced security setting not yet confirmed on this computer: a
 // tunnel set to listen beyond loopback, which locally stays on loopback; a
 // host (Kind "host") set to connect unencrypted, forward the agent or X11,
-// offer insecure algorithms or use another proxy, which locally keeps what this
-// computer confirmed; a proxy (Kind "proxy") pointed elsewhere, which
-// locally keeps its old address; or an AI execution mode (Kind "aimode",
+// offer insecure algorithms or use another proxy or VPN, which locally keeps what this
+// computer confirmed; a proxy (Kind "proxy") pointed elsewhere, or a VPN
+// profile (Kind "vpn") pointed at another gateway or switched to another
+// type or tier, which locally keeps its old one; or an AI execution mode (Kind "aimode",
 // ID the ai group) weaker than this computer's, which locally keeps its
 // mode; or a post-login rule (Kind "postlogin") created or changed on
 // another computer, which locally does not run. The other fields are the synced values waiting. A kind this build
 // does not know stays held and listed, and is never resolved here.
 type Hold struct {
 	ID   string     `json:"id"`
-	Kind string     `json:"kind,omitempty"` // "" for a tunnel, "host", "proxy", "aimode" or "postlogin"
+	Kind string     `json:"kind,omitempty"` // "" for a tunnel, "host", "proxy", "vpn", "aimode" or "postlogin"
 	Name string     `json:"name"`
 	Meta store.Meta `json:"meta"`
 
@@ -58,7 +59,8 @@ type Hold struct {
 	X11          bool              `json:"x11,omitempty"`
 	Algorithms   *store.Algorithms `json:"algorithms,omitempty"`
 	ProxyID      *string           `json:"proxyId,omitempty"`  // "" removes the host's proxy
-	Endpoint     *Endpoint         `json:"endpoint,omitempty"` // Kind "proxy"
+	VPNID        *string           `json:"vpnId,omitempty"`    // "" removes the host's VPN
+	Endpoint     *Endpoint         `json:"endpoint,omitempty"` // Kind "proxy" or "vpn"
 	Cluster      *ClusterTrust     `json:"cluster,omitempty"`  // a Kubernetes host's synced server and trust anchor
 	Mode         string            `json:"mode,omitempty"`     // Kind "aimode": the synced execution mode
 }
@@ -73,11 +75,13 @@ type ClusterTrust struct {
 	TLSServerName string `json:"tlsServerName,omitempty"`
 }
 
-// Endpoint is where a proxy points.
+// Endpoint is where a proxy or VPN profile points. Host is a profile's
+// gateway.
 type Endpoint struct {
 	Type string `json:"type"`
 	Host string `json:"host"`
 	Port int    `json:"port"`
+	Tier string `json:"tier,omitempty"` // a VPN profile's
 }
 
 // Report is one sync's outcome.

@@ -49,6 +49,7 @@ type Host struct {
 	// Connection extras (R48–R52). AuthType may also be "agent" or
 	// "kerberos" for SSH.
 	ProxyID      *string     `json:"proxyId,omitempty"`      // the Proxy every dial goes through; a missing one is an error
+	VPNID        *string     `json:"vpnId,omitempty"`        // the VPN profile every dial goes through; a missing one is an error
 	ForwardAgent *bool       `json:"forwardAgent,omitempty"` // ssh: the host may use this computer's agent while connected
 	Algorithms   *Algorithms `json:"algorithms,omitempty"`   // ssh: legacy algorithms offered after the defaults
 	Keepalive    *int        `json:"keepalive,omitempty"`    // ssh: seconds between keepalives; 0 or nil means 30
@@ -103,6 +104,9 @@ func (h *Host) Jumped() bool { return h.JumpHostID != nil && *h.JumpHostID != ""
 // Proxied reports a host that names a proxy.
 func (h *Host) Proxied() bool { return h.ProxyID != nil && *h.ProxyID != "" }
 
+// UsesVPN reports a host that names a VPN profile.
+func (h *Host) UsesVPN() bool { return h.VPNID != nil && *h.VPNID != "" }
+
 // MissingProxy stands in for a proxy or jump host an import names but does
 // not carry. It names no saved proxy, so the host fails to connect until one
 // is chosen, never connecting around it (KTD22, KTD24).
@@ -110,6 +114,10 @@ func MissingProxy() *string {
 	id := "import-missing-" + NewID()
 	return &id
 }
+
+// MissingVPN stands in for a VPN profile an import or backup names but
+// does not carry, like MissingProxy.
+func MissingVPN() *string { return MissingProxy() }
 
 // FileKinds are the kinds that only browse and transfer files.
 var FileKinds = []string{"ftp", "smb", "webdav", "s3"}
@@ -262,6 +270,8 @@ type Data struct {
 	Bookmarks Collection[Bookmark]
 	Tunnels   Collection[Tunnel]
 	Proxies   Collection[Proxy]
+	// VPNs carry one sealed secret each (KTD4).
+	VPNs      Collection[VPN]
 	Settings  Collection[SettingsGroup]
 	PostLogin Collection[PostLoginRule]
 	// Saved split-pane layouts (R65).
@@ -289,6 +299,7 @@ func (d *Data) docs() []struct {
 		{"bookmarks.json", &d.Bookmarks},
 		{"tunnels.json", &d.Tunnels},
 		{"proxies.json", &d.Proxies},
+		{"vpns.json", &d.VPNs},
 		{"settings.json", &d.Settings},
 		{"postlogin.json", &d.PostLogin},
 		{"workspaces.json", &d.Workspaces},

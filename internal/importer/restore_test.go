@@ -9,6 +9,7 @@ import (
 
 	"github.com/zalando/go-keyring"
 
+	"hostbay/internal/backup"
 	"hostbay/internal/importer"
 	"hostbay/internal/importer/importertest"
 	"hostbay/internal/secrets"
@@ -142,5 +143,18 @@ func TestURLDatabaseNotesSayToChangeTheURL(t *testing.T) {
 				t.Fatalf("%s %v notes:\n%s", k, opts, notes)
 			}
 		}
+	}
+}
+
+// The fallback restored when secrets cannot be sealed carries no VPN
+// secret, and copying it leaves the parsed bundle as it was.
+func TestWithoutSecretsBlanksVPNSecrets(t *testing.T) {
+	b := backup.Bundle{VPNs: []store.VPN{{Name: "office", Secret: `{"privateKey":"test-key"}`}}}
+	out := importer.WithoutSecrets(b)
+	if len(out.VPNs) != 1 || out.VPNs[0].Secret != "" || out.VPNs[0].Name != "office" {
+		t.Fatalf("fallback VPNs = %+v", out.VPNs)
+	}
+	if b.VPNs[0].Secret == "" {
+		t.Fatal("WithoutSecrets changed the parsed bundle")
 	}
 }

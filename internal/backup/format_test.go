@@ -3,6 +3,7 @@ package backup
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -554,5 +555,119 @@ func TestRestoredHostWithAMissingJumpHostNeverConnectsDirectly(t *testing.T) {
 		if len(notes) != 1 || !strings.HasPrefix(notes[0], h.Alias+": ") || !strings.Contains(notes[0], "jump host") {
 			t.Fatalf("%s restored with notes %q, want one naming it", h.Alias, notes)
 		}
+	}
+}
+
+// A VPN profile and the host that uses it survive an encrypted backup as
+// bundle 5, so a build that would drop the profile and connect around it
+// refuses the file; the profile's secrets are re-sealed on the new store,
+// and a host is pointed at a matching profile already saved there. A plain
+// backup keeps the profile without its secrets, so it asks for them (KTD4).
+func TestVPNsRoundTripThroughBackup(t *testing.T) {
+	const vpnKey = "Test-WG-Key-7!"
+	secret, _ := json.Marshal(store.VPNSecrets{PrivateKey: vpnKey})
+	newVPN := func() store.VPN {
+		return store.VPN{Meta: store.Meta{ID: store.NewID()}, Name: "office", Type: "wireguard", Tier: store.VPNTierApp, Gateway: "vpn.example", Port: 51820, User: "vu", Tags: []string{"project-a"}, Routes: []string{"10.10.0.0/16"}}
+	}
+	st, v := newEnv(t)
+	var hostID, vpnID string
+	err := st.Edit(func(d *store.Data) error {
+		p := newVPN()
+		sealed, err := v.Seal(secret, p.SecretAAD())
+		p.Secret = sealed
+		vpnID = d.AddVPN(p).ID
+		hostID = d.AddHost(store.Host{Alias: "web", Hostname: "10.10.1.1", Port: 22, User: "root", VPNID: &vpnID}).ID
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, one := range []string{"", hostID} {
+		out, err := Export(data(t, st), v, one, "pass phrase")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(out, []byte(vpnKey)) {
+			t.Fatal("encrypted export holds the VPN secret in the clear")
+		}
+		b, err := Read(out, "pass phrase")
+		if err != nil || b.SchemaVersion != 5 {
+			t.Fatalf("schema %d, %v; a build that drops VPN profiles must refuse this backup", b.SchemaVersion, err)
+		}
+		st2, v2 := newEnv(t)
+		if err := st2.Edit(func(d *store.Data) error { _, _, err := Restore(d, v2, b); return err }); err != nil {
+			t.Fatal(err)
+		}
+		d := data(t, st2)
+		if len(d.VPNs.Items) != 1 || len(d.Hosts.Items) != 1 {
+			t.Fatalf("one=%q: restored %d profiles, %d hosts", one, len(d.VPNs.Items), len(d.Hosts.Items))
+		}
+		p, h := d.VPNs.Items[0], d.Hosts.Items[0]
+		if h.VPNID == nil || *h.VPNID != p.ID || len(p.Tags) != 1 || len(p.Routes) != 1 {
+			t.Fatalf("restored host names VPN %v, want %s; profile %+v", h.VPNID, p.ID, p)
+		}
+		if raw, err := v2.Open(p.Secret, p.SecretAAD()); err != nil || string(raw) != string(secret) {
+			t.Fatalf("restored VPN secret = %q, %v", raw, err)
+		}
+	}
+
+	// A matching profile saved here under another ID is reused, not added.
+	out, err := Export(data(t, st), v, hostID, "pass phrase")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := Read(out, "pass phrase")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st3, v3 := newEnv(t)
+	var localID string
+	if err := st3.Edit(func(d *store.Data) error { localID = d.AddVPN(newVPN()).ID; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if err := st3.Edit(func(d *store.Data) error { _, _, err := Restore(d, v3, b); return err }); err != nil {
+		t.Fatal(err)
+	}
+	d := data(t, st3)
+	if h := d.Hosts.Items[0]; len(d.VPNs.Items) != 1 || localID == vpnID || h.VPNID == nil || *h.VPNID != localID {
+		t.Fatalf("host names VPN %v, want the local %s; %d profiles", h.VPNID, localID, len(d.VPNs.Items))
+	}
+
+	out, err = Export(data(t, st), v, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(out, []byte("enc:v1:")) || bytes.Contains(out, []byte(vpnKey)) || !bytes.Contains(out, []byte("vpn.example")) {
+		t.Fatalf("plain export:\n%s", out)
+	}
+	b, err = Read(out, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st4, v4 := newEnv(t)
+	if err := st4.Edit(func(d *store.Data) error { _, _, err := Restore(d, v4, b); return err }); err != nil {
+		t.Fatal(err)
+	}
+	if p := data(t, st4).VPNs.Items; len(p) != 1 || p[0].Secret != "" {
+		t.Fatalf("plain restore = %+v, want the profile without its secret", p)
+	}
+}
+
+// A host whose VPN profile is not in the backup keeps naming it, so it
+// fails to connect rather than connect around the VPN, and the user is told.
+func TestRestoredHostWithAMissingVPNNeverConnectsDirectly(t *testing.T) {
+	gone := "gone-vpn"
+	b := Bundle{SchemaVersion: 5, Hosts: []store.Host{{Alias: "inner", Hostname: "10.10.0.8", Port: 22, User: "root", VPNID: &gone}}}
+	st, v := newEnv(t)
+	var notes []string
+	var err error
+	if err := st.Edit(func(d *store.Data) error { _, notes, err = Restore(d, v, b); return err }); err != nil {
+		t.Fatal(err)
+	}
+	if h := data(t, st).Hosts.Items[0]; h.VPNID == nil || *h.VPNID != gone {
+		t.Fatalf("restored host = %+v, want it still naming the missing profile", h)
+	}
+	if len(notes) != 1 || !strings.HasPrefix(notes[0], "inner: ") || !strings.Contains(notes[0], "VPN") {
+		t.Fatalf("notes = %q, want one naming the host", notes)
 	}
 }

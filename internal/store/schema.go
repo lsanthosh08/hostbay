@@ -16,8 +16,9 @@ import (
 // Layout 2 (Release 2) adds proxies.json and per-host proxy, algorithm,
 // X11, TLS and URL settings, which a layout 1 build would drop on rewrite.
 // Layout 3 (Release 4) adds settings.json, postlogin.json, local.json,
-// history.json and workspaces.json.
-const SchemaVersion = 3
+// history.json and workspaces.json. Layout 4 adds vpns.json and per-host
+// VPN profiles.
+const SchemaVersion = 4
 
 // ErrNewerSchema means a file was written by a newer Hostbay. Such a file is
 // never overwritten.

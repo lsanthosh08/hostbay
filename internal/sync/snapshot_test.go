@@ -148,8 +148,9 @@ func TestPassphraseStrength(t *testing.T) {
 // A Release 1 build (reader version 1) would drop file hosts' fields on its
 // next edit, and a reader of version 2 the proxies and connection extras, so
 // every snapshot written now shuts both out (KTD22). A reader of version 3
-// would drop database hosts' fields the same way, and a reader of version 4
-// Release 4's settings, so each stops and asks for an update.
+// would drop database hosts' fields the same way, a reader of version 4
+// Release 4's settings, and a reader of version 5 VPN profiles and host VPN
+// bindings, so each stops with ErrUpdateNeeded and asks for an update.
 func TestSnapshotsShutOutReadersThatWouldDropFileHostFields(t *testing.T) {
 	_, key := derived(t)
 	blob, err := Seal(testManifest(t), []byte("{}"), key)
@@ -157,8 +158,8 @@ func TestSnapshotsShutOutReadersThatWouldDropFileHostFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	m, err := ReadManifest(blob)
-	if err != nil || m.MinReaderVersion != 5 {
-		t.Fatalf("minReaderVersion = %d, %v; a reader of version 4 would accept it", m.MinReaderVersion, err)
+	if err != nil || m.MinReaderVersion != 6 {
+		t.Fatalf("minReaderVersion = %d, %v; a reader of version 5 would accept it", m.MinReaderVersion, err)
 	}
 	if _, _, err := Open(blob, key); err != nil {
 		t.Fatalf("this build cannot read its own snapshot: %v", err)

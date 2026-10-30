@@ -183,8 +183,8 @@ func refreshClusters(d *store.Data, v *secrets.Vault, b backup.Bundle, rep *Repo
 	return b, nil
 }
 
-// WithoutSecrets copies b with no passwords and no key-store keys; a host
-// that used one of b's keys is left with no key file.
+// WithoutSecrets copies b with no passwords, VPN secrets or key-store keys;
+// a host that used one of b's keys is left with no key file.
 func WithoutSecrets(b backup.Bundle) backup.Bundle {
 	keys := b.Keys
 	b.Keys = map[string]string{}
@@ -198,6 +198,10 @@ func WithoutSecrets(b backup.Bundle) backup.Bundle {
 	b.Proxies = append([]store.Proxy(nil), b.Proxies...)
 	for i := range b.Proxies {
 		b.Proxies[i].Password = ""
+	}
+	b.VPNs = append([]store.VPN(nil), b.VPNs...)
+	for i := range b.VPNs {
+		b.VPNs[i].Secret = ""
 	}
 	return b
 }
