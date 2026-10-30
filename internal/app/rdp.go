@@ -111,10 +111,7 @@ func (s *RdpService) dialAddr(ctx context.Context, h store.Host, port int) (stri
 	if err != nil {
 		return "", 0, nil, err
 	}
-	p, err := s.creds.dialVia(d, &h, "")
-	if err == nil {
-		err = s.creds.vpnUp(ctx, p)
-	}
+	p, err := s.creds.dialUp(ctx, d, &h)
 	if err != nil {
 		return "", 0, nil, err
 	}

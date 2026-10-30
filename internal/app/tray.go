@@ -127,9 +127,14 @@ func (t *Tray) Attach(st *application.SystemTray) {
 // refreshes racing may leave the older one drawn until the next; opening
 // the menu always redraws it.
 func (t *Tray) Refresh() {
-	profiles, err := t.vpns.ListVPNs()
+	var profiles []VPN
+	d, err := t.vpns.st.Data()
 	if err != nil {
 		log.Printf("tray: %v", err)
+	} else {
+		for _, v := range d.VPNs.Items {
+			profiles = append(profiles, VPN{ID: v.ID, Name: v.Name, AutoReconnect: v.AutoReconnect})
+		}
 	}
 	t.render(trayMenu(profiles, t.vpns.VPNStates()))
 }

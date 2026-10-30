@@ -103,17 +103,7 @@ func unsafe(r rune) bool { return r <= ' ' || r == 0x7f }
 // as the browser. No secret is ever an argument: the password goes on
 // stdin.
 func (l launch) args(self string) []string {
-	a := []string{"--protocol=" + protocols[l.typ], "--non-inter", "--script-tun", "--script=" + shellQuote(self) + " tun-fd"}
-	if l.cfg.User != "" {
-		a = append(a, "--user="+l.cfg.User)
-	}
-	if l.password != "" {
-		a = append(a, "--passwd-on-stdin")
-	}
-	if l.cfg.ServerCert != "" {
-		// This also turns off system trust: only this certificate is accepted.
-		a = append(a, "--servercert="+l.cfg.ServerCert)
-	}
+	a := l.signIn([]string{"--protocol=" + protocols[l.typ], "--non-inter", "--script-tun", "--script=" + shellQuote(self) + " tun-fd"})
 	if l.cfg.Browser {
 		a = append(a, "--external-browser="+self)
 	}
@@ -134,7 +124,13 @@ func SystemArgs(typ, conf string, secrets map[string]string, iface, script strin
 	if l.cfg.Browser {
 		return nil, errors.New("A system-wide VPN cannot sign in in the browser.")
 	}
-	a := []string{"--protocol=" + protocols[l.typ], "--non-inter", "--interface=" + iface, "--script=" + script}
+	a := l.signIn([]string{"--protocol=" + protocols[l.typ], "--non-inter", "--interface=" + iface, "--script=" + script})
+	return append(a, "--", l.cfg.Gateway), nil
+}
+
+// signIn appends the user name, the password's stdin flag and the pinned
+// gateway certificate to a.
+func (l launch) signIn(a []string) []string {
 	if l.cfg.User != "" {
 		a = append(a, "--user="+l.cfg.User)
 	}
@@ -142,9 +138,10 @@ func SystemArgs(typ, conf string, secrets map[string]string, iface, script strin
 		a = append(a, "--passwd-on-stdin")
 	}
 	if l.cfg.ServerCert != "" {
+		// This also turns off system trust: only this certificate is accepted.
 		a = append(a, "--servercert="+l.cfg.ServerCert)
 	}
-	return append(a, "--", l.cfg.Gateway), nil
+	return a
 }
 
 func shellQuote(s string) string {

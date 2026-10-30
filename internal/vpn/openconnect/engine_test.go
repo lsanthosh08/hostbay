@@ -264,6 +264,9 @@ func TestOldOpenConnectRefused(t *testing.T) {
 	if m.State != proto.Failed || !strings.Contains(m.Reason, "9.12") || !strings.Contains(m.Reason, "9.01") {
 		t.Fatalf("got %+v, want failed naming both versions", m)
 	}
+	if m.Code != proto.CodeOpenConnect {
+		t.Fatalf("got code %q, want %q", m.Code, proto.CodeOpenConnect)
+	}
 	if got := argvs(t, log); got != "[\"--version\"]\n" {
 		t.Fatalf("openconnect ran as %s, want only --version", got)
 	}

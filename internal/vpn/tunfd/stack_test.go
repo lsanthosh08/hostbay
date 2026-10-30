@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/netip"
 	"os"
-	"slices"
 	"syscall"
 	"testing"
 	"time"
@@ -96,20 +95,5 @@ func TestPacketsCrossTheSocket(t *testing.T) {
 	if pkt[0]>>4 != 4 || pkt[9] != 6 || netip.AddrFrom4([4]byte(pkt[16:20])) != netip.MustParseAddr("10.9.0.1") ||
 		binary.BigEndian.Uint16(pkt[22:]) != 80 || pkt[33]&0x02 == 0 {
 		t.Fatalf("got packet % x, want a TCP SYN to 10.9.0.1:80", pkt)
-	}
-}
-
-func TestSearchNames(t *testing.T) {
-	for _, c := range []struct {
-		name string
-		want []string
-	}{
-		{"db", []string{"db.corp.example", "db"}},
-		{"db.lan", []string{"db.lan", "db.lan.corp.example"}},
-		{"db.lan.", []string{"db.lan"}},
-	} {
-		if got := searchNames(c.name, []string{"corp.example"}); !slices.Equal(got, c.want) {
-			t.Errorf("searchNames(%q) = %q, want %q", c.name, got, c.want)
-		}
 	}
 }

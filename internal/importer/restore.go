@@ -12,7 +12,6 @@ import (
 	"io"
 	"maps"
 	"net"
-	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -508,43 +507,15 @@ func (b *Builder) AddVPN(e VPN) bool {
 	return true
 }
 
-// checkVPN mirrors internal/app's checkVPN for profiles read from files.
+// checkVPN is store.CheckVPN with caps on what a file may hold.
 func checkVPN(v store.VPN) error {
-	bad := func(s string, spaces bool) bool {
-		return strings.IndexFunc(s, func(r rune) bool { return unicode.IsControl(r) || spaces && unicode.IsSpace(r) }) >= 0
-	}
 	switch {
-	case v.Name == "" || len(v.Name) > 200 || bad(v.Name, false):
+	case v.Name == "" || len(v.Name) > 200 || strings.IndexFunc(v.Name, unicode.IsControl) >= 0:
 		return errors.New("no usable name")
-	case v.Type == "" || bad(v.Type, true):
-		return errors.New("no VPN type")
-	case v.Tier != store.VPNTierApp && v.Tier != store.VPNTierSystem && v.Tier != store.VPNTierExternal:
-		return fmt.Errorf("tier %q is not app, system or external", v.Tier)
-	case len(v.Gateway) > 253 || bad(v.Gateway, true) || strings.HasPrefix(v.Gateway, "-") || bad(v.PeerKey, true):
-		return fmt.Errorf("the gateway %q is not a valid address", v.Gateway)
-	case v.Port < 0 || v.Port > 65535:
-		return fmt.Errorf("port %d is out of range", v.Port)
-	case v.MTU != 0 && (v.MTU < 576 || v.MTU > 65535):
-		return fmt.Errorf("MTU %d is out of range", v.MTU)
-	case len(v.User) > 256 || bad(v.User, false) || bad(v.Auth, true) || bad(v.Client, false):
+	case len(v.User) > 256:
 		return errors.New("a field contains a line break or control character")
 	}
-	for _, p := range append(slices.Clone(v.Address), v.Routes...) {
-		if _, err := netip.ParsePrefix(p); err != nil {
-			return fmt.Errorf("%q is not a network such as 10.0.0.0/24", p)
-		}
-	}
-	for _, a := range v.DNSServers {
-		if _, err := netip.ParseAddr(a); err != nil {
-			return fmt.Errorf("DNS server %q is not an IP address", a)
-		}
-	}
-	for _, n := range v.DNSDomains {
-		if n == "" || bad(n, true) || strings.Contains(n, ",") {
-			return fmt.Errorf("DNS domain %q is not a domain name", n)
-		}
-	}
-	return nil
+	return store.CheckVPN(v)
 }
 
 // MissingProxy stands in for a proxy the export names but does not carry.

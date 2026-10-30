@@ -78,10 +78,10 @@ func isTunnel(goos, name string, pointToPoint bool, ifType uint32, desc string) 
 	}
 }
 
-// defaultGateway finds the local default gateway for dst's family: the
+// DefaultGateway finds the local default gateway for dst's family: the
 // default route with a next hop on a physical interface, so a full-tunnel
 // VPN's own default route is never taken for it.
-func defaultGateway(routes []SysRoute, tunnel map[string]bool, dst netip.Prefix) (SysRoute, bool) {
+func DefaultGateway(routes []SysRoute, tunnel map[string]bool, dst netip.Prefix) (SysRoute, bool) {
 	for _, r := range routes {
 		if r.Dst.Bits() == 0 && r.Dst.Addr().Is4() == dst.Addr().Is4() && r.Gateway.IsValid() && !tunnel[r.Iface] {
 			return r, true

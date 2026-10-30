@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"net/netip"
 	"net/url"
 	"os"
 	"os/exec"
@@ -361,26 +360,21 @@ func (s *VPNService) nodeDir(id string) string {
 
 var safeName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
-// checkVPN refuses a profile whose fields could not work or could add lines
-// to the engine configuration Hostbay writes from them.
+// checkVPN is store.CheckVPN plus the profile's name and routing mode, and
+// this computer's own fields: its interface and client program.
 func checkVPN(v VPN) error {
 	bad := func(s string, spaces bool) bool {
 		return strings.IndexFunc(s, func(r rune) bool { return unicode.IsControl(r) || spaces && unicode.IsSpace(r) }) >= 0
 	}
-	switch {
-	case strings.TrimSpace(v.Name) == "" || bad(v.Name, false):
+	if strings.TrimSpace(v.Name) == "" || bad(v.Name, false) {
 		return errors.New("name the VPN profile")
-	case v.Type == "" || bad(v.Type, true):
-		return errors.New("choose the VPN type")
-	case v.Tier != store.VPNTierApp && v.Tier != store.VPNTierSystem && v.Tier != store.VPNTierExternal:
-		return errors.New("the VPN tier must be app, system or external")
-	case len(v.Gateway) > 253 || bad(v.Gateway, true) || bad(v.PeerKey, true):
-		return errors.New("enter the VPN gateway and keys without spaces or line breaks")
-	case v.Port < 0 || v.Port > 65535:
-		return errors.New("the VPN port must be between 1 and 65535")
-	case v.MTU != 0 && (v.MTU < 576 || v.MTU > 65535):
-		return errors.New("the MTU must be between 576 and 65535")
-	case bad(v.User, false) || bad(v.Auth, true) || bad(v.RoutingMode, true) || bad(v.Client, false) || bad(v.Iface, false):
+	}
+	if err := store.CheckVPN(store.VPN{Type: v.Type, Tier: v.Tier, Gateway: v.Gateway, Port: v.Port, User: v.User, Auth: v.Auth,
+		Address: v.Address, PeerKey: v.PeerKey, Routes: v.Routes, DNSServers: v.DNSServers, DNSDomains: v.DNSDomains, MTU: v.MTU, Client: v.Client}); err != nil {
+		return err
+	}
+	switch {
+	case bad(v.RoutingMode, true) || bad(v.Iface, false):
 		return errors.New("VPN profile fields cannot hold line breaks")
 	case v.ClientPath != "" && (bad(v.ClientPath, false) || !filepath.IsAbs(v.ClientPath)):
 		return errors.New("choose the VPN client program by its full path")
@@ -390,21 +384,6 @@ func checkVPN(v VPN) error {
 		// a path that never existed would be dropped at once.
 		if _, err := os.Stat(v.ClientPath); err != nil {
 			return fmt.Errorf("the VPN client program %s is not on this computer", v.ClientPath)
-		}
-	}
-	for _, p := range append(slices.Clone(v.Address), v.Routes...) {
-		if _, err := netip.ParsePrefix(p); err != nil {
-			return fmt.Errorf("%q is not a network such as 10.0.0.0/24", p)
-		}
-	}
-	for _, a := range v.DNSServers {
-		if _, err := netip.ParseAddr(a); err != nil {
-			return fmt.Errorf("DNS server %q is not an IP address", a)
-		}
-	}
-	for _, n := range v.DNSDomains {
-		if n == "" || bad(n, true) || strings.Contains(n, ",") {
-			return fmt.Errorf("DNS domain %q is not a domain name", n)
 		}
 	}
 	return nil
@@ -452,15 +431,19 @@ func (s *VPNService) ConnectVPN(ctx context.Context, id string) (VPNState, error
 // connectAs is ConnectVPN for by, who owns the run only if this call
 // starts it.
 func (s *VPNService) connectAs(ctx context.Context, id, by string) (VPNState, error) {
-	if d, err := s.st.Data(); err == nil && d.VPN(id) != nil && d.VPN(id).Tier == store.VPNTierExternal {
+	var v *store.VPN // nil when unreadable: the run reports it
+	if d, err := s.st.Data(); err == nil {
+		v = d.VPN(id)
+	}
+	if v != nil && v.Tier == store.VPNTierExternal {
 		// Its own app connects it; Hostbay only sees the tunnel (KTD7).
 		s.mu.Lock()
 		st := s.states[id]
 		s.mu.Unlock()
-		return st, apperr.New(apperr.VPNFailed, fmt.Sprintf("VPN %s connects in its own app; open it there", d.VPN(id).Name)).
+		return st, apperr.New(apperr.VPNFailed, fmt.Sprintf("VPN %s connects in its own app; open it there", v.Name)).
 			With("vpnId", id).With("reason", "external")
 	}
-	if d, err := s.st.Data(); err == nil && d.VPN(id) != nil && vpnTier(*d.VPN(id)) == store.VPNTierSystem && s.checkConnect != nil {
+	if v != nil && vpnTier(*v) == store.VPNTierSystem && s.checkConnect != nil {
 		if err := s.checkConnect(id); err != nil {
 			return VPNState{ID: id}, apperr.New(apperr.VPNFailed, err.Error()).With("vpnId", id).With("reason", "conflict")
 		}
@@ -521,10 +504,9 @@ func (s *VPNService) run(id string, r *vpnRun) {
 			wait = vpnRetryMin
 		}
 		wasUp = wasUp || up
-		// A coded failure, or an openconnect too old, needs the user: retrying
-		// cannot fix it.
-		// shortcut: the version refusal carries no code, so it is matched by internal/vpn/openconnect's wording; give it a proto code if that wording changes.
-		needsUser := m.Code != "" || strings.HasPrefix(m.Reason, "Hostbay needs OpenConnect") || strings.HasPrefix(m.Reason, "Cannot tell which version")
+		// A coded failure (an untrusted certificate, an openconnect too old)
+		// needs the user: retrying cannot fix it.
+		needsUser := m.Code != ""
 
 		d, _ := s.st.Data()
 		again := wasUp && !needsUser && d != nil && d.VPN(id) != nil && d.VPN(id).AutoReconnect
@@ -620,10 +602,15 @@ func (s *VPNService) launch(id string, r *vpnRun, a *vpnAttempt, prev <-chan str
 			return nil, errors.New("the VPN profile was disconnected")
 		}
 	}
-	if d, err := s.st.Data(); err == nil && d.VPN(id) != nil && vpnTier(*d.VPN(id)) == store.VPNTierSystem {
-		return s.launchSystem(id, r, a, d.VPN(id))
+	d, err := s.st.Data()
+	if err != nil {
+		return nil, err
 	}
-	start, v, err := s.startMsg(id)
+	v := d.VPN(id)
+	if v != nil && vpnTier(*v) == store.VPNTierSystem {
+		return s.launchSystem(id, r, a, v)
+	}
+	start, err := s.startMsgFor(id, v)
 	if err != nil {
 		return nil, err
 	}
@@ -720,8 +707,6 @@ func (s *VPNService) keepNodeState(id string, a *vpnAttempt, state string) {
 	})
 }
 
-// startMsg builds the helper's start message from the saved profile, with
-// its secrets opened and a fresh SOCKS login.
 // The engine for each of these runs the openconnect program
 // (internal/vpn/openconnect).
 var openConnectTypes = map[string]bool{
@@ -753,20 +738,30 @@ func (s *VPNService) startMsg(id string) (proto.Msg, *store.VPN, error) {
 		return proto.Msg{}, nil, err
 	}
 	v := d.VPN(id)
+	m, err := s.startMsgFor(id, v)
+	if err != nil {
+		return proto.Msg{}, nil, err
+	}
+	return m, v, nil
+}
+
+// startMsgFor is startMsg from profile id as already read, nil when it is
+// gone.
+func (s *VPNService) startMsgFor(id string, v *store.VPN) (proto.Msg, error) {
 	if v == nil {
-		return proto.Msg{}, nil, apperr.New(apperr.VPNFailed, "This VPN profile no longer exists").With("vpnId", id).With("reason", "missing")
+		return proto.Msg{}, apperr.New(apperr.VPNFailed, "This VPN profile no longer exists").With("vpnId", id).With("reason", "missing")
 	}
 	if v.Tier != store.VPNTierApp || v.Type != proto.TypeWireGuard && v.Type != proto.TypeTailscale && !openConnectTypes[v.Type] {
-		return proto.Msg{}, nil, apperr.New(apperr.VPNFailed, fmt.Sprintf("Hostbay cannot connect %s profiles (tier %s) yet", v.Type, v.Tier)).
+		return proto.Msg{}, apperr.New(apperr.VPNFailed, fmt.Sprintf("Hostbay cannot connect %s profiles (tier %s) yet", v.Type, v.Tier)).
 			With("vpnId", id).With("reason", "unsupported")
 	}
 	if openConnectTypes[v.Type] && v.Auth == "certificate" {
-		return proto.Msg{}, nil, apperr.New(apperr.VPNFailed, "Hostbay cannot sign in to this VPN with a client certificate yet; choose another sign-in in the profile").
+		return proto.Msg{}, apperr.New(apperr.VPNFailed, "Hostbay cannot sign in to this VPN with a client certificate yet; choose another sign-in in the profile").
 			With("vpnId", id).With("reason", "unsupported")
 	}
 	sec, err := s.openSecrets(v)
 	if err != nil {
-		return proto.Msg{}, nil, err
+		return proto.Msg{}, err
 	}
 	m := proto.Msg{T: proto.Start, Type: v.Type, SocksUser: rand.Text(), SocksPass: rand.Text()}
 	switch v.Type {
@@ -776,11 +771,11 @@ func (s *VPNService) startMsg(id string) (proto.Msg, *store.VPN, error) {
 	case proto.TypeTailscale:
 		dir := s.nodeDir(id)
 		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return proto.Msg{}, nil, err
+			return proto.Msg{}, err
 		}
 		node, err := s.nodeState(v)
 		if err != nil {
-			return proto.Msg{}, nil, err
+			return proto.Msg{}, err
 		}
 		host, _ := os.Hostname()
 		b, _ := json.Marshal(tailnetConfig{Dir: dir, ControlURL: v.Gateway, Hostname: nodeHostname(host)})
@@ -797,7 +792,7 @@ func (s *VPNService) startMsg(id string) (proto.Msg, *store.VPN, error) {
 		m.Config = string(b)
 		m.Secrets = map[string]string{"password": pass}
 	}
-	return m, v, nil
+	return m, nil
 }
 
 // openSecrets opens v's saved secrets.
@@ -826,7 +821,7 @@ func (s *VPNService) nodeState(v *store.VPN) (string, error) {
 		return "", err
 	}
 	b, err := s.vault.Open(l.VPNNodeStates[v.ID], v.NodeStateAAD())
-	if ae := (*apperr.Error)(nil); errors.As(err, &ae) && ae.Details["reason"] == "decrypt" {
+	if undecryptable(err) {
 		return "", s.st.EditLocal(func(l *store.Local) error {
 			delete(l.VPNNodeStates, v.ID)
 			return nil
@@ -953,7 +948,7 @@ func (s *VPNService) repin(id, pin string) error {
 		var plain []byte
 		if v.Secret != "" {
 			b, err := s.vault.Open(v.Secret, v.SecretAAD())
-			if ae := (*apperr.Error)(nil); err != nil && !(errors.As(err, &ae) && ae.Details["reason"] == "decrypt") {
+			if err != nil && !undecryptable(err) {
 				return err
 			}
 			plain = b // nil when they no longer open, which stays so
@@ -1107,23 +1102,24 @@ func (s *VPNService) ServiceStartup(context.Context, application.ServiceOptions)
 // disconnected and connected as its tunnel is labeled (R24): one detection
 // cannot tell apart stays disconnected and asks for a pin.
 func (s *VPNService) refresh(ctx context.Context) error {
-	_, _, err := s.labelNow(ctx)
-	return err
-}
-
-// labelNow is refresh, returning what detection saw and each tunnel's
-// label: the routing engine (U11) routes only through labeled tunnels.
-func (s *VPNService) labelNow(ctx context.Context) (detect.Snapshot, []detect.Labeled, error) {
-	s.refreshing.Lock()
-	defer s.refreshing.Unlock()
 	d, err := s.st.Data()
 	if err != nil {
-		return detect.Snapshot{}, nil, err
+		return err
 	}
 	l, err := s.st.Local()
 	if err != nil {
-		return detect.Snapshot{}, nil, err
+		return err
 	}
+	_, _, err = s.labelNow(ctx, d, l)
+	return err
+}
+
+// labelNow is refresh for the profiles in d and l, returning what detection
+// saw and each tunnel's label: the routing engine (U11) routes only through
+// labeled tunnels.
+func (s *VPNService) labelNow(ctx context.Context, d *store.Data, l store.Local) (detect.Snapshot, []detect.Labeled, error) {
+	s.refreshing.Lock()
+	defer s.refreshing.Unlock()
 	snap, err := s.detect(ctx)
 	if err != nil {
 		return detect.Snapshot{}, nil, err
@@ -1195,15 +1191,15 @@ func (s *VPNService) iface(ctx context.Context, id, name string) (string, error)
 // removed, that detection no longer sees and no host uses (R23); a profile
 // with no client program here was set up elsewhere and stays.
 func (s *VPNService) DetectVPNs(ctx context.Context) ([]detect.VPN, error) {
-	snap, _, err := s.labelNow(ctx)
-	if err != nil {
-		return nil, err
-	}
 	d, err := s.st.Data()
 	if err != nil {
 		return nil, err
 	}
 	l, err := s.st.Local()
+	if err != nil {
+		return nil, err
+	}
+	snap, _, err := s.labelNow(ctx, d, l)
 	if err != nil {
 		return nil, err
 	}

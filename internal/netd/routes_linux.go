@@ -3,11 +3,9 @@ package netd
 import (
 	"context"
 	"encoding/json"
-	"net"
 	"net/netip"
 	"os"
 	"os/exec"
-	"runtime"
 	"strconv"
 	"strings"
 
@@ -29,17 +27,7 @@ func newTable() Table {
 	return t
 }
 
-func (linuxTable) Interfaces() ([]Iface, error) {
-	nis, err := net.Interfaces()
-	if err != nil {
-		return nil, err
-	}
-	out := make([]Iface, len(nis))
-	for i, ni := range nis {
-		out[i] = Iface{ni.Name, isTunnel(runtime.GOOS, ni.Name, ni.Flags&net.FlagPointToPoint != 0, 0, "")}
-	}
-	return out, nil
-}
+func (linuxTable) Interfaces() ([]Iface, error) { return unixInterfaces() }
 
 func (t linuxTable) Routes() ([]SysRoute, error) {
 	var out []SysRoute

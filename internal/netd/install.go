@@ -140,11 +140,16 @@ func toolFailed(what string, code int, stderr string, err error) error {
 	return &Error{CodeFailed, fmt.Sprintf("%s failed (exit %d): %s", what, code, strings.TrimSpace(stderr))}
 }
 
-// osascriptSafe admits paths that need no escaping inside a single-quoted
+// ShellSafePath admits paths that need no escaping inside a single-quoted
 // shell word inside an AppleScript string, so the script is the fixed text
 // plus the path verbatim.
-func osascriptSafe(p string) error { // p is a macOS path on every OS the tests run on
-	if !path.IsAbs(p) || strings.ContainsAny(p, `'"\`) || strings.ContainsFunc(p, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
+func ShellSafePath(p string) bool { // p is a macOS path on every OS the tests run on
+	return path.IsAbs(p) && !strings.ContainsAny(p, `'"\`) && !strings.ContainsFunc(p, func(r rune) bool { return r < 0x20 || r == 0x7f })
+}
+
+// osascriptSafe refuses a path ShellSafePath does not admit.
+func osascriptSafe(p string) error {
+	if !ShellSafePath(p) {
 		return &Error{CodeInvalid, fmt.Sprintf("Hostbay cannot install its helper from %q; move Hostbay to a folder whose path has no quotes or backslashes.", p)}
 	}
 	return nil
