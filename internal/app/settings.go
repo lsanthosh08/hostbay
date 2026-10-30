@@ -18,7 +18,7 @@ import (
 // SettingsService reads and writes settings for the page (KTD37). The page
 // may change appearance, language and keyboard shortcuts; the ai group changes only through
 // its own verified path (U23), and of the device-local settings only AI
-// suggestions and per-host logging.
+// suggestions, per-host logging and keeping running in the menu bar.
 type SettingsService struct {
 	st         *store.Store
 	pickFolder func() (string, error)
@@ -267,7 +267,8 @@ func (s *SettingsService) ImportLegacy(theme string, fontSize int) error {
 // GetLocal returns this computer's own settings.
 func (s *SettingsService) GetLocal() (store.Local, error) { return s.st.Local() }
 
-// SetLocal changes AI suggestions and per-host logging. Any other key is
+// SetLocal changes AI suggestions, per-host logging and keeping running in
+// the menu bar. Any other key is
 // refused and nothing is saved: allowlist entries, MCP and the log folder
 // change only through their own Go paths.
 func (s *SettingsService) SetLocal(patch map[string]any) error {
@@ -278,6 +279,7 @@ func (s *SettingsService) SetLocal(patch map[string]any) error {
 	var p struct {
 		AISuggestions *bool           `json:"aiSuggestions"`
 		HostLogging   map[string]bool `json:"hostLogging"`
+		KeepRunning   *bool           `json:"keepRunning"`
 	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
@@ -287,6 +289,9 @@ func (s *SettingsService) SetLocal(patch map[string]any) error {
 	return s.st.EditLocal(func(l *store.Local) error {
 		if p.AISuggestions != nil {
 			l.AISuggestions = p.AISuggestions
+		}
+		if p.KeepRunning != nil {
+			l.KeepRunning = *p.KeepRunning
 		}
 		for id, on := range p.HostLogging {
 			if !on {

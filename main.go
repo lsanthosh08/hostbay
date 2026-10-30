@@ -33,6 +33,12 @@ import (
 //go:embed all:dist
 var assets embed.FS
 
+// The tray shows the app icon: there is no monochrome one for a macOS
+// template icon.
+//
+//go:embed build/appicon.png
+var trayIcon []byte
+
 func main() {
 	// `hostbay mcp` is a stdio relay to the running app. It branches before
 	// the single-instance check and never opens the store or takes the
@@ -43,7 +49,7 @@ func main() {
 	var mainWindow *application.WebviewWindow
 	var tunnels *app.TunnelService
 	var vpns *app.VPNService
-	var quitConfirmed atomic.Bool
+	var quitting atomic.Bool // ShouldQuit said yes; closing the window goes through
 	var st *store.Store
 	a := application.New(application.Options{
 		Name:        app.Name,
@@ -54,6 +60,7 @@ func main() {
 			UniqueID: "dev.hostbay.app",
 			OnSecondInstanceLaunch: func(application.SecondInstanceData) {
 				if mainWindow != nil {
+					mainWindow.Show() // it may be hidden in the menu bar
 					mainWindow.Restore()
 					mainWindow.Focus()
 				}
@@ -68,7 +75,7 @@ func main() {
 		// so ask first (R19).
 		ShouldQuit: func() bool {
 			// Quit runs ShouldQuit again, so the dialog's answer has to stick.
-			if quitConfirmed.Load() {
+			if quitting.Load() {
 				return true
 			}
 			n, v := 0, 0
@@ -78,22 +85,17 @@ func main() {
 			if vpns != nil {
 				v = vpns.ConnectedVPNs()
 			}
-			if n == 0 && v == 0 {
+			msg := app.QuitQuestion(n, v)
+			if msg == "" {
+				quitting.Store(true)
 				return true
-			}
-			msg := fmt.Sprintf("%d tunnel(s) are running. Quitting stops them.", n)
-			switch {
-			case n == 0:
-				msg = fmt.Sprintf("%d VPN(s) are connected. Quitting disconnects them.", v)
-			case v > 0:
-				msg = fmt.Sprintf("%d tunnel(s) are running and %d VPN(s) are connected. Quitting stops them.", n, v)
 			}
 			d := application.Get().Dialog.Question().
 				SetTitle("Quit " + app.Name + "?").
 				SetMessage(msg)
 			yes, no := container.Buttons(runtime.GOOS, "Quit", "Cancel")
 			d.AddButton(yes).OnClick(func() {
-				quitConfirmed.Store(true)
+				quitting.Store(true)
 				application.Get().Quit()
 			})
 			cancel := d.AddButton(no)
@@ -236,6 +238,12 @@ func main() {
 		MinHeight:        600,
 		BackgroundColour: application.NewRGB(23, 23, 25), // dark --ground, src/styles.css
 		URL:              "/",
+		// Files dropped on an element marked data-file-drop-target (the VPN
+		// list) reach the UI by path, which a web drop event does not give.
+		EnableFileDrop: true,
+	})
+	mainWindow.OnWindowEvent(events.Common.WindowFilesDropped, func(e *application.WindowEvent) {
+		a.Event.Emit("files-dropped", e.Context().DroppedFiles())
 	})
 	ver.win = mainWindow
 	mcpSvc.Raise = func() {
@@ -243,6 +251,34 @@ func main() {
 		mainWindow.Restore()
 		mainWindow.Focus()
 	}
+	// Closing the window hides it while Hostbay keeps running in the menu
+	// bar (KTD10); otherwise it quits through ShouldQuit, which asks first
+	// while tunnels or VPNs are up (R19).
+	mainWindow.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+		l, err := st.Local()
+		if err != nil {
+			log.Printf("local settings: %v", err)
+		}
+		switch app.WindowClose(l.KeepRunning, quitting.Load()) {
+		case app.CloseHide:
+			e.Cancel()
+			mainWindow.Hide()
+		case app.CloseQuit:
+			e.Cancel()
+			go a.Quit()
+		}
+	})
+	tray := app.NewTray(vpns, func() {
+		mainWindow.Show()
+		mainWindow.UnMinimise()
+		mainWindow.Focus()
+	}, a.Quit)
+	tray.Attach(a.SystemTray.New().SetIcon(trayIcon))
+	a.Event.On(app.VPNStateEvent, func(e *application.CustomEvent) {
+		if s, ok := e.Data.(app.VPNState); ok {
+			tray.StateChanged(s)
+		}
+	})
 
 	if err := a.Run(); err != nil {
 		log.Fatal(err)
