@@ -117,11 +117,12 @@ tasks:
       - rm -f "{{.BIN_DIR}}/{{.APP_NAME}}-amd64" "{{.BIN_DIR}}/{{.APP_NAME}}-arm64"
 
   package:
-    summary: Packages a universal (arm64 + amd64) `.app` bundle with the RDP and network helpers inside
+    summary: Packages a universal (arm64 + amd64) `.app` bundle with the RDP, network and VPN helpers inside
     deps:
       - task: build:universal
       - task: build:rdp-helper:universal
       - task: build:netd:universal
+      - task: build:vpn:universal
     cmds:
       - task: create:app:bundle
 
@@ -158,6 +159,28 @@ tasks:
     cmds:
       - wails3 tool lipo -output "{{.BIN_DIR}}/hostbay-netd" -input "{{.BIN_DIR}}/hostbay-netd-amd64" -input "{{.BIN_DIR}}/hostbay-netd-arm64"
       - rm -f "{{.BIN_DIR}}/hostbay-netd-amd64" "{{.BIN_DIR}}/hostbay-netd-arm64"
+
+  build:vpn:universal:
+    summary: Builds hostbay-vpn for arm64 and amd64 and joins them into one universal binary in bin/
+    deps:
+      - task: :build:vpn
+        vars: { GOOS: darwin, ARCH: amd64, OUTPUT: "{{.BIN_DIR}}/hostbay-vpn-amd64" }
+      - task: :build:vpn
+        vars: { GOOS: darwin, ARCH: arm64, OUTPUT: "{{.BIN_DIR}}/hostbay-vpn-arm64" }
+    cmds:
+      - task: '{{if eq OS "darwin"}}build:vpn:lipo:native{{else}}build:vpn:lipo:go{{end}}'
+
+  build:vpn:lipo:native:
+    internal: true
+    cmds:
+      - lipo -create -output "{{.BIN_DIR}}/hostbay-vpn" "{{.BIN_DIR}}/hostbay-vpn-amd64" "{{.BIN_DIR}}/hostbay-vpn-arm64"
+      - rm "{{.BIN_DIR}}/hostbay-vpn-amd64" "{{.BIN_DIR}}/hostbay-vpn-arm64"
+
+  build:vpn:lipo:go:
+    internal: true
+    cmds:
+      - wails3 tool lipo -output "{{.BIN_DIR}}/hostbay-vpn" -input "{{.BIN_DIR}}/hostbay-vpn-amd64" -input "{{.BIN_DIR}}/hostbay-vpn-arm64"
+      - rm -f "{{.BIN_DIR}}/hostbay-vpn-amd64" "{{.BIN_DIR}}/hostbay-vpn-arm64"
 
   package:dmg:
     summary: Packages the application into a styled `.dmg`
@@ -202,6 +225,12 @@ tasks:
       - cp "{{.BIN_DIR}}/hostbay-rdp-helper" "{{.BIN_DIR}}/{{.APP_BUNDLE}}.app/Contents/MacOS"
       # internal/netd installs the helper from beside the running executable.
       - cp "{{.BIN_DIR}}/hostbay-netd" "{{.BIN_DIR}}/{{.APP_BUNDLE}}.app/Contents/MacOS"
+      # internal/vpn.HelperPath looks for the VPN helper beside the running executable.
+      - cp "{{.BIN_DIR}}/hostbay-vpn" "{{.BIN_DIR}}/{{.APP_BUNDLE}}.app/Contents/MacOS"
+      # openconnect goes beside hostbay-vpn and its libraries in Frameworks; skipped
+      # with a message when this machine has no openconnect (brew install openconnect).
+      - cmd: sh build/darwin/bundle-openconnect.sh "{{.BIN_DIR}}/{{.APP_BUNDLE}}.app/Contents"
+        platforms: [darwin]
       - cp build/darwin/Info.plist "{{.BIN_DIR}}/{{.APP_BUNDLE}}.app/Contents"
       - task: '{{if eq OS "darwin"}}codesign:adhoc{{else}}codesign:skip{{end}}'
 
@@ -237,6 +266,12 @@ tasks:
         if [ -f "{{.BIN_DIR}}/hostbay-netd" ]; then
           cp "{{.BIN_DIR}}/hostbay-netd" "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/MacOS"
         fi
+      # The VPN helper comes from `task build:vpn`; without it VPN profiles report a missing helper.
+      - |
+        if [ -f "{{.BIN_DIR}}/hostbay-vpn" ]; then
+          cp "{{.BIN_DIR}}/hostbay-vpn" "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/MacOS"
+        fi
+      - sh build/darwin/bundle-openconnect.sh "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents"
       - cp "build/darwin/Info.dev.plist" "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/Info.plist"
       - codesign --force --deep --sign - "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app"
       - '"{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/MacOS/{{.APP_NAME}}"'

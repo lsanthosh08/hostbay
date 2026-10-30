@@ -51,6 +51,54 @@ jobs:
           command -v makensis || choco install nsis -y --no-progress
           echo "C:/Program Files (x86)/NSIS" >> "$GITHUB_PATH"
 
+      # The macOS package bundles Homebrew's openconnect and its libraries
+      # (build/darwin/bundle-openconnect.sh records each one's version in the
+      # app for the NOTICE source offer). The bottle matches the runner's
+      # architecture only.
+      - name: Install OpenConnect
+        if: runner.os == 'macOS'
+        run: brew install openconnect
+
+      # System-wide tunnels on Windows need wintun.dll beside openconnect.exe.
+      # Pinned to the zip and SHA-256 OpenConnect's own installer uses
+      # (WINTUNSHA256 in its Makefile.am).
+      - name: Fetch Wintun
+        if: runner.os == 'Windows'
+        run: |
+          curl -fsSL -o wintun.zip https://www.wintun.net/builds/wintun-0.14.1.zip
+          echo "07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51  wintun.zip" | sha256sum -c -
+          python -m zipfile -e wintun.zip wintun-zip
+          mkdir -p bin/openconnect-windows
+          cp wintun-zip/wintun/bin/amd64/wintun.dll bin/openconnect-windows/
+          cp wintun-zip/wintun/LICENSE.txt bin/openconnect-windows/wintun-LICENSE.txt
+          rm -rf wintun.zip wintun-zip
+
+      # OpenConnect publishes Windows builds only as unversioned artifacts of
+      # its master branch, which cannot be pinned. To ship it, a maintainer
+      # makes a zip of openconnect.exe and its DLLs (from a tested
+      # openconnect-installer-MinGW64-GnuTLS.exe, files at the zip's top
+      # level), hosts it, and sets the repository variables
+      # OPENCONNECT_WINDOWS_URL and OPENCONNECT_WINDOWS_SHA256, first checking
+      # that NOTICE lists every library among the zip's DLLs. Without them
+      # the installer ships without OpenConnect.
+      - name: Fetch OpenConnect for Windows
+        if: runner.os == 'Windows'
+        env:
+          OPENCONNECT_WINDOWS_URL: ${{ vars.OPENCONNECT_WINDOWS_URL }}
+          OPENCONNECT_WINDOWS_SHA256: ${{ vars.OPENCONNECT_WINDOWS_SHA256 }}
+        run: |
+          if [ -z "$OPENCONNECT_WINDOWS_URL" ]; then
+            echo "::notice::OPENCONNECT_WINDOWS_URL is not set; the installer ships without OpenConnect"
+            exit 0
+          fi
+          test -n "$OPENCONNECT_WINDOWS_SHA256"
+          curl -fsSL -o openconnect.zip "$OPENCONNECT_WINDOWS_URL"
+          echo "$OPENCONNECT_WINDOWS_SHA256  openconnect.zip" | sha256sum -c -
+          mkdir -p bin/openconnect-windows
+          python -m zipfile -e openconnect.zip bin/openconnect-windows
+          test -f bin/openconnect-windows/openconnect.exe
+          rm openconnect.zip
+
       # The same Wails CLI version as the library in go.mod.
       - name: Install Wails CLI
         run: |

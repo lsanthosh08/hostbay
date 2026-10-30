@@ -84,3 +84,54 @@ WireGuard LLC. Its userspace network stack is gVisor, gvisor.dev/gvisor
 Version 2.0, Copyright The gVisor Authors, which uses github.com/google/btree
 (Apache License, Version 2.0, Copyright Google Inc.). On Windows it also uses
 golang.zx2c4.com/wintun (MIT License, Copyright (C) 2017-2025 WireGuard LLC).
+
+OpenConnect profiles run OpenConnect (https://www.infradead.org/openconnect/),
+the openconnect program, Copyright David Woodhouse and the OpenConnect
+contributors, licensed under the GNU Lesser General Public License,
+version 2.1. Hostbay ships it unmodified as a separate program it starts, never
+linked into Hostbay. The macOS app bundles it in Hostbay.app/Contents/MacOS with
+these libraries in Hostbay.app/Contents/Frameworks, taken unmodified from
+Homebrew (https://github.com/Homebrew/homebrew-core) with only their install
+names rewritten so they load from the app. Hostbay.app/Contents/Resources/OpenConnect
+holds each one's licence texts and versions.txt, which names the exact version
+of each:
+  GnuTLS (https://gnutls.org), LGPL-2.1 or later, Copyright the GnuTLS authors;
+  Nettle and Hogweed (https://www.lysator.liu.se/~nisse/nettle/), LGPL-3.0 or
+    later or GPL-2.0 or later, Copyright Niels Möller and contributors;
+  GMP (https://gmplib.org), LGPL-3.0 or later or GPL-2.0 or later, Copyright
+    the Free Software Foundation, Inc.;
+  libtasn1 (https://www.gnu.org/software/libtasn1/), LGPL-2.1 or later,
+    Copyright the Free Software Foundation, Inc.;
+  p11-kit (https://p11-glue.github.io/p11-glue/p11-kit.html), BSD 3-Clause
+    License, Copyright Red Hat, Inc. and contributors;
+  libidn2 (https://www.gnu.org/software/libidn/), LGPL-3.0 or later or
+    GPL-2.0 or later, Copyright Simon Josefsson and Tim Rühsen;
+  libunistring (https://www.gnu.org/software/libunistring/), LGPL-3.0 or later
+    or GPL-2.0 or later, Copyright the Free Software Foundation, Inc.;
+  libintl from GNU gettext (https://www.gnu.org/software/gettext/), LGPL-2.1
+    or later, Copyright the Free Software Foundation, Inc.;
+  stoken (https://github.com/stoken-dev/stoken), LGPL-2.1 or later, Copyright
+    Kevin Cernekee, with LibTomCrypt and LibTomMath (https://www.libtom.net),
+    public domain under The Unlicense, where the build links them.
+On macOS, libxml2 and zlib come from the operating system and are not bundled.
+The Windows installer, when a release includes OpenConnect for the system-wide
+path, carries openconnect.exe with Windows builds of the same libraries and
+also libxml2 (https://gitlab.gnome.org/GNOME/libxml2, MIT License, Copyright
+Daniel Veillard), zlib (https://zlib.net, zlib License, Copyright Jean-loup
+Gailly and Mark Adler) and GNU libiconv (LGPL-2.1 or later). On Linux, Hostbay
+uses the distribution's openconnect package and ships none of these.
+
+You may replace any of these libraries or the openconnect program in your copy
+of Hostbay with your own build of the same interface. Their source is available
+from the upstream addresses above. In addition, for three years after each
+Hostbay release that ships them, the Hostbay contributors will give anyone who
+asks the complete corresponding source code of OpenConnect and of each library
+above under the LGPL or GPL, in the exact versions that release ships, for no
+more than the cost of physically delivering it. Ask through
+https://github.com/lsanthosh08/hostbay/issues, naming the release.
+
+The Windows installer ships wintun.dll from Wintun 0.14.1
+(https://www.wintun.net), Copyright WireGuard LLC, unmodified,
+for system-wide VPN tunnels. It is distributed under the Prebuilt Binaries
+License, which permits redistributing the unmodified DLL with software that
+uses it; that licence is installed beside it as wintun-LICENSE.txt.

@@ -97,6 +97,12 @@ Section
     File "..\..\..\bin\hostbay-rdp-helper.exe"
     # internal/netd installs the network helper from beside hostbay.exe.
     File "..\..\..\bin\hostbay-netd.exe"
+    # internal/vpn.HelperPath looks for the VPN helper beside hostbay.exe.
+    File "..\..\..\bin\hostbay-vpn.exe"
+    # System-wide OpenConnect runs openconnect.exe from beside hostbay.exe with its
+    # DLLs and wintun.dll. Release CI stages them in bin\openconnect-windows
+    # (.github/workflows/release.yml); a build without them installs without OpenConnect.
+    File /nonfatal "..\..\..\bin\openconnect-windows\*"
 
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"

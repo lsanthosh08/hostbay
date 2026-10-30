@@ -61,6 +61,19 @@ tasks:
       GOARCH: '{{.ARCH | default ARCH}}'
       CGO_ENABLED: 0
 
+  build:vpn:
+    summary: Builds the hostbay-vpn helper into bin/, beside the app binary, where internal/vpn.HelperPath looks for it
+    # Pure Go with no cgo, so it cross-compiles with GOOS and GOARCH alone.
+    cmds:
+      - go build -trimpath -buildvcs=false -ldflags="-s -w" -o "{{.OUTPUT}}" ./cmd/hostbay-vpn
+    vars:
+      VPN_EXT: '{{if eq .GOOS "windows"}}.exe{{end}}'
+      OUTPUT: '{{.OUTPUT | default (print .BIN_DIR "/hostbay-vpn" .VPN_EXT)}}'
+    env:
+      GOOS: '{{.GOOS}}'
+      GOARCH: '{{.ARCH | default ARCH}}'
+      CGO_ENABLED: 0
+
   dev:
     summary: Runs the application in development mode
     cmds:
