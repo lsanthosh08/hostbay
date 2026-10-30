@@ -53,6 +53,14 @@ jobs:
         env:
           CGO_ENABLED: 0
 
+      # Go test above runs cmd/hostbay-vpn and internal/vpn, the WireGuard
+      # and gVisor netstack tests among them, on every OS; this builds the
+      # shipped helper the way packaging does, so a gVisor skew fails here.
+      - name: Build hostbay-vpn
+        run: go build -trimpath -ldflags "-s -w" -o "${{ runner.temp }}/hostbay-vpn" ./cmd/hostbay-vpn
+        env:
+          CGO_ENABLED: 0
+
       - name: RDP helper test
         working-directory: rdp-helper
         run: cargo test --locked
@@ -85,8 +93,10 @@ jobs:
         with:
           node-version: 20
 
+      # openconnect lets the ocserv test sign in for real; without it that
+      # test skips.
       - name: Install Linux libraries
-        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libasound2-dev
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libasound2-dev openconnect
 
       - name: Build UI
         run: |

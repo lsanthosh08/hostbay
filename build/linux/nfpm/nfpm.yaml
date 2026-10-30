@@ -30,6 +30,9 @@ contents:
   - src: "./bin/hostbay-netd"
     dst: "/usr/local/bin/hostbay-netd"
     packager: rpm
+  # internal/vpn.HelperPath looks for the VPN helper beside the hostbay binary.
+  - src: "./bin/hostbay-vpn"
+    dst: "/usr/local/bin/hostbay-vpn"
   - src: "./build/appicon.png"
     dst: "/usr/share/icons/hicolor/128x128/apps/hostbay.png"
   - src: "./build/linux/hostbay.desktop"
@@ -41,6 +44,13 @@ depends:
   - libgtk-3-0
   - libwebkit2gtk-4.1-0
   - libasound2
+
+# hostbay-vpn runs the distribution's openconnect for the AnyConnect, SSL VPN,
+# GlobalProtect, Pulse, F5 and Array profile types (internal/vpn/openconnect);
+# the other VPN types and the rest of Hostbay work without it. The package has
+# the same name on Debian, Fedora and Arch (where nfpm writes it as optdepend).
+recommends:
+  - openconnect
 
 # Distribution-specific overrides for different package formats
 overrides:

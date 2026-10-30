@@ -117,15 +117,20 @@ tasks:
     deps:
       - task: build
       - task: :build:rdp-helper
+      - task: :build:vpn
+        vars: { GOOS: linux }
       - task: generate:dotdesktop
     cmds:
       - cp "{{.APP_BINARY}}" "{{.APP_NAME}}"
       - cp ../../appicon.png "{{.APP_NAME}}.png"
       - wails3 generate appimage -binary "{{.APP_NAME}}" -icon {{.ICON}} -desktopfile {{.DESKTOP_FILE}} -outputdir {{.OUTPUT_DIR}} -builddir {{.ROOT_DIR}}/build/linux/appimage/build
-      # `wails3 generate appimage` packs only the app binary. Put the RDP helper
-      # beside it in the AppDir that command leaves behind (internal/rdp.HelperPath
-      # looks there) and repack; linuxdeploy also bundles the helper's libraries.
+      # `wails3 generate appimage` packs only the app binary. Put the RDP and VPN
+      # helpers beside it in the AppDir that command leaves behind (HelperPath in
+      # internal/rdp and internal/vpn looks there) and repack; linuxdeploy also
+      # bundles the RDP helper's libraries. OpenConnect profiles use the system's
+      # openconnect, which an AppImage cannot declare.
       - cp ../../../bin/hostbay-rdp-helper "build/{{.APPDIR}}/usr/bin/"
+      - cp ../../../bin/hostbay-vpn "build/{{.APPDIR}}/usr/bin/"
       - cd build && NO_STRIP=1 OUTPUT="{{.APP_NAME}}-{{.AI_ARCH}}.AppImage" "./linuxdeploy-{{.AI_ARCH}}.AppImage" --appimage-extract-and-run --appdir "{{.APPDIR}}" --output appimage
       - mv "build/{{.APP_NAME}}-{{.AI_ARCH}}.AppImage" "{{.OUTPUT_DIR}}/"
     vars:
@@ -144,6 +149,8 @@ tasks:
       - task: :build:rdp-helper
       - task: :build:netd
         vars: { GOOS: linux }
+      - task: :build:vpn
+        vars: { GOOS: linux }
     cmds:
       - task: generate:dotdesktop
       - task: generate:deb
@@ -155,6 +162,8 @@ tasks:
       - task: :build:rdp-helper
       - task: :build:netd
         vars: { GOOS: linux }
+      - task: :build:vpn
+        vars: { GOOS: linux }
     cmds:
       - task: generate:dotdesktop
       - task: generate:rpm
@@ -164,6 +173,8 @@ tasks:
     deps:
       - task: build
       - task: :build:rdp-helper
+      - task: :build:vpn
+        vars: { GOOS: linux }
     cmds:
       - task: generate:dotdesktop
       - task: generate:aur
