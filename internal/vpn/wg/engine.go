@@ -1,7 +1,8 @@
 // Package wg is hostbay-vpn's WireGuard engine (KTD3): wireguard-go over a
 // gVisor netstack in the helper's own process, so it changes no system
-// route, DNS setting or interface (R14). Only cmd/hostbay-vpn imports it,
-// which keeps WireGuard and gVisor out of the main binary.
+// route, DNS setting or interface (R14). Only the helpers (cmd/hostbay-vpn,
+// and cmd/hostbay-netd for system-wide tunnels) import it, which keeps
+// WireGuard and gVisor out of the main binary.
 package wg
 
 import (

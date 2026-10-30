@@ -1,8 +1,9 @@
 // Package tunfd puts a gVisor network stack on a datagram socket that
 // carries one raw IP packet per datagram, as openconnect's --script-tun
 // VPNFD does (KTD3). The stack lives in hostbay-vpn's own process, so it
-// changes no system route, DNS setting or interface (R14). Only
-// cmd/hostbay-vpn imports it, which keeps gVisor out of the main binary.
+// changes no system route, DNS setting or interface (R14). Only the helpers
+// (cmd/hostbay-vpn and cmd/hostbay-netd) import it, which keeps gVisor out
+// of the main binary.
 package tunfd
 
 import (
