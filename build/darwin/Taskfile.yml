@@ -260,11 +260,16 @@ tasks:
             echo "openvpn not found: building without bundled OpenVPN (brew install openvpn to bundle it)"
           fi
         platforms: [darwin]
-      # hostbay-sso opens the sign-in window for gateways that offer no browser mode; its
-      # libopenconnect is the one openconnect already brought into Frameworks.
+      # hostbay-sso opens the sign-in window for gateways that offer no browser mode. It is
+      # an app of its own inside Hostbay, so the App Transport Security exception its
+      # Info.plist carries covers that window only, and it has its own Frameworks for
+      # libopenconnect. internal/app.ssoHelperPath finds it here.
       - cmd: |
           if [ -f "{{.BIN_DIR}}/hostbay-sso" ]; then
-            sh build/darwin/bundle-openconnect.sh "{{.BIN_DIR}}/{{.APP_BUNDLE}}.app/Contents" "{{.BIN_DIR}}/hostbay-sso"
+            signin="{{.BIN_DIR}}/{{.APP_BUNDLE}}.app/Contents/Helpers/HostbaySignIn.app/Contents"
+            mkdir -p "$signin"
+            cp build/darwin/SignIn.Info.plist "$signin/Info.plist"
+            sh build/darwin/bundle-openconnect.sh "$signin" "{{.BIN_DIR}}/hostbay-sso"
           fi
         platforms: [darwin]
       - cp build/darwin/Info.plist "{{.BIN_DIR}}/{{.APP_BUNDLE}}.app/Contents"

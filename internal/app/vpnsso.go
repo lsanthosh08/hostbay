@@ -56,7 +56,9 @@ func ssoHelperPath() string {
 	if err != nil {
 		return ""
 	}
-	p := filepath.Join(filepath.Dir(exe), "hostbay-sso")
+	// Its own app inside Hostbay's (build/darwin/SignIn.Info.plist), so the
+	// security exception its window needs is not Hostbay's.
+	p := filepath.Join(filepath.Dir(exe), "..", "Helpers", "HostbaySignIn.app", "Contents", "MacOS", "hostbay-sso")
 	if _, err := os.Stat(p); err != nil {
 		return ""
 	}
