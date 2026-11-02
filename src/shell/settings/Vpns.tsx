@@ -224,6 +224,7 @@ export function RouteEditor({ v, set, err }: { v: Vpn; set: (patch: Partial<Vpn>
  *  split tunnel), DNS and MTU (R20, R42). */
 export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: () => void; onSaved: () => void }) {
   const run = useAsyncToast();
+  const { push } = useToast();
   const [start] = useState<Vpn>(() => ({ ...initial, ...noSecrets }));
   const [v, setV] = useState(start);
   const set = (patch: Partial<Vpn>) => setV((x) => ({ ...x, ...patch }));
@@ -254,7 +255,12 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
   const sharesClient =
     external && !!v.client && !v.iface && saved.some((o) => o.id !== v.id && o.tier === "external" && o.client?.toLowerCase() === v.client?.toLowerCase());
   const chooseApp = async () => {
-    const path = await openApp().catch(() => null);
+    let path: string | null;
+    try {
+      path = await openApp();
+    } catch (e) {
+      return push("error", e instanceof Error ? e.message : String(e));
+    }
     if (!path) return;
     // A client that is empty or only repeats the profile's name takes the app's
     // own name (Harmony SASE installs as Check Point SASE); a name the user set

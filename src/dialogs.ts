@@ -23,11 +23,13 @@ export const openFolder = async () => {
   return typeof dir === "string" && dir ? dir.replace(/\\/g, "/") : null;
 };
 
-// A program to run: an app in /Applications on a Mac (a bundle is a file to
-// the picker), an .exe on Windows, anything elsewhere.
+// A program to run. On a Mac an app is a folder, and an "app" file filter
+// greys every app out in the panel, so it picks folders and the caller checks
+// the name; on Windows it is an .exe.
 export const openApp = async () => {
   const mac = System.IsMac();
-  const win = System.IsWindows();
-  const filters = mac ? [{ name: "Apps", extensions: ["app"] }] : win ? [{ name: "Programs", extensions: ["exe"] }] : undefined;
-  return (await Dialogs.OpenFile({ CanChooseFiles: true, Directory: mac ? "/Applications" : undefined, Filters: toWails(filters) })) || null;
+  const filters = System.IsWindows() ? [{ name: "Programs", extensions: ["exe"] }] : undefined;
+  const path = (await Dialogs.OpenFile({ CanChooseFiles: true, CanChooseDirectories: mac, Directory: mac ? "/Applications" : undefined, Filters: toWails(filters) })) || null;
+  if (typeof path === "string" && mac && !/\.app\/?$/i.test(path)) throw new Error("Choose an app, such as Check Point SASE.app");
+  return typeof path === "string" ? path.replace(/\/$/, "") : null;
 };
