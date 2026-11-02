@@ -2,6 +2,7 @@ package openvpn
 
 import (
 	"bufio"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -31,6 +32,13 @@ type Event struct {
 // is sent once. Each change is passed to on. Neither credential is ever
 // logged or put in an error.
 func Manage(rw io.ReadWriter, user, pass, mgmtPass string, on func(Event)) error {
+	return ManageOTP(rw, user, pass, mgmtPass, nil, on)
+}
+
+// ManageOTP is Manage for a profile that may ask for a one-time code
+// (static-challenge): otp returns the code the user types, and the password
+// goes out in OpenVPN's SCRV1 form. With no otp such a profile fails.
+func ManageOTP(rw io.ReadWriter, user, pass, mgmtPass string, otp func() (string, error), on func(Event)) error {
 	for _, s := range []string{user, pass, mgmtPass} {
 		if strings.ContainsAny(s, "\r\n\x00") {
 			return errors.New("a VPN credential has a line break")
@@ -56,6 +64,22 @@ func Manage(rw io.ReadWriter, user, pass, mgmtPass string, on func(Event)) error
 		switch {
 		case strings.HasPrefix(line, ">HOLD:"):
 			err = send("hold release")
+		case strings.HasPrefix(line, ">PASSWORD:Need 'Auth'") && strings.Contains(line, " SC:") && !answered:
+			answered = true
+			if otp == nil {
+				on(Event{State: Failed, Reason: "The VPN asks for a one-time code Hostbay cannot ask for here."})
+				err = send("signal SIGTERM")
+				break
+			}
+			code, cerr := otp()
+			if cerr != nil || strings.ContainsAny(code, "\r\n\x00") {
+				on(Event{State: Failed, Reason: "The one-time code was not given."})
+				err = send("signal SIGTERM")
+				break
+			}
+			b64 := base64.StdEncoding
+			err = send(fmt.Sprintf(`username "Auth" %s`, quote(user)),
+				fmt.Sprintf(`password "Auth" %s`, quote("SCRV1:"+b64.EncodeToString([]byte(pass))+":"+b64.EncodeToString([]byte(code)))))
 		case strings.HasPrefix(line, ">PASSWORD:Need 'Auth'") && !answered:
 			answered = true
 			err = send(fmt.Sprintf(`username "Auth" %s`, quote(user)), fmt.Sprintf(`password "Auth" %s`, quote(pass)))

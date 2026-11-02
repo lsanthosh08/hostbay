@@ -3,6 +3,7 @@ package app
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,6 +23,7 @@ import (
 	"hostbay/internal/store"
 	"hostbay/internal/vpn/detect"
 	"hostbay/internal/vpn/osvpn"
+	"hostbay/internal/vpn/proto"
 	"hostbay/internal/vpn/routing"
 	"hostbay/internal/vpn/vpntest"
 )
@@ -194,6 +196,61 @@ func TestOpenVPNConnectsThroughTheHelperAndManagement(t *testing.T) {
 	}
 	if !slices.Equal(f.stopped(), []string{start.Tunnel}) || stateOf(e.svc, v.ID).Status != VPNDisconnected {
 		t.Fatalf("stopped %v, state %+v", f.stopped(), stateOf(e.svc, v.ID))
+	}
+}
+
+// A profile with a static challenge waits for a one-time code, which goes
+// to OpenVPN with the password in SCRV1 form and never through the helper.
+func TestOpenVPNStaticChallengeWaitsForTheCode(t *testing.T) {
+	e := newVPNEnv(t, vpntest.OK)
+	f := useTunnels(e.svc)
+	dir, err := os.MkdirTemp("/tmp", "mg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "m.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	sent := make(chan string, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		sc := bufio.NewScanner(c)
+		say := func(s string) { c.Write([]byte(s + "\r\n")) }
+		sc.Scan() // state on
+		say(">HOLD:Waiting for hold release:0")
+		sc.Scan() // hold release
+		say(">PASSWORD:Need 'Auth' username/password SC:1,Enter your code")
+		sc.Scan() // username
+		sc.Scan()
+		sent <- sc.Text()
+		say(">STATE:1700000001,CONNECTED,SUCCESS,127.0.0.1,203.0.113.9,1194,,")
+		for sc.Scan() {
+		}
+	}()
+	f.reply = func(netd.Msg) (netd.Msg, error) { return netd.Msg{Mgmt: sock}, nil }
+	v := saveOpenVPN(t, e.svc)
+	done := make(chan error, 1)
+	go func() { _, err := e.svc.ConnectVPN(context.Background(), v.ID); done <- err }()
+	if st := e.waitFor(t, v.ID, VPNSigningIn); st.Need != proto.NeedOTP {
+		t.Fatalf("state %+v", st)
+	}
+	if err := e.svc.AnswerVPN(v.ID, "123456"); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	want := `password "Auth" "SCRV1:` + base64.StdEncoding.EncodeToString([]byte("s3cret-pw")) + ":" + base64.StdEncoding.EncodeToString([]byte("123456")) + `"`
+	if got := <-sent; got != want {
+		t.Fatalf("password line %q, want %q", got, want)
 	}
 }
 

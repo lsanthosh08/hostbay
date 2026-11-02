@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -134,6 +135,29 @@ type netdTunnel struct {
 	closing, done chan struct{}
 	closeOnce     sync.Once
 	endOnce       sync.Once
+	codes         chan string // the one-time code a static-challenge profile waits for
+}
+
+// Answer gives the one-time code a signing-in OpenVPN profile waits for.
+func (t *netdTunnel) Answer(code string) error {
+	select {
+	case t.codes <- code:
+		return nil
+	default:
+		return errors.New("this VPN profile is not waiting for a code")
+	}
+}
+
+// askCode reports that the profile needs a one-time code and waits for it.
+func (t *netdTunnel) askCode() (string, error) {
+	t.rep(proto.Msg{T: proto.Need, Need: proto.NeedOTP})
+	select {
+	case code := <-t.codes:
+		t.rep(proto.Msg{T: proto.State, State: proto.Connecting})
+		return code, nil
+	case <-t.closing:
+		return "", errors.New("disconnected")
+	}
 }
 
 // startTunnel asks hostbay-netd to start v's tunnel. OpenVPN's states and
@@ -163,7 +187,7 @@ func (s *VPNService) startTunnel(v *store.VPN, sec store.VPNSecrets, up func(str
 		return nil, apperr.New(apperr.VPNFailed, fmt.Sprintf("Hostbay cannot connect %s profiles system-wide", v.Type)).
 			With("vpnId", v.ID).With("reason", "unsupported")
 	}
-	t := &netdTunnel{c: c, handle: m.Tunnel, up: up, rep: rep, closing: make(chan struct{}), done: make(chan struct{})}
+	t := &netdTunnel{c: c, handle: m.Tunnel, up: up, rep: rep, closing: make(chan struct{}), done: make(chan struct{}), codes: make(chan string, 1)}
 	rep(proto.Msg{T: proto.State, State: proto.Connecting})
 	ctx, cancel := context.WithTimeout(context.Background(), tunnelStartWait)
 	defer cancel()
@@ -220,7 +244,7 @@ func (t *netdTunnel) manage(r netd.Msg, user, pass string) {
 		t.end("OpenVPN did not connect in " + openvpnConnectWait.String() + ". Check the server address and your network.")
 	})
 	defer giveUp.Stop()
-	err = openvpn.Manage(conn, user, pass, r.MgmtPass, func(e openvpn.Event) {
+	err = openvpn.ManageOTP(conn, user, pass, r.MgmtPass, t.askCode, func(e openvpn.Event) {
 		switch e.State {
 		case openvpn.Connected:
 			giveUp.Stop()
