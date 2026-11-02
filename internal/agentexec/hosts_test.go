@@ -362,14 +362,21 @@ func TestHostJobAutoReadOnly(t *testing.T) {
 		"writes":     {Principal: "tokA", Host: "h1", Tool: ToolRun, Command: "rm -rf /tmp/x", AutoRead: true},
 		"chains":     {Principal: "tokA", Host: "h1", Tool: ToolRun, Command: "df -h; reboot", AutoRead: true},
 		"switch off": {Principal: "tokA", Host: "h1", Tool: ToolRun, Command: "df -h"},
+		"secret dir": {Principal: "tokA", Host: "h1", Tool: ToolList, Remote: "/home/u/.ssh", AutoRead: true},
+		"upload":     {Principal: "tokA", Host: "h1", Tool: ToolUpload, Remote: "/tmp/a", Local: "a", AutoRead: true},
+		"download":   {Principal: "tokA", Host: "h1", Tool: ToolDownload, Remote: "/tmp/a", Local: "a", AutoRead: true},
 	} {
 		res := startAsync(h, context.Background(), r)
 		p := pendingFor(t, h.Approvals)
-		if p.Bytes != r.Command {
+		if p.Bytes != r.bytes() {
 			t.Fatalf("%s: card = %q", name, p.Bytes)
 		}
 		h.Approvals.Answer(p.ID, false)
 		<-res
+	}
+	l := HostRequest{Principal: "tokA", Host: "h1", Tool: ToolList, Remote: "/var/log", AutoRead: true}
+	if v, _ := h.Start(context.Background(), l); v.State != JobDone {
+		t.Fatalf("listing with AutoRead = %+v", v)
 	}
 	if got := f.runs(); len(got) != 1 || got[0] != "h1: df -h" {
 		t.Fatalf("ran %q", got)

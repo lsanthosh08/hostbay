@@ -83,6 +83,19 @@ type HostRequest struct {
 	Create func() (w io.WriteCloser, discard func(), err error)
 }
 
+// readOnly reports whether AutoRead lets r run without a card. A folder
+// listing shows names only, but not under a name ReadOnly would refuse to
+// cat.
+func (r HostRequest) readOnly() bool {
+	switch {
+	case !r.AutoRead:
+		return false
+	case r.Tool == ToolList:
+		return !sensitiveArg(r.Remote)
+	}
+	return r.Tool == ToolRun && ReadOnly(r.Command)
+}
+
 // bytes is what the card shows and what runs.
 func (r HostRequest) bytes() string {
 	switch r.Tool {
@@ -168,10 +181,7 @@ func (h *HostJobs) Start(ctx context.Context, r HostRequest) (HostJobView, error
 	if err != nil {
 		return HostJobView{}, &Refusal{err.Error()}
 	}
-	auto := r.Tool == ToolRun && Match(r.Command, r.Allow)
-	if r.AutoRead && (r.Tool == ToolList || r.Tool == ToolRun && ReadOnly(r.Command)) {
-		auto = true
-	}
+	auto := r.Tool == ToolRun && Match(r.Command, r.Allow) || r.readOnly()
 	j := &HostJob{ID: newID(), Principal: r.Principal, Host: r.Host, state: JobAwaiting, done: make(chan struct{})}
 	if auto {
 		j.state = JobRunning
