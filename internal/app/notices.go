@@ -73,6 +73,11 @@ type osNotices struct {
 	once sync.Once
 	ok   bool
 	on   func(id, action string)
+
+	io   sync.Mutex      // one call into the system at a time
+	mu   sync.Mutex      // guards the maps, never held across a call into the system
+	sent map[string]bool // delivered, not yet withdrawn
+	todo map[string]bool // asked to Send, not yet run; true when withdrawn since
 }
 
 // LinkNotices shows each MCP request that waits as an OS notification with
@@ -80,7 +85,7 @@ type osNotices struct {
 // Hostbay. Where notifications are not available the window still comes
 // forward and the card is there as before.
 func LinkNotices(m *MCPService, ns *notifications.NotificationService) {
-	o := &osNotices{ns: ns, on: m.noticeAnswered}
+	o := &osNotices{ns: ns, on: m.noticeAnswered, sent: map[string]bool{}, todo: map[string]bool{}}
 	m.mu.Lock()
 	m.notice = o
 	m.mu.Unlock()
@@ -118,20 +123,55 @@ func (o *osNotices) setup() bool {
 	return o.ok
 }
 
+// Send posts the notification off the caller's goroutine: the first one
+// asks macOS for permission and waits for the answer, and the request it is
+// for is waiting on its caller.
 func (o *osNotices) Send(id, title, body string, actions bool) error {
-	if !o.setup() {
-		return nil
-	}
-	opts := notifications.NotificationOptions{ID: id, Title: title, Body: body, InterruptionLevel: notifications.InterruptionLevelTimeSensitive}
-	if actions {
-		opts.CategoryID = noticeCategory
-		return o.ns.SendNotificationWithActions(opts)
-	}
-	return o.ns.SendNotification(opts)
+	o.mu.Lock()
+	o.todo[id] = false
+	o.mu.Unlock()
+	go func() {
+		o.io.Lock()
+		defer o.io.Unlock()
+		o.mu.Lock()
+		withdrawn := o.todo[id]
+		delete(o.todo, id)
+		o.mu.Unlock()
+		if withdrawn || !o.setup() {
+			return
+		}
+		opts := notifications.NotificationOptions{ID: id, Title: title, Body: body, InterruptionLevel: notifications.InterruptionLevelTimeSensitive}
+		send := o.ns.SendNotification
+		if actions {
+			opts.CategoryID = noticeCategory
+			send = o.ns.SendNotificationWithActions
+		}
+		if send(opts) == nil {
+			o.mu.Lock()
+			o.sent[id] = true
+			o.mu.Unlock()
+		}
+	}()
+	return nil
 }
 
+// Clear withdraws the notification, or stops a Send that has not run yet.
+// It waits its turn behind a Send in progress, off the caller's goroutine.
 func (o *osNotices) Clear(id string) {
-	if o.ok {
-		_ = o.ns.RemoveNotification(id)
+	o.mu.Lock()
+	if _, queued := o.todo[id]; queued {
+		o.todo[id] = true
 	}
+	o.mu.Unlock()
+	go func() {
+		o.io.Lock()
+		defer o.io.Unlock()
+		o.mu.Lock()
+		was := o.sent[id]
+		delete(o.sent, id)
+		o.mu.Unlock()
+		if was {
+			_ = o.ns.RemoveNotification(id)
+		}
+	}()
 }
