@@ -123,7 +123,6 @@ export function HostsPanel() {
           icon: ImportIcon,
           items: [
             { label: t("action.importSshConfig"), onClick: manager.importSshConfig },
-            { label: t("action.importSshManager"), onClick: manager.importSshManager },
             { label: t("action.restore"), onClick: manager.restore },
           ],
         },

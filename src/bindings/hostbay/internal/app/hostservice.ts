@@ -16,9 +16,6 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as importer$0 from "../importer/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import * as sshmanager$0 from "../importer/sshmanager/models.js";
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore: Unused imports
 import * as vpnconf$0 from "../importer/vpnconf/models.js";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -110,17 +107,6 @@ export function ImportFrom(tool: string, path: string, password: string): $Cance
 }
 
 /**
- * ImportFromSshManager runs the SSH Manager import again on request, so a
- * file the first launch skipped can be retried (R31). It merges as the first
- * launch did, keeping SSH Manager's IDs, so hosts already imported are not
- * added twice, and a refusing keychain still brings hosts across without
- * their passwords (AE7). No SSH Manager folder is an error, not a report.
- */
-export function ImportFromSshManager(): $CancellablePromise<sshmanager$0.Report> {
-    return $Call.ByID(2777551322);
-}
-
-/**
  * ImportSshConfig imports a chosen ssh_config file, or a folder holding a
  * "config" file; with no path, ~/.ssh/config.
  */
@@ -129,8 +115,7 @@ export function ImportSshConfig(path: string | null): $CancellablePromise<$model
 }
 
 /**
- * ImportStore restores a Hostbay backup or an SSH Manager .sshmbak or JSON
- * export, adding what is not saved yet. It reports how many hosts it added
+ * ImportStore restores a Hostbay backup or a JSON export, adding what is not saved yet. It reports how many hosts it added
  * and which need a jump host or proxy chosen.
  */
 export function ImportStore(path: string, passphrase: string | null): $CancellablePromise<$models.StoreImport> {

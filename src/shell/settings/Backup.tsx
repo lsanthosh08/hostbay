@@ -231,9 +231,6 @@ export function Backup() {
           <Button variant="ghost" icon={ImportIcon} onClick={manager.importSshConfig}>
             {t("action.importSshConfig")}
           </Button>
-          <Button variant="ghost" icon={ImportIcon} onClick={manager.importSshManager}>
-            {t("action.importSshManager")}
-          </Button>
         </div>
       </Group>
       <Group title={t("import.title")} description={t("import.hint")}>

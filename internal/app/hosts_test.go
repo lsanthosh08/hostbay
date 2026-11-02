@@ -11,7 +11,6 @@ import (
 	"github.com/zalando/go-keyring"
 
 	"hostbay/internal/apperr"
-	"hostbay/internal/importer/sshmanager"
 	"hostbay/internal/secrets"
 	"hostbay/internal/store"
 	"hostbay/internal/vpn/detect"
@@ -168,71 +167,6 @@ func TestClearRecentForgetsLastConnected(t *testing.T) {
 	d, _ = creds.st.Data()
 	if got := d.Host(h.ID); got.LastConnected != "" || got.Revision != rev {
 		t.Fatalf("lastConnected %q, revision %d; want it cleared at revision %d", got.LastConnected, got.Revision, rev)
-	}
-}
-
-// sshManagerSource points the user config dir at a temp dir and copies SSH
-// Manager's fixture into it, returning where ImportFromSshManager reads.
-func sshManagerSource(t *testing.T) string {
-	t.Helper()
-	cfg := t.TempDir()
-	t.Setenv("HOME", cfg)            // macOS: $HOME/Library/Application Support
-	t.Setenv("XDG_CONFIG_HOME", cfg) // Linux
-	t.Setenv("AppData", cfg)         // Windows
-	src, err := sshmanager.DefaultSourceDir()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.CopyFS(src, os.DirFS("../../testdata/sshmanager/remote-ssh-manager")); err != nil {
-		t.Fatal(err)
-	}
-	return src
-}
-
-// Running the import again from settings picks up a file the first launch
-// skipped and adds nothing it already brought across (R31).
-func TestImportFromSshManagerRetriesSkippedFile(t *testing.T) {
-	s, creds, _ := newHostService(t, fakeVerifier(secrets.Passed))
-	src := sshManagerSource(t)
-	p := filepath.Join(src, "folders.json")
-	good, _ := os.ReadFile(p)
-	if err := os.WriteFile(p, good[:len(good)/2], 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if rep, err := sshmanager.ImportOnce(creds.st, creds.vault, src); err != nil || len(rep.Skipped) != 1 {
-		t.Fatalf("first launch = %+v, %v", rep, err)
-	}
-	if err := os.WriteFile(p, good, 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	rep, err := s.ImportFromSshManager()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !rep.Ran || rep.Hosts != 0 || rep.Folders != 2 || len(rep.Skipped) != 0 {
-		t.Fatalf("rerun report = %+v", rep)
-	}
-	rep, err = s.ImportFromSshManager()
-	if err != nil || rep.Hosts+rep.Folders+rep.Scripts+rep.Keys != 0 {
-		t.Fatalf("third run = %+v, %v", rep, err)
-	}
-	d, _ := creds.st.Data()
-	if len(d.Hosts.Items) != 8 || len(d.Folders.Items) != 2 {
-		t.Fatalf("store has %d hosts, %d folders", len(d.Hosts.Items), len(d.Folders.Items))
-	}
-}
-
-// With no SSH Manager folder, running the import says so instead of
-// reporting an empty success.
-func TestImportFromSshManagerNeedsSourceFolder(t *testing.T) {
-	s, _, _ := newHostService(t, fakeVerifier(secrets.Passed))
-	src := sshManagerSource(t)
-	if err := os.RemoveAll(src); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.ImportFromSshManager(); err == nil || !strings.Contains(err.Error(), src) {
-		t.Fatalf("err = %v, want one naming %s", err, src)
 	}
 }
 

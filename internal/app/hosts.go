@@ -11,7 +11,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 	"unicode"
 
 	"hostbay/internal/apperr"
@@ -23,7 +22,6 @@ import (
 	"hostbay/internal/importer/mremoteng"
 	"hostbay/internal/importer/navicat"
 	"hostbay/internal/importer/securecrt"
-	"hostbay/internal/importer/sshmanager"
 	"hostbay/internal/importer/uniterm"
 	"hostbay/internal/importer/virtviewer"
 	"hostbay/internal/importer/windterm"
@@ -477,8 +475,7 @@ func (s *HostService) export(ctx context.Context, id, path, passphrase string) e
 	return os.WriteFile(path, out, 0o600)
 }
 
-// ImportStore restores a Hostbay backup or an SSH Manager .sshmbak or JSON
-// export, adding what is not saved yet. It reports how many hosts it added
+// ImportStore restores a Hostbay backup or a JSON export, adding what is not saved yet. It reports how many hosts it added
 // and which need a jump host or proxy chosen.
 func (s *HostService) ImportStore(path string, passphrase *string) (StoreImport, error) {
 	raw, err := os.ReadFile(path)
@@ -500,27 +497,6 @@ func (s *HostService) ImportStore(path string, passphrase *string) (StoreImport,
 		return err
 	})
 	return out, err
-}
-
-// ImportFromSshManager runs the SSH Manager import again on request, so a
-// file the first launch skipped can be retried (R31). It merges as the first
-// launch did, keeping SSH Manager's IDs, so hosts already imported are not
-// added twice, and a refusing keychain still brings hosts across without
-// their passwords (AE7). No SSH Manager folder is an error, not a report.
-func (s *HostService) ImportFromSshManager() (sshmanager.Report, error) {
-	src, err := sshmanager.DefaultSourceDir()
-	if err != nil {
-		return sshmanager.Report{}, err
-	}
-	rep, err := sshmanager.Import(s.st, s.vault, src)
-	if err != nil {
-		return sshmanager.Report{}, err
-	}
-	if !rep.Ran {
-		return rep, fmt.Errorf("no SSH Manager data at %s", src)
-	}
-	// Recorded so the automatic first-launch import never runs after this.
-	return rep, s.st.MarkSSHManagerImported(time.Now().UTC())
 }
 
 // importers parse each tool's export (R54); the UI names them by these keys.

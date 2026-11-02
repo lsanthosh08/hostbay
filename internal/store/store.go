@@ -22,9 +22,8 @@ type Meta struct {
 
 // state is the store's own bookkeeping.
 type state struct {
-	DeviceID             string     `json:"deviceId"`
-	SSHManagerImportedAt *time.Time `json:"sshManagerImportedAt,omitempty"`
-	SettingsImported     bool       `json:"settingsImported,omitempty"` // the page's localStorage settings were handed over
+	DeviceID         string `json:"deviceId"`
+	SettingsImported bool   `json:"settingsImported,omitempty"` // the page's localStorage settings were handed over
 }
 
 // Store is an open, locked data folder.
@@ -122,14 +121,6 @@ func (s *Store) Touch(m *Meta) {
 	m.ModifiedAt = time.Now().UTC()
 }
 
-// SSHManagerImportedAt reports when the SSH Manager import ran, if it has.
-func (s *Store) SSHManagerImportedAt() (time.Time, bool) {
-	if s.state.SSHManagerImportedAt == nil {
-		return time.Time{}, false
-	}
-	return *s.state.SSHManagerImportedAt, true
-}
-
 // SettingsImported reports whether the page's legacy settings were handed
 // over, with or without anything to hand.
 func (s *Store) SettingsImported() bool { return s.state.SettingsImported }
@@ -138,17 +129,6 @@ func (s *Store) SettingsImported() bool { return s.state.SettingsImported }
 func (s *Store) MarkSettingsImported() error {
 	st := s.state
 	st.SettingsImported = true
-	if err := Save(s, stateName, st); err != nil {
-		return err
-	}
-	s.state = st
-	return nil
-}
-
-// MarkSSHManagerImported persists that the SSH Manager import ran at at.
-func (s *Store) MarkSSHManagerImported(at time.Time) error {
-	st := s.state
-	st.SSHManagerImportedAt = &at
 	if err := Save(s, stateName, st); err != nil {
 		return err
 	}

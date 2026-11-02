@@ -111,7 +111,6 @@ export function AppShell() {
     newHost: () => manager.newHost(),
     newFolder: () => manager.addFolder(null),
     importSshConfig: () => manager.importSshConfig(),
-    importSshManager: () => manager.importSshManager(),
     restore: () => manager.restore(),
     // The palette lists every shell; this opens the first, the system's own.
     openLocalShell: () =>
