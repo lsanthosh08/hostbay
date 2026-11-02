@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { pickLanguage, t } from ".";
+import { pickLanguage, t, tn } from ".";
 import { en } from "./en";
 
 it("returns the English string for a key", () => {
@@ -102,5 +102,13 @@ describe("language at start", () => {
   it("keeps a saved choice over the OS, and ignores an unsupported one", () => {
     expect(pickLanguage("fr", ["de-DE"])).toBe("fr");
     expect(pickLanguage("xx", ["de-DE"])).toBe("de");
+  });
+});
+
+describe("tn", () => {
+  it("uses the singular variant for exactly one and fills the count", () => {
+    expect(tn("vpnImport.saved", 1)).toBe(en["vpnImport.saved.one"]);
+    expect(tn("vpnImport.saved", 3)).toBe("Imported 3 VPN profiles");
+    expect(tn("vpnImport.saved", 0)).toBe("Imported 0 VPN profiles");
   });
 });

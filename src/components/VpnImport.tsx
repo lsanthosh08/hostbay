@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Vpn } from "../api";
 import { open, openFolder } from "../dialogs";
-import { t } from "../i18n";
+import { t, tn } from "../i18n";
 import { cancelVpnImport, commitVpnImport, previewVpnImport, scanVpnConfigs, type FoundVpnConfig, type VpnDraft, type VpnImportPreview } from "../importApi";
 import { RouteEditor } from "../shell/settings/Vpns";
 import { AUTH_LABEL, hasRouting, typeLabel, validateVpn, type VpnField } from "../shell/vpnForm";
@@ -148,6 +148,7 @@ export function VpnImport({ path, onClose, onSaved, more = 0 }: { path?: string;
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
   const [found, setFound] = useState<FoundVpnConfig[] | null>(null);
+  const [scanFailed, setScanFailed] = useState(false);
 
   const load = async (p: string) => {
     setBusy(true);
@@ -160,7 +161,11 @@ export function VpnImport({ path, onClose, onSaved, more = 0 }: { path?: string;
   };
   useEffect(() => {
     if (path) load(path);
-    else scanVpnConfigs().then(setFound, () => setFound([]));
+    else
+      scanVpnConfigs().then(setFound, () => {
+        setFound([]);
+        setScanFailed(true);
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path]);
 
@@ -177,7 +182,7 @@ export function VpnImport({ path, onClose, onSaved, more = 0 }: { path?: string;
       return;
     }
     if (kept.length) {
-      push("success", t("vpnImport.saved", { count: rep.vpns?.length ?? 0 }));
+      push("success", tn("vpnImport.saved", rep.vpns?.length ?? 0));
       reloadVpns();
       onSaved?.();
     }
@@ -196,13 +201,13 @@ export function VpnImport({ path, onClose, onSaved, more = 0 }: { path?: string;
   const draft = pre?.drafts[review.at];
   // Nothing is written until the last draft, so closing keeps nothing; ask when work would be lost.
   const cancel = async () => {
-    if (pre && review.kept.length && !(await confirm(t("vpnImport.cancelConfirm", { count: review.kept.length }), { confirmLabel: t("vpnImport.cancel") }))) return;
+    if (pre && review.kept.length && !(await confirm(tn("vpnImport.cancelConfirm", review.kept.length), { confirmLabel: t("vpnImport.cancel") }))) return;
     if (pre) cancelVpnImport(pre.token);
     onClose();
   };
   const last = !!pre && review.at === pre.drafts.length - 1;
   const pick = async () => {
-    const p = await open({ filters: [{ name: "VPN", extensions: FILE_TYPES }, { name: "All files", extensions: ["*"] }] });
+    const p = await open({ filters: [{ name: t("vpnImport.filterVpn"), extensions: FILE_TYPES }, { name: t("vpnImport.filterAll"), extensions: ["*"] }] });
     if (typeof p === "string") load(p);
   };
   const pickFolder = async () => {
@@ -226,7 +231,7 @@ export function VpnImport({ path, onClose, onSaved, more = 0 }: { path?: string;
               {t("vpnImport.skip")}
             </Button>
             <Button variant="primary" disabled={busy} onClick={() => step(true)}>
-              {last ? t("vpnImport.saveAll", { count: review.kept.length + 1 }) : t("vpnImport.keep")}
+              {last ? tn("vpnImport.saveAll", review.kept.length + 1) : t("vpnImport.keep")}
             </Button>
           </>
         ) : (
@@ -236,7 +241,7 @@ export function VpnImport({ path, onClose, onSaved, more = 0 }: { path?: string;
         )
       }
     >
-      {more > 0 && <p className="text-xs text-muted mb-2">{t("vpnImport.more", { count: more })}</p>}
+      {more > 0 && <p className="text-xs text-muted mb-2">{tn("vpnImport.more", more)}</p>}
       {pre && review.at === 0 && <PreviewNotes pre={pre} />}
       {draft && value ? (
         <VpnDraftView key={draft.profile.id} draft={draft} value={value} tried={tried} onChange={setValue} />
@@ -257,7 +262,9 @@ export function VpnImport({ path, onClose, onSaved, more = 0 }: { path?: string;
             <section className="flex flex-col gap-1">
               <h3 className="text-sm font-semibold">{t("vpnImport.found")}</h3>
               {found.length === 0 ? (
-                <p className="text-xs text-muted">{t("vpnImport.foundNone")}</p>
+                <p className={scanFailed ? "text-xs text-danger" : "text-xs text-muted"} role={scanFailed ? "alert" : undefined}>
+                  {t(scanFailed ? "vpnImport.scanFailed" : "vpnImport.foundNone")}
+                </p>
               ) : (
                 <ul className="flex flex-col">
                   {found.map((f) => (

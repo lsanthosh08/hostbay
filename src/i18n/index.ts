@@ -72,6 +72,12 @@ export const language = startLanguage();
 const table = TABLES[language] ?? {};
 if (typeof document !== "undefined") document.documentElement.lang = language;
 
+/** `t` for a count: uses the key's ".one" variant, when en.ts has one, for exactly 1. */
+export function tn(key: MessageKey, n: number, vars?: Record<string, string | number>): string {
+  const one = `${key}.one` as MessageKey;
+  return t(n === 1 && one in en ? one : key, { count: n, ...vars });
+}
+
 /** The string for `key` in the current language, or in English when the
  *  table lacks it, with {name} placeholders filled from `vars`. A key
  *  missing from en.ts shows itself (and fails src/i18n/i18n.test.ts). */

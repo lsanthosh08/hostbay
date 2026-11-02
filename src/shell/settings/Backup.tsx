@@ -104,7 +104,7 @@ function ImportFromApp() {
   const info = IMPORT_TOOLS.find((x) => x.id === tool)!;
 
   const choose = async () => {
-    const p = await open({ filters: [{ name: info.name, extensions: info.extensions }, { name: "All files", extensions: ["*"] }] });
+    const p = await open({ filters: [{ name: info.name, extensions: info.extensions }, { name: t("vpnImport.filterAll"), extensions: ["*"] }] });
     if (typeof p === "string") setPath(p);
   };
   const skipped = report?.r.skipped ?? [];
