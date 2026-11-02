@@ -646,7 +646,7 @@ func TestVPNClientWithoutACommandLineIsLeftToItsApp(t *testing.T) {
 	if err := e.svc.ConnectVPNClient(context.Background(), v.ID); err == nil || !strings.Contains(err.Error(), "client program") {
 		t.Fatalf("connect: %v", err)
 	}
-	if err := e.svc.DisconnectVPNClient(context.Background(), v.ID); err == nil || !strings.Contains(err.Error(), "own app") {
+	if err := e.svc.DisconnectVPNClient(context.Background(), v.ID); err == nil || !strings.Contains(err.Error(), "its own app") {
 		t.Fatalf("disconnect: %v", err)
 	}
 	if err := e.svc.ConnectVPNClient(context.Background(), "nope"); err == nil {

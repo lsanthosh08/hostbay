@@ -232,7 +232,7 @@ func (s *VPNService) ConnectVPNClient(ctx context.Context, id string) error {
 // drive is left to the user, whose app holds the connection.
 func (s *VPNService) DisconnectVPNClient(ctx context.Context, id string) error {
 	return s.driveClient(ctx, id, sase.Disconnect, func(string) error {
-		return errors.New("disconnect this VPN in its own app")
+		return errors.New("Disconnect this VPN in its own app.")
 	})
 }
 
