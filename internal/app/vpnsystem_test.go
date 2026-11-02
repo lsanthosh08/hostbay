@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -193,6 +194,39 @@ func TestOpenVPNConnectsThroughTheHelperAndManagement(t *testing.T) {
 	}
 	if !slices.Equal(f.stopped(), []string{start.Tunnel}) || stateOf(e.svc, v.ID).Status != VPNDisconnected {
 		t.Fatalf("stopped %v, state %+v", f.stopped(), stateOf(e.svc, v.ID))
+	}
+}
+
+// OpenVPN retries a server that never answers for ever; the profile fails
+// after openvpnConnectWait instead of staying "connecting".
+func TestOpenVPNThatNeverConnectsFails(t *testing.T) {
+	old := openvpnConnectWait
+	openvpnConnectWait = 100 * time.Millisecond
+	t.Cleanup(func() { openvpnConnectWait = old })
+	e := newVPNEnv(t, vpntest.OK)
+	f := useTunnels(e.svc)
+	dir, err := os.MkdirTemp("/tmp", "mg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "m.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		if c, err := ln.Accept(); err == nil {
+			defer c.Close()
+			io.Copy(io.Discard, c) // listens, never says CONNECTED
+		}
+	}()
+	f.reply = func(netd.Msg) (netd.Msg, error) { return netd.Msg{Mgmt: sock}, nil }
+	v := saveOpenVPN(t, e.svc)
+	_, err = e.svc.ConnectVPN(context.Background(), v.ID)
+	if err == nil || !strings.Contains(err.Error(), "did not connect") {
+		t.Fatalf("err %v", err)
 	}
 }
 
