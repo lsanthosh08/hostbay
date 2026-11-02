@@ -337,3 +337,19 @@ func TestRouteGoneRecognisesTheToolsMissingRouteErrors(t *testing.T) {
 		t.Error("a permission error taken for a gone route")
 	}
 }
+
+func TestDeletingAVPNDropsItsRoutingState(t *testing.T) {
+	e := newRoutingEnv(t)
+	id := e.sase.ID
+	e.svc.mu.Lock()
+	e.svc.state.Profiles[id], e.svc.last[id], e.svc.fights[id] = RouteFighting, e.svc.now(), 3
+	e.svc.mu.Unlock()
+	if err := e.vpn.svc.DeleteVPN(id); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.mu.Lock()
+	defer e.svc.mu.Unlock()
+	if _, ok := e.svc.state.Profiles[id]; ok || len(e.svc.last) != 0 || len(e.svc.fights) != 0 {
+		t.Fatalf("state kept for a deleted profile: %v %v %v", e.svc.state.Profiles, e.svc.last, e.svc.fights)
+	}
+}

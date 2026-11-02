@@ -107,6 +107,13 @@ func NewRoutingService(st *store.Store, vpns *VPNService, nd *NetdService) *Rout
 		s.kick()
 	}
 	nd.onEvent = s.kick
+	vpns.forgotten = func(id string) {
+		s.mu.Lock()
+		delete(s.state.Profiles, id)
+		delete(s.last, id)
+		delete(s.fights, id)
+		s.mu.Unlock()
+	}
 	vpns.checkConnect = s.conflict
 	vpns.tunnels = func() tunnelClient {
 		c, _ := nd.client().(tunnelClient)

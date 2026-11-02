@@ -62,7 +62,20 @@ func (s *VPNService) refresh(ctx context.Context) error {
 		return err
 	}
 	_, _, err = s.labelNow(ctx, d, l)
+	s.reconcile(d)
 	return err
+}
+
+// reconcile stops the run of a profile that is gone: sync can delete one
+// while its tunnel is up, and nothing else would end it.
+func (s *VPNService) reconcile(d *store.Data) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id := range s.runs {
+		if d.VPN(id) == nil {
+			s.stop(id)
+		}
+	}
 }
 
 // labelNow is refresh for the profiles in d and l, returning what detection
