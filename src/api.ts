@@ -1368,13 +1368,14 @@ export const aiAskSql = (databaseId: string, question: string) => unlocking(() =
 
 // Settings > MCP (R63, KTD35). No call returns a token: Go copies a new one
 // to the clipboard, and the page sees only names and dates.
-export type MCPStatus = { enabled: boolean; running: boolean; port: number; endpoint: string; error?: string; folder: string };
+export type MCPStatus = { enabled: boolean; running: boolean; port: number; endpoint: string; error?: string; folder: string; autoReadOnly: boolean };
 export type MCPToken = { id: string; name: string; created: number; lastUsed?: number };
 export type MCPNewToken = { token: MCPToken; copied: boolean; config: string; claudeCode: string };
 export type MCPAllowEntry = { tokenId: string; tokenName: string; hostId: string; hostLabel: string; command: string };
 export const mcpStatus = () => MCPService.Status() as Promise<MCPStatus>;
 // On asks in a dialog Go opens, then OS verification.
 export const mcpSetEnabled = (on: boolean) => MCPService.SetEnabled(on);
+export const mcpSetAutoReadOnly = (on: boolean) => MCPService.SetAutoReadOnly(on);
 export const mcpSetPort = (port: number) => MCPService.SetPort(port);
 export const mcpListTokens = () => list(MCPService.ListTokens()) as Promise<MCPToken[]>;
 export const mcpCreateToken = (name: string) => MCPService.CreateToken(name) as Promise<MCPNewToken>;

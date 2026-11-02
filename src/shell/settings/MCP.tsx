@@ -57,11 +57,27 @@ function Server({ status, onChange }: { status: MCPStatus | null; onChange: () =
     onChange();
   };
 
+  const toggleReadOnly = async (on: boolean) => {
+    try {
+      await api.mcpSetAutoReadOnly(on);
+    } catch (e) {
+      failed(e);
+    }
+    onChange();
+  };
+
   return (
     <Group title={t("mcp.server")} description={t("mcp.serverHint")}>
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" disabled={!status} checked={!!status?.enabled} onChange={(e) => toggle(e.target.checked)} />
         {t("mcp.enable")}
+      </label>
+      <label className="flex items-start gap-2 text-sm">
+        <input type="checkbox" className="mt-1" disabled={!status} checked={!!status?.autoReadOnly} onChange={(e) => toggleReadOnly(e.target.checked)} />
+        <span>
+          {t("mcp.autoReadOnly")}
+          <span className="block text-xs text-muted">{t("mcp.autoReadOnlyHint")}</span>
+        </span>
       </label>
       <form
         className="flex items-end gap-2"

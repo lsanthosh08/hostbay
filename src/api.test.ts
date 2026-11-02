@@ -136,6 +136,7 @@ describe("api bridge", () => {
       "RemoveAllowEntry",
       "RemoveVPNAllow",
       "RevokeToken",
+      "SetAutoReadOnly",
       "SetEnabled",
       "SetPort",
       "Status",

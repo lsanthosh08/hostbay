@@ -527,6 +527,11 @@ export interface MCPStatus {
      */
     "error"?: string;
     "folder": string;
+
+    /**
+     * AutoReadOnly says read-only requests run without a card.
+     */
+    "autoReadOnly": boolean;
 }
 
 /**

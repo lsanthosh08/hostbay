@@ -94,6 +94,15 @@ export function RevokeToken(id: string): $CancellablePromise<void> {
 }
 
 /**
+ * SetAutoReadOnly lets MCP clients list folders and run read-only commands
+ * without a card, or asks for every request again. Turning it on widens
+ * what runs unattended, so it asks in a dialog and then for verification.
+ */
+export function SetAutoReadOnly(on: boolean): $CancellablePromise<void> {
+    return $Call.ByID(1142732755, on);
+}
+
+/**
  * SetEnabled turns the server on, after the dialog and verification, or off.
  */
 export function SetEnabled(on: boolean): $CancellablePromise<void> {
