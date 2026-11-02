@@ -135,8 +135,8 @@ func (e *Engine) Run(ctx context.Context, report func(proto.Msg)) {
 		fail(proto.Msg{Reason: "Cannot start OpenConnect: " + err.Error()})
 		return
 	}
-	if e.password != "" {
-		io.WriteString(stdin, e.password+"\n") // read while openconnect parses its options
+	if secret := e.stdinSecret(); secret != "" {
+		io.WriteString(stdin, secret+"\n") // read while openconnect parses its options
 	}
 	e.mu.Lock()
 	e.stdin, e.report = stdin, report

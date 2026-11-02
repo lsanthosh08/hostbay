@@ -123,6 +123,7 @@ tasks:
       - task: build:rdp-helper:universal
       - task: build:netd:universal
       - task: build:vpn:universal
+      - task: build:sso
     cmds:
       - task: create:app:bundle
 
@@ -137,6 +138,25 @@ tasks:
       - lipo -create -output ../{{.BIN_DIR}}/hostbay-rdp-helper target/aarch64-apple-darwin/release/hostbay-rdp-helper target/x86_64-apple-darwin/release/hostbay-rdp-helper
     env:
       MACOSX_DEPLOYMENT_TARGET: "13.0"
+
+  build:sso:
+    summary: Builds hostbay-sso, the SAML sign-in window, against the build machine's libopenconnect
+    desc: |
+      Skipped with a message when this machine has no openconnect (brew install
+      openconnect). It links Homebrew's single-architecture library, so it
+      carries the build machine's architecture only, as the bundled openconnect does.
+    cmds:
+      - cmd: |
+          oc=$(command -v openconnect || true)
+          if [ -z "$oc" ]; then
+            echo "WARNING: openconnect not found: building without hostbay-sso, so gateways that sign in only in a window will fail (brew install openconnect, then rebuild)" >&2
+            exit 0
+          fi
+          prefix=$(dirname "$(dirname "$(realpath "$oc")")")
+          mkdir -p {{.BIN_DIR}}
+          clang -fobjc-arc -Wall -mmacosx-version-min=13.0 -I"$prefix/include" -L"$prefix/lib" -lopenconnect \
+            -framework Cocoa -framework WebKit cmd/hostbay-sso/main.m -o {{.BIN_DIR}}/hostbay-sso
+        platforms: [darwin]
 
   build:netd:universal:
     summary: Builds hostbay-netd for arm64 and amd64 and joins them into one universal binary in bin/
@@ -238,6 +258,13 @@ tasks:
             sh build/darwin/bundle-openconnect.sh "{{.BIN_DIR}}/{{.APP_BUNDLE}}.app/Contents" "$(command -v openvpn)"
           else
             echo "openvpn not found: building without bundled OpenVPN (brew install openvpn to bundle it)"
+          fi
+        platforms: [darwin]
+      # hostbay-sso opens the sign-in window for gateways that offer no browser mode; its
+      # libopenconnect is the one openconnect already brought into Frameworks.
+      - cmd: |
+          if [ -f "{{.BIN_DIR}}/hostbay-sso" ]; then
+            sh build/darwin/bundle-openconnect.sh "{{.BIN_DIR}}/{{.APP_BUNDLE}}.app/Contents" "{{.BIN_DIR}}/hostbay-sso"
           fi
         platforms: [darwin]
       - cp build/darwin/Info.plist "{{.BIN_DIR}}/{{.APP_BUNDLE}}.app/Contents"
