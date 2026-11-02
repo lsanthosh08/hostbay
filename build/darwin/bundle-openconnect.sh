@@ -22,7 +22,7 @@ set -eu
 contents=${1:?usage: bundle-openconnect.sh <App.app/Contents> [openconnect binary]}
 src=${2:-$(command -v openconnect || true)}
 if [ -z "$src" ]; then
-	echo "openconnect not found: building without bundled OpenConnect (brew install openconnect to bundle it)"
+	echo "WARNING: openconnect not found: building without bundled OpenConnect, so Cisco AnyConnect profiles will fail with 'OpenConnect is not installed' (brew install openconnect, then rebuild)" >&2
 	exit 0
 fi
 if ! command -v otool >/dev/null 2>&1; then
