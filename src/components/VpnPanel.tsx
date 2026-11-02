@@ -175,6 +175,9 @@ export function VpnSignIn({ id, state }: { id: string; state: VpnState }) {
   );
 }
 
+/** Whether Hostbay connects this external profile itself: Harmony SASE's app has a command line. */
+const driven = (v: Vpn) => v.type === "perimeter81" && !!v.clientPath;
+
 /** The VPN list without its data source, so tests can render it. */
 export function VpnPanelView(p: {
   vpns: Vpn[];
@@ -200,6 +203,11 @@ export function VpnPanelView(p: {
   onAddDetected?: (d: DetectedVpn) => void;
   /** Opens an external profile's own app, which connects it (R3). */
   onLaunch?: (id: string) => void;
+  /** Connects or disconnects an external profile whose app has a command line, with no window (Harmony SASE). */
+  onClientConnect?: (id: string) => void;
+  onClientDisconnect?: (id: string) => void;
+  /** Profiles being connected or disconnected this way right now. */
+  busy?: string[];
 }) {
   const counts = tagCounts(p.hosts, p.vpns);
   // Chips for the tags profiles carry; each counts hosts and profiles.
@@ -287,7 +295,15 @@ export function VpnPanelView(p: {
                 <button className="truncate text-left flex-1" onClick={() => p.onEdit(v)} title={t("vpn.edit", { name: v.name })}>
                   {v.name}
                 </button>
-                {external ? (
+                {external && driven(v) ? (
+                  <IconButton
+                    size="sm"
+                    disabled={p.busy?.includes(v.id)}
+                    label={t(s?.status === "connected" ? "vpn.disconnectNamed" : "vpn.connectNamed", { name: v.name })}
+                    icon={s?.status === "connected" ? StopIcon : StartIcon}
+                    onClick={() => (s?.status === "connected" ? p.onClientDisconnect?.(v.id) : p.onClientConnect?.(v.id))}
+                  />
+                ) : external ? (
                   <IconButton size="sm" label={t("vpn.openClientNamed", { name: v.name })} icon={StartIcon} onClick={() => p.onLaunch?.(v.id)} />
                 ) : (
                   <IconButton
@@ -389,6 +405,14 @@ export function VpnPanel() {
     if (v) setAnnounce(t("vpn.announce", { name: v.name, state: vpnStatusText(changed) }));
   }, [states, vpns]);
 
+  const [busy, setBusy] = useState<string[]>([]);
+  const drive = (id: string, call: (id: string) => Promise<unknown>) => {
+    setBusy((b) => [...b, id]);
+    call(id)
+      .catch((e) => push("error", api.errorInfo(e).message))
+      .finally(() => setBusy((b) => b.filter((x) => x !== id)));
+  };
+
   const using: Record<string, string[]> = {};
   for (const c of sessions)
     if (c.host.vpnId && c.status === "live" && !c.dialing) (using[c.host.vpnId] ??= []).push(c.host.alias);
@@ -433,6 +457,9 @@ export function VpnPanel() {
           )
         }
         onLaunch={(id) => api.launchVpnClient(id).catch((e) => push("error", api.errorInfo(e).message))}
+        busy={busy}
+        onClientConnect={(id) => drive(id, api.connectVpnClient)}
+        onClientDisconnect={(id) => drive(id, api.disconnectVpnClient)}
       />
       <BrowserMappings vpns={vpns} />
       {importing.length > 0 && <VpnImport key={importing[0].id} path={importing[0].path} onClose={() => setImporting((q) => q.slice(1))} />}

@@ -16,6 +16,7 @@ import (
 	"hostbay/internal/apperr"
 	"hostbay/internal/store"
 	"hostbay/internal/vpn/detect"
+	"hostbay/internal/vpn/sase"
 )
 
 // vpnDetectEvery is how often external profiles' states follow detection.
@@ -218,4 +219,46 @@ func (s *VPNService) LaunchVPNClient(id string) error {
 	}
 	go cmd.Wait()
 	return nil
+}
+
+// ConnectVPNClient connects external profile id through its client program's
+// own command line when it has one (Harmony SASE, Perimeter 81), so no app
+// window opens; any other client is opened for the user to connect (R3).
+func (s *VPNService) ConnectVPNClient(ctx context.Context, id string) error {
+	return s.driveClient(ctx, id, sase.Connect, s.LaunchVPNClient)
+}
+
+// DisconnectVPNClient disconnects it the same way. A client Hostbay cannot
+// drive is left to the user, whose app holds the connection.
+func (s *VPNService) DisconnectVPNClient(ctx context.Context, id string) error {
+	return s.driveClient(ctx, id, sase.Disconnect, func(string) error {
+		return errors.New("disconnect this VPN in its own app")
+	})
+}
+
+func (s *VPNService) driveClient(ctx context.Context, id string, do func(context.Context, string) error, other func(string) error) error {
+	d, err := s.st.Data()
+	if err != nil {
+		return err
+	}
+	l, err := s.st.Local()
+	if err != nil {
+		return err
+	}
+	v := d.VPN(id)
+	if v == nil || v.Tier != store.VPNTierExternal {
+		return errors.New("this profile is not an external VPN")
+	}
+	bin := ""
+	if v.Type == "perimeter81" {
+		bin = sase.Bin(l.VPNClients[id])
+	}
+	if bin == "" {
+		return other(id)
+	}
+	if err := do(ctx, bin); err != nil {
+		return err
+	}
+	// Its tunnel takes a moment to show; the next detection pass sees it.
+	return s.refresh(ctx)
 }

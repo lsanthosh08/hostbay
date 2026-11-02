@@ -637,3 +637,19 @@ func TestVPNTunnelsListsWhatDetectionSees(t *testing.T) {
 		t.Fatalf("tunnels: %+v, %v", got, err)
 	}
 }
+
+// A client Hostbay cannot drive is left to its own app: connecting with no
+// client program saved asks for one, and disconnecting points at the app.
+func TestVPNClientWithoutACommandLineIsLeftToItsApp(t *testing.T) {
+	e := newVPNEnv(t, vpntest.OK)
+	v := saveExternal(t, e.svc, "Harmony SASE", nil)
+	if err := e.svc.ConnectVPNClient(context.Background(), v.ID); err == nil || !strings.Contains(err.Error(), "client program") {
+		t.Fatalf("connect: %v", err)
+	}
+	if err := e.svc.DisconnectVPNClient(context.Background(), v.ID); err == nil || !strings.Contains(err.Error(), "own app") {
+		t.Fatalf("disconnect: %v", err)
+	}
+	if err := e.svc.ConnectVPNClient(context.Background(), "nope"); err == nil {
+		t.Fatal("an unknown profile connected")
+	}
+}
