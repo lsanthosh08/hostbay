@@ -258,6 +258,7 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
   };
 
   const save = async () => {
+    if (ovpnNew) return; // Enter in the name field submits too; the button is only disabled
     setTried(true);
     if (Object.keys(errors).length) return;
     setBusy(true);
@@ -521,9 +522,9 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
       </form>
       {importing && (
         <VpnImport
-          onClose={() => {
-            setImporting(false);
-            reloadVpns();
+          onClose={() => setImporting(false)}
+          // A blank new profile has nothing left to do once its import saved; cancelling keeps the form.
+          onSaved={() => {
             if (!v.id) onClose();
           }}
         />
