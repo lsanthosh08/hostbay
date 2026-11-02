@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"hostbay/internal/apperr"
+	"hostbay/internal/netd"
 	"hostbay/internal/store"
 	"hostbay/internal/vpn"
 	"hostbay/internal/vpn/proto"
@@ -24,6 +25,11 @@ var (
 	// the backoff over: one that drops at once (a password rejected after
 	// the first connect) keeps backing off, so it cannot lock an account.
 	vpnStableUp = 2 * time.Minute
+	// vpnRetryTries is how many reconnects in a row may fail without the
+	// profile ever staying up (vpnStableUp) before Hostbay stops: a refused
+	// or changed password would otherwise be sent every minute until the
+	// account locks.
+	vpnRetryTries = 6
 )
 
 // vpnRun is one connected profile, across reconnects.
@@ -195,13 +201,17 @@ func (s *VPNService) conflict(id string) error {
 // cannot fix either.
 func refusedStart(err error) bool {
 	var ae *apperr.Error
+	var ne *netd.Error
+	if errors.As(err, &ne) { // the helper's own refusal, a profile Build will not accept
+		return ne.Code == netd.CodeRefused || ne.Code == netd.CodeInvalid
+	}
 	return errors.As(err, &ae) && ae.Code == apperr.VPNFailed && (ae.Details["reason"] == "conflict" || ae.Details["reason"] == "invalid")
 }
 
 // run brings the profile up and keeps it up: a dropped profile reconnects,
 // with backoff, while its auto-reconnect setting is on (R18).
 func (s *VPNService) run(id string, r *vpnRun) {
-	wait, wasUp := vpnRetryMin, false
+	wait, wasUp, tries := vpnRetryMin, false, 0
 	for {
 		end, err := s.attempt(id, r)
 		var m proto.Msg
@@ -225,8 +235,9 @@ func (s *VPNService) run(id string, r *vpnRun) {
 		}
 		up := m.State == proto.Dropped
 		if up && upFor >= vpnStableUp {
-			wait = vpnRetryMin
+			wait, tries = vpnRetryMin, 0
 		}
+		tries++
 		wasUp = wasUp || up
 		// A coded failure (an untrusted certificate, an openconnect too old)
 		// or a refused start needs the user: retrying cannot fix it.
@@ -234,6 +245,10 @@ func (s *VPNService) run(id string, r *vpnRun) {
 
 		d, _ := s.st.Data()
 		again := wasUp && !needsUser && d != nil && d.VPN(id) != nil && d.VPN(id).AutoReconnect
+		gaveUp := again && tries >= vpnRetryTries
+		if gaveUp {
+			again = false
+		}
 		s.mu.Lock()
 		if s.runs[id] != r { // disconnected
 			s.mu.Unlock()
@@ -248,6 +263,10 @@ func (s *VPNService) run(id string, r *vpnRun) {
 		}
 		if wasUp && !needsUser {
 			st.Status, st.err = VPNDropped, nil
+		}
+		if gaveUp {
+			st.Status = VPNFailed
+			st.Reason = fmt.Sprintf("Hostbay stopped reconnecting after %d tries. Check the sign-in, then connect again. %s", tries, st.Reason)
 		}
 		if !again {
 			delete(s.runs, id)

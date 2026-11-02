@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -593,6 +594,46 @@ func TestReconnectBacksOffWhenItDropsAtOnce(t *testing.T) {
 	e.svc.DisconnectVPN(a.ID)
 	if n := f.started(); n < 2 || n > 6 {
 		t.Fatalf("%d starts in 600ms, want the waits to double", n)
+	}
+}
+
+// A profile that keeps dropping at once, a rejected password say, is retried
+// a few times and then left for the user, not sent every minute forever.
+func TestReconnectStopsAfterRepeatedQuickDrops(t *testing.T) {
+	oldMin, oldMax := vpnRetryMin, vpnRetryMax
+	vpnRetryMin, vpnRetryMax = time.Millisecond, 2*time.Millisecond
+	t.Cleanup(func() { vpnRetryMin, vpnRetryMax = oldMin, oldMax })
+	e := newVPNEnv(t, vpntest.OK)
+	f := useTunnels(e.svc)
+	f.reply = func(m netd.Msg) (netd.Msg, error) {
+		go func() {
+			f.event(netd.Msg{Tunnel: m.Tunnel, State: netd.TunnelUp, Iface: "utun7"})
+			f.event(netd.Msg{Tunnel: m.Tunnel, State: netd.TunnelEnded, Reason: "AUTH_FAILED"})
+		}()
+		return netd.Msg{}, nil
+	}
+	a := saveSystemWG(t, e.svc, "Office", true)
+	e.svc.ConnectVPN(context.Background(), a.ID)
+	st := e.waitFor(t, a.ID, VPNFailed)
+	if !strings.Contains(st.Reason, "stopped reconnecting") {
+		t.Fatalf("state %+v", st)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if n := f.started(); n != vpnRetryTries {
+		t.Fatalf("%d starts, want %d", n, vpnRetryTries)
+	}
+}
+
+// The helper refusing a start is a profile Hostbay cannot connect; retrying
+// cannot change that.
+func TestRefusedStartRecognisesHelperRefusals(t *testing.T) {
+	for _, c := range []string{netd.CodeRefused, netd.CodeInvalid} {
+		if !refusedStart(fmt.Errorf("start: %w", &netd.Error{Code: c, Reason: "no"})) {
+			t.Errorf("helper %s not taken for a refusal", c)
+		}
+	}
+	if refusedStart(errors.New("timeout")) || refusedStart(&netd.Error{Code: "internal"}) {
+		t.Error("a transient failure taken for a refusal")
 	}
 }
 
