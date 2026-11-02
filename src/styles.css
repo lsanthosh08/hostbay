@@ -306,8 +306,8 @@ code,
 [data-pane][data-drop="top"]::after { bottom: 50%; }
 [data-pane][data-drop="bottom"]::after { top: 50%; }
 
-/* Toasts rise above an open drawer's footer, so they never cover its Save
+/* Toasts rise above an open drawer's or dialog's footer, so they never cover its Save
    (src/ui/toast.tsx, src/ui/Dialog.tsx). */
-body:has([data-drawer]) [data-toasts] {
+body:has([data-drawer], [role="dialog"]) [data-toasts] {
   bottom: 5rem;
 }

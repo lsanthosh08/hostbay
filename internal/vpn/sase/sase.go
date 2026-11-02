@@ -78,15 +78,15 @@ func call(ctx context.Context, bin, cmd, want string) error {
 	case st == want, cmd == "disconnect" && strings.Contains(out, "disconnected"):
 		return nil
 	case st != "":
-		return fmt.Errorf("the SASE app reports %q after %s", st, cmd)
+		return fmt.Errorf("the VPN app still says %q after %s; try again in a moment", st, cmd)
 	}
 	if msg := message(out); msg != "" {
 		return errors.New(msg)
 	}
 	if err != nil {
-		return fmt.Errorf("running the SASE app's %s: %w", cmd, err)
+		return fmt.Errorf("the VPN app's %s did not run: %w", cmd, err)
 	}
-	return fmt.Errorf("the SASE app gave no answer to %s", cmd)
+	return fmt.Errorf("the VPN app gave no answer to %s", cmd)
 }
 
 // field is the value of a "Name:   value" line of the CLI's output.

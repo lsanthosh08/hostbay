@@ -6,6 +6,7 @@ import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
 import { DeleteIcon, StartIcon } from "../ui/icons";
 import { Select } from "../ui/Select";
+import { usePrompt } from "../ui/prompt";
 import { useToast } from "../ui/toast";
 
 /** The mapped browser profiles, each launched through its VPN, and a row to
@@ -33,7 +34,7 @@ export function BrowserMappingsView(p: {
     };
   };
   return (
-    <section className="px-2 pb-2 border-t border-line" aria-label={t("vpn.browsers")}>
+    <section className="px-2 pb-2 border-t border-line shrink-0 max-h-[40%] overflow-auto" aria-label={t("vpn.browsers")}>
       <h3 className="px-2 pt-2 text-xs font-semibold text-muted">{t("vpn.browsers")}</h3>
       <p className="px-2 text-xs text-muted">{t("vpn.browsersHint")}</p>
       <ul>
@@ -43,7 +44,9 @@ export function BrowserMappingsView(p: {
           return (
             <li key={m.browser + "/" + m.profile} className="flex flex-col px-2 py-1 text-sm">
               <div className="flex items-center gap-2">
-                <span className="truncate flex-1">{t("vpn.browserMapping", { browser: l.browser, profile: l.profile, vpn })}</span>
+                <span className="truncate flex-1" title={t("vpn.browserMapping", { browser: l.browser, profile: l.profile, vpn })}>
+                  {t("vpn.browserMapping", { browser: l.browser, profile: l.profile, vpn })}
+                </span>
                 <IconButton size="sm" label={t("vpn.browserLaunch", { profile: l.profile, vpn })} icon={StartIcon} onClick={() => p.onLaunch(m)} />
                 <IconButton size="sm" label={t("vpn.browserRemove", { profile: l.profile })} icon={DeleteIcon} onClick={() => p.onRemove(m)} />
               </div>
@@ -54,6 +57,8 @@ export function BrowserMappingsView(p: {
       </ul>
       {p.browsers.length === 0 ? (
         <p className="px-2 text-xs text-muted">{t("vpn.browserNone")}</p>
+      ) : appVpns.length === 0 ? (
+        <p className="px-2 text-xs text-muted">{t("vpn.browserNoAppVpn")}</p>
       ) : (
         <div className="flex flex-wrap items-center gap-1 px-2 pt-1">
           <Select compact aria-label={t("vpn.browserPick")} value={pick.browser} onChange={(e) => setDraft({ ...draft, browser: e.target.value, profile: "" })}>
@@ -90,6 +95,7 @@ export function BrowserMappingsView(p: {
  *  and the saved mappings. */
 export function BrowserMappings({ vpns }: { vpns: Vpn[] }) {
   const { push } = useToast();
+  const { confirm } = usePrompt();
   const [browsers, setBrowsers] = useState<InstalledBrowser[]>([]);
   const [mappings, setMappings] = useState<BrowserMapping[]>([]);
   const fail = (e: unknown) => push("error", api.errorInfo(e).message);
@@ -106,7 +112,9 @@ export function BrowserMappings({ vpns }: { vpns: Vpn[] }) {
       mappings={mappings}
       vpns={vpns}
       onSave={(m) => api.saveBrowserMapping(m).then(reload, fail)}
-      onRemove={(m) => api.deleteBrowserMapping(m.browser, m.profile).then(reload, fail)}
+      onRemove={async (m) => {
+        if (await confirm(t("vpn.browserRemoveConfirm"), { confirmLabel: t("vpnForm.deleteButton") })) api.deleteBrowserMapping(m.browser, m.profile).then(reload, fail);
+      }}
       onLaunch={(m) => api.launchBrowser(m.browser, m.profile).catch(fail)}
     />
   );
