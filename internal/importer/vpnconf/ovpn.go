@@ -154,10 +154,19 @@ func ovpn(b *importer.Builder, name, text, dir string) {
 	sec.OpenVPN = strings.Join(kept, "\n")
 	// Build refuses a profile it cannot check the server of; say so at import,
 	// not when the first connect fails.
-	if all := "\n" + sec.OpenVPN; !strings.Contains(all, "\n<ca>\n") && !strings.Contains(all, "\npeer-fingerprint ") {
-		ignored = append(ignored, "no CA certificate or peer fingerprint: OpenVPN cannot check the server, so this profile will not connect; import the .ovpn file from your server")
+	if n := noCANote(sec.OpenVPN); n != "" {
+		ignored = append(ignored, n)
 	}
 	b.AddVPN(importer.VPN{Profile: p, Secrets: sec, Ignored: ignored})
+}
+
+// noCANote is the warning for an OpenVPN profile text with no inline CA and
+// no peer fingerprint, which Build refuses, or "".
+func noCANote(openvpn string) string {
+	if all := "\n" + openvpn; strings.Contains(all, "\n<ca>\n") || strings.Contains(all, "\npeer-fingerprint ") {
+		return ""
+	}
+	return "no CA certificate or peer fingerprint: OpenVPN cannot check the server, so this profile will not connect; import the .ovpn file from your server"
 }
 
 func port(s string) (int, bool) {

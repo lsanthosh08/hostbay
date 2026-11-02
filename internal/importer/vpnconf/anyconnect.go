@@ -30,13 +30,16 @@ func anyconnect(b *importer.Builder, raw []byte) error {
 			addr = addr[i+3:]
 		}
 		var ignored []string
-		if host, path, ok := strings.Cut(addr, "/"); ok {
-			addr = host
-			ignored = append(ignored, "HostAddress path /"+path)
+		path := ""
+		if host, p, ok := strings.Cut(addr, "/"); ok {
+			addr, path = host, strings.Trim(p, "/")
 		}
 		p := newProfile(strings.TrimSpace(h.Name), "anyconnect", store.VPNTierApp)
 		p.Gateway, p.Port = hostPort(addr, 443)
 		p.AuthGroup = strings.TrimSpace(h.Group)
+		if path != "" {
+			p.Gateway += "/" + path // openconnect takes host/path, which picks the group URL
+		}
 		if p.Name == "" {
 			p.Name = p.Gateway
 		}

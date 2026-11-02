@@ -326,7 +326,8 @@ func (s *RoutingService) plan(ctx context.Context, id, mode string) (routing.Pla
 		app := vpnTier(*v) == store.VPNTierApp && v.Type != proto.TypeTailscale
 		wg := vpnTier(*v) == store.VPNTierSystem && v.Type == proto.TypeWireGuard
 		if (app || wg) && v.Gateway != "" {
-			as, _ := s.resolve(ctx, v.Gateway)
+			host, _, _ := strings.Cut(v.Gateway, "/") // an AnyConnect gateway may carry a /group path
+			as, _ := s.resolve(ctx, host)
 			for _, a := range as {
 				in.Endpoints = append(in.Endpoints, routing.Endpoint{Profile: v.ID, Name: v.Name, Addr: a.Unmap()})
 			}

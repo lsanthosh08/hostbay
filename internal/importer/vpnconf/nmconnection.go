@@ -81,6 +81,11 @@ func nmconnection(b *importer.Builder, fileName, text string) error {
 				sec.OpenVPN = "proto tcp-client"
 			}
 			sec.Password = vs.get("password")
+			// NetworkManager keeps its ca, cert and key as paths on that computer,
+			// which are not read; say so here rather than at the first connect.
+			if n := noCANote(sec.OpenVPN); n != "" {
+				ignored = append(ignored, n)
+			}
 		case "ipsec":
 			if g := take("IPSec gateway"); g != "" { // vpnc
 				p.Gateway, p.User = g, take("Xauth username")
