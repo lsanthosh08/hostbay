@@ -46,6 +46,7 @@ type config struct {
 	User       string `json:"user,omitempty"`       // sign-in name
 	ServerCert string `json:"serverCert,omitempty"` // the pinned gateway, "pin-sha256:..." (R21)
 	Browser    bool   `json:"browser,omitempty"`    // sign in in the user's browser (R20)
+	AuthGroup  string `json:"authGroup,omitempty"`  // the gateway group to sign in to, when it offers several
 }
 
 // launch is one prepared openconnect run.
@@ -73,6 +74,8 @@ func prepare(typ, conf string, secrets map[string]string) (launch, error) {
 	switch {
 	case c.Gateway == "" || strings.HasPrefix(c.Gateway, "-") || strings.ContainsFunc(c.Gateway, unsafe):
 		return l, fmt.Errorf("Gateway %q is not a host name or address.", c.Gateway)
+	case strings.ContainsFunc(c.AuthGroup, func(r rune) bool { return r < ' ' || r == 0x7f }) || strings.HasPrefix(c.AuthGroup, "-"):
+		return l, errors.New("The VPN group is not valid.")
 	case strings.ContainsFunc(c.User, func(r rune) bool { return r < ' ' || r == 0x7f }):
 		return l, errors.New("The user name has a control character.")
 	case c.ServerCert != "" && pinRE.FindString(c.ServerCert) != c.ServerCert:
@@ -118,11 +121,14 @@ func SystemArgs(typ, conf string, secrets map[string]string, iface, script strin
 	return append(a, "--", l.cfg.Gateway), nil
 }
 
-// signIn appends the user name, the password's stdin flag and the pinned
+// signIn appends the user name, the group, the password's stdin flag and the pinned
 // gateway certificate to a.
 func (l launch) signIn(a []string) []string {
 	if l.cfg.User != "" {
 		a = append(a, "--user="+l.cfg.User)
+	}
+	if l.cfg.AuthGroup != "" {
+		a = append(a, "--authgroup="+l.cfg.AuthGroup)
 	}
 	if l.password != "" {
 		a = append(a, "--passwd-on-stdin")

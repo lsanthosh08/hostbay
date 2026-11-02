@@ -402,6 +402,19 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
                 <Input className="w-full" spellCheck={false} autoComplete="off" value={v.user ?? ""} onChange={(e) => set({ user: e.target.value })} />
               </Field>
             </div>
+            {v.type === "anyconnect" && (
+              <Field label={t("vpnForm.authGroup")} error={err("authGroup")}>
+                <Input
+                  className="w-full"
+                  spellCheck={false}
+                  autoComplete="off"
+                  placeholder={t("vpnForm.authGroupPlaceholder")}
+                  value={v.authGroup ?? ""}
+                  onChange={(e) => set({ authGroup: e.target.value })}
+                />
+                <p className="text-xs text-muted mt-1">{t("vpnForm.authGroupHint")}</p>
+              </Field>
+            )}
             {auth === "certificate" ? secret(t("vpnForm.certKey"), "privateKey") : auth !== "browser" && secret(t("vpnForm.password"), "password")}
             {auth === "otp" && <p className="text-xs text-muted">{t("vpnForm.otpHint")}</p>}
             {auth === "browser" && <p className="text-xs text-muted">{t("vpnForm.browserHint")}</p>}

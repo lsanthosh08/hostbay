@@ -882,6 +882,7 @@ export interface VPN {
     "port"?: number;
     "user"?: string;
     "auth"?: string;
+    "authGroup"?: string;
     "address"?: string[] | null;
     "peerKey"?: string;
     "routes"?: string[] | null;
