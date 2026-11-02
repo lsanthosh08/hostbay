@@ -86,7 +86,19 @@ func (s *VPNService) labelNow(ctx context.Context, d *store.Data, l store.Local)
 			})
 		}
 	}
-	labels := detect.Label(snap.Tunnels, ps)
+	// Hostbay's own tunnels (a system-wide run through the helper) have no
+	// scutil owner, so by shape or range they could be taken for an external
+	// profile's.
+	s.mu.Lock()
+	own := map[string]bool{}
+	for id, st := range s.states {
+		if s.runs[id] != nil && st.Iface != "" {
+			own[st.Iface] = true
+		}
+	}
+	s.mu.Unlock()
+	tunnels := slices.DeleteFunc(slices.Clone(snap.Tunnels), func(t detect.Tunnel) bool { return own[t.Iface] })
+	labels := detect.Label(tunnels, ps)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, p := range ps {
