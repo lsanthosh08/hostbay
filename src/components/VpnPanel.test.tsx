@@ -44,6 +44,14 @@ describe("VPN panel", () => {
     expect(buttons(html)).toContain(en["vpn.import"]);
   });
 
+  // The import was an icon alone, and nobody found where to bring in an .ovpn file.
+  it("with profiles saved, still writes Import and New in the header and hints at dropping files", () => {
+    const html = render([vpn()]);
+    expect(buttons(html)).toContain(en["vpn.importShort"]);
+    expect(buttons(html)).toContain(en["vpn.newShort"]);
+    expect(html).toContain(en["vpn.dropHint"]);
+  });
+
   it("takes dropped config files on the list", () => {
     expect(render([])).toContain("data-file-drop-target");
   });

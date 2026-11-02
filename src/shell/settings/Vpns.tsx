@@ -4,13 +4,14 @@ import type { Vpn } from "../../api";
 import { reloadVpns, useVpns } from "../../state/vpns";
 import { TagEditor } from "../../components/TagEditor";
 import { VpnImport } from "../../components/VpnImport";
+import { openApp } from "../../dialogs";
 import { t } from "../../i18n";
 import { useHosts } from "../../state/hosts";
 import { Button } from "../../ui/Button";
 import { Dialog } from "../../ui/Dialog";
 import { Field, Input } from "../../ui/Field";
 import { IconButton } from "../../ui/IconButton";
-import { AddIcon, CloseIcon, DeleteIcon, EditIcon } from "../../ui/icons";
+import { AddIcon, CloseIcon, DeleteIcon, EditIcon, ImportIcon } from "../../ui/icons";
 import { usePrompt } from "../../ui/prompt";
 import { SegmentedControl } from "../../ui/SegmentedControl";
 import { Select } from "../../ui/Select";
@@ -45,6 +46,7 @@ export function Vpns() {
   const { hosts } = useHosts();
   const { vpns } = useVpns();
   const [editing, setEditing] = useState<Vpn | null>(null);
+  const [importing, setImporting] = useState(false);
   useEffect(() => {
     reloadVpns();
   }, []);
@@ -63,9 +65,14 @@ export function Vpns() {
   return (
     <Group title={t("settings.vpnsSaved")} description={t("settings.vpnsHint")}>
       <TunnelHubBanner />
-      <Button className="w-fit" icon={AddIcon} onClick={() => setEditing({ ...NEW_VPN })}>
-        {t("vpn.new")}
-      </Button>
+      <div className="flex gap-2">
+        <Button className="w-fit" icon={AddIcon} onClick={() => setEditing({ ...NEW_VPN })}>
+          {t("vpn.new")}
+        </Button>
+        <Button className="w-fit" icon={ImportIcon} onClick={() => setImporting(true)}>
+          {t("vpn.import")}
+        </Button>
+      </div>
       {vpns.length === 0 ? (
         <p className="text-sm text-muted">{t("vpn.empty.title")}</p>
       ) : (
@@ -94,6 +101,7 @@ export function Vpns() {
           })}
         </ul>
       )}
+      {importing && <VpnImport onClose={() => setImporting(false)} />}
       {editing && (
         <VpnForm
           initial={editing}
@@ -223,6 +231,8 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
   const [busy, setBusy] = useState(false);
   const [groups, setGroups] = useState<string[]>([]);
   const [fetchingGroups, setFetchingGroups] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const { vpns: saved } = useVpns();
   const errors = validateVpn(v);
   const err = (f: VpnField) => (tried && errors[f] ? t(errors[f]!) : undefined);
   const dirty = JSON.stringify(v) !== JSON.stringify(start);
@@ -233,6 +243,19 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
   // A sign-in the type no longer offers (an imported certificate one) shows as its first.
   const auth = external ? "" : pickAuth(v.type, v.auth);
   const keep = v.hasSecret ? t("hostForm.passwordKeep") : "";
+  // OpenVPN needs the server's certificate, which only a .ovpn file carries.
+  const ovpn = v.type === "openvpn" && !external;
+  const ovpnNew = ovpn && !v.id;
+  // Two profiles for one client cannot be told apart by name (R24).
+  const sharesClient =
+    external && !!v.client && !v.iface && saved.some((o) => o.id !== v.id && o.tier === "external" && o.client?.toLowerCase() === v.client?.toLowerCase());
+  const chooseApp = async () => {
+    const path = await openApp().catch(() => null);
+    if (!path) return;
+    // The name the OS gives the VPN stays as typed; an empty one takes the app's.
+    const name = path.split(/[\\/]/).pop()?.replace(/\.(app|exe)$/i, "") ?? "";
+    set({ clientPath: path, client: v.client?.trim() ? v.client : name });
+  };
 
   const save = async () => {
     setTried(true);
@@ -273,7 +296,7 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
           <Button variant="ghost" onClick={onClose}>
             {t("common.cancel")}
           </Button>
-          <Button variant="primary" type="submit" form="vpn-form" disabled={busy}>
+          <Button variant="primary" type="submit" form="vpn-form" disabled={busy || ovpnNew}>
             {t("hostForm.save")}
           </Button>
         </>
@@ -318,7 +341,16 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
           <TagEditor tags={v.tags ?? []} onChange={(tags) => set({ tags })} />
         </Field>
 
-        {!external && (
+        {ovpn && (
+          <div className="rounded-control border border-line bg-hover p-3 text-sm flex flex-col gap-2">
+            {ovpnNew && <p className="font-medium">{t("vpnForm.ovpnImportTitle")}</p>}
+            <p className="text-muted">{t(ovpnNew ? "vpnForm.ovpnImportHint" : "vpnForm.ovpnReimportHint")}</p>
+            <Button type="button" className="w-fit" variant={ovpnNew ? "primary" : "default"} icon={ImportIcon} onClick={() => setImporting(true)}>
+              {t("vpnForm.ovpnImportButton")}
+            </Button>
+          </div>
+        )}
+        {!external && !ovpnNew && (
           <div className="grid grid-cols-1 sm:grid-cols-[1fr_7rem] gap-3">
             <Field label={t(v.type === "tailscale" ? "vpnForm.controlServer" : "vpnForm.gateway")} error={err("gateway")}>
               <Input
@@ -350,14 +382,20 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
               <Input className="w-full" spellCheck={false} value={v.client ?? ""} onChange={(e) => set({ client: e.target.value })} />
             </Field>
             {list(t("vpnForm.address"), "address", "10.255.0.0/16", t("vpnForm.addressExternalHint"))}
-            <div className="grid grid-cols-1 sm:grid-cols-[1fr_10rem] gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_10rem] gap-3 items-start">
               <Field label={t("vpnForm.clientPath")} hint={t("vpnForm.clientPathHint")}>
-                <Input className="w-full" spellCheck={false} value={v.clientPath ?? ""} onChange={(e) => set({ clientPath: e.target.value })} />
+                <div className="flex gap-2">
+                  <Input className="w-full" spellCheck={false} value={v.clientPath ?? ""} onChange={(e) => set({ clientPath: e.target.value })} />
+                  <Button type="button" onClick={chooseApp}>
+                    {t("vpnForm.chooseApp")}
+                  </Button>
+                </div>
               </Field>
               <Field label={t("vpnForm.iface")} hint={t("vpnForm.ifaceHint")}>
                 <Input className="w-full font-mono" spellCheck={false} value={v.iface ?? ""} onChange={(e) => set({ iface: e.target.value.trim() })} />
               </Field>
             </div>
+            {sharesClient && <p className="text-xs text-warning">{t("vpnForm.clientSharedWarning")}</p>}
           </>
         )}
 
@@ -388,7 +426,7 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
             )}
           </>
         )}
-        {auths.length > 0 && (
+        {auths.length > 0 && !ovpnNew && (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label={t("vpnForm.auth")}>
@@ -481,6 +519,15 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
           </label>
         )}
       </form>
+      {importing && (
+        <VpnImport
+          onClose={() => {
+            setImporting(false);
+            reloadVpns();
+            if (!v.id) onClose();
+          }}
+        />
+      )}
     </Dialog>
   );
 }
