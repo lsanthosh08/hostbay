@@ -52,12 +52,17 @@ static void fail(NSString *code, NSString *msg, NSString *pin) {
 	exit(1);
 }
 
+static char lastError[512]; // openconnect's last error line, for the reason shown to the user
+
 static void progress(void *p, int level, const char *fmt, ...) {
 	if (level > PRG_ERR) return; // errors only: nothing here may carry a secret
 	va_list ap;
 	va_start(ap, fmt);
-	vfprintf(stderr, fmt, ap);
+	vsnprintf(lastError, sizeof lastError, fmt, ap);
 	va_end(ap);
+	size_t n = strlen(lastError);
+	while (n && (lastError[n - 1] == '\n' || lastError[n - 1] == '\r')) lastError[--n] = 0;
+	fprintf(stderr, "%s\n", lastError);
 }
 
 // validate runs only for a certificate the system does not trust. The one the
@@ -222,7 +227,7 @@ static void *worker(void *arg) {
 	}
 	if (seenPin[0]) fail(wantedPin.length ? @"cert-changed" : @"cert-unknown", @"The gateway's certificate is not trusted.", @(seenPin));
 	if (windowFinished && windowResult == -ECANCELED) fail(@"cancelled", @"Sign-in was cancelled.", nil);
-	fail(@"failed", @"Failed to complete authentication", nil);
+	fail(@"failed", lastError[0] ? @(lastError) : @"Failed to complete authentication", nil);
 	return NULL;
 }
 
