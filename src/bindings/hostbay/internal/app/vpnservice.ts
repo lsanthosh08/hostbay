@@ -48,6 +48,15 @@ export function ConnectVPN(id: string): $CancellablePromise<$models.VPNState> {
 }
 
 /**
+ * ConnectVPNClient connects external profile id through its client program's
+ * own command line when it has one (Harmony SASE, Perimeter 81), so no app
+ * window opens; any other client is opened for the user to connect (R3).
+ */
+export function ConnectVPNClient(id: string): $CancellablePromise<void> {
+    return $Call.ByID(1045489579, id);
+}
+
+/**
  * ConnectedVPNs counts the profiles Hostbay connected, so quitting can ask
  * first (R19).
  */
@@ -87,6 +96,14 @@ export function DetectVPNs(): $CancellablePromise<detect$0.VPN[] | null> {
  */
 export function DisconnectVPN(id: string): $CancellablePromise<void> {
     return $Call.ByID(1077876600, id);
+}
+
+/**
+ * DisconnectVPNClient disconnects it the same way. A client Hostbay cannot
+ * drive is left to the user, whose app holds the connection.
+ */
+export function DisconnectVPNClient(id: string): $CancellablePromise<void> {
+    return $Call.ByID(3376795735, id);
 }
 
 /**

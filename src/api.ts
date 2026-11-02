@@ -967,6 +967,8 @@ export const vpnTunnels = () => list(VPNService.VPNTunnels()) as Promise<VpnTunn
 export const detectVpns = () => list(VPNService.DetectVPNs()) as Promise<DetectedVpn[]>;
 // Opens an external profile's client program saved on this computer (R3).
 export const launchVpnClient = (id: string) => VPNService.LaunchVPNClient(id);
+export const connectVpnClient = (id: string) => VPNService.ConnectVPNClient(id);
+export const disconnectVpnClient = (id: string) => VPNService.DisconnectVPNClient(id);
 
 // ---- Browser profiles through a VPN (R33) ----
 export type BrowserProfile = { dir: string; name: string };

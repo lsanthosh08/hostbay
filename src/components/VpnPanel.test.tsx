@@ -95,6 +95,16 @@ describe("VPN panel", () => {
     expect(render([ext], { v1: { id: "v1", status: "disconnected", reason: pin } })).toContain("pin its interface");
   });
 
+  it("connects a Harmony SASE profile with a chosen app itself, and only opens other external clients", () => {
+    const harmony = vpn({ id: "h1", name: "Harmony SASE", type: "perimeter81", tier: "external", clientPath: "/Applications/Check Point SASE.app" });
+    const forti = vpn({ id: "f1", name: "Office", type: "sslvpn", tier: "external", clientPath: "/Applications/FortiClient.app" });
+    const bare = vpn({ id: "h2", name: "Harmony 2", type: "perimeter81", tier: "external" });
+    const html = render([harmony, forti, bare]);
+    expect(html).toContain('aria-label="' + en["vpn.connectNamed"].replace("{name}", "Harmony SASE") + '"');
+    expect(html).toContain('aria-label="' + en["vpn.openClientNamed"].replace("{name}", "Office") + '"');
+    expect(html).toContain('aria-label="' + en["vpn.openClientNamed"].replace("{name}", "Harmony 2") + '"');
+  });
+
   it("offers the VPNs found on this computer as profiles", () => {
     const html = render([vpn()], {}, { detected: [{ name: "Harmony SASE", type: "perimeter81", connected: true }] });
     expect(html).toContain(en["vpn.detected"]);
