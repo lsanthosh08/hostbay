@@ -18,6 +18,9 @@ type Client struct {
 	conn net.Conn
 	enc  *json.Encoder
 
+	// Build is what the helper said its executable is (Msg.Build).
+	Build string
+
 	mu      sync.Mutex
 	nextID  uint64
 	pending map[uint64]chan Msg
@@ -64,6 +67,7 @@ func newClient(conn net.Conn) (*Client, error) {
 		return nil, &Error{CodeVersion, fmt.Sprintf("The helper speaks protocol %d and Hostbay %d; reinstall the helper.", hello.V, Version)}
 	}
 	c := &Client{
+		Build:   hello.Build,
 		conn:    conn,
 		enc:     json.NewEncoder(conn),
 		pending: map[uint64]chan Msg{},

@@ -3,9 +3,12 @@ package netd
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path"
@@ -14,6 +17,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // Where the helper lives once installed. Each directory is root-owned (on
@@ -280,8 +284,8 @@ func GetStatus(ctx context.Context) Status {
 	c, err := Dial(ctx)
 	switch code := errCode(err); {
 	case err == nil:
+		st.Running, st.Current = true, !stale(c.Build)
 		c.Close()
-		st.Running, st.Current = true, true
 	case code == CodeBusy:
 		st.Running, st.Current = true, true
 	case code == CodeVersion:
@@ -291,6 +295,43 @@ func GetStatus(ctx context.Context) Status {
 	}
 	return st
 }
+
+// stale reports whether the running helper (whose hello said build) is not
+// the one shipped beside Hostbay: any change to the helper's code without a
+// protocol bump would otherwise leave an old copy "ready". It is false when
+// the shipped helper cannot be read, as in a development run.
+func stale(build string) bool {
+	shipped, err := besideSelf(helperName)
+	if err != nil {
+		return false
+	}
+	want, err := fileBuild(shipped)
+	return err == nil && want != build
+}
+
+// fileBuild is the SHA-256 of the file at path, in hex.
+func fileBuild(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// selfBuild is fileBuild of the running executable, "" when unreadable.
+var selfBuild = sync.OnceValue(func() string {
+	self, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	b, _ := fileBuild(self)
+	return b
+})
 
 func errCode(err error) string {
 	var e *Error

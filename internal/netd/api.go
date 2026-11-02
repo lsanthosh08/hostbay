@@ -105,6 +105,10 @@ type Route struct {
 type Msg struct {
 	T string `json:"t"`
 	V int    `json:"v"`
+	// Build is the helper's own executable's SHA-256, in its hello: a helper
+	// copied from an older Hostbay build speaks the same protocol but not the
+	// same code, which only this tells apart.
+	Build string `json:"build,omitempty"`
 	// ID pairs a reply with its request; events carry none.
 	ID uint64 `json:"id,omitempty"`
 

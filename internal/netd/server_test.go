@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"os"
 	"path/filepath"
 	"slices"
 	"sync"
@@ -366,5 +367,25 @@ func TestTunnelStartEventsStopAndDisconnect(t *testing.T) {
 	case m := <-events:
 		t.Fatalf("another tunnel's event arrived: %+v", m)
 	default:
+	}
+}
+
+// A helper copied from an older build speaks the same protocol, so the hello
+// carries the hash of its executable for Hostbay to compare with the one it
+// ships.
+func TestHelloCarriesTheHelpersBuild(t *testing.T) {
+	conn, _ := newServer(t, newFakeTable()).pipe()
+	t.Cleanup(func() { conn.Close() })
+	c, err := newClient(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := Msg{T: Hello, Build: c.Build}
+	if m.T != Hello || m.Build == "" || m.Build != selfBuild() {
+		t.Fatalf("hello = %+v", m)
+	}
+	self, _ := os.Executable()
+	if want, err := fileBuild(self); err != nil || want != m.Build {
+		t.Fatalf("build %q, file hash %q, %v", m.Build, want, err)
 	}
 }
