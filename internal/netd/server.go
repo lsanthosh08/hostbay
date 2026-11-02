@@ -119,7 +119,7 @@ func (s *Server) handle(c net.Conn) {
 		s.mu.Unlock()
 	}()
 
-	if send(Msg{T: Hello}) != nil {
+	if send(Msg{T: Hello, Build: selfBuild()}) != nil {
 		return
 	}
 	done := make(chan struct{})
