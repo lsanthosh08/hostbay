@@ -100,7 +100,11 @@ func helperStatus(st netd.Status) HelperStatus {
 
 // Status is the helper's state now.
 func (s *NetdService) Status(ctx context.Context) HelperStatus {
-	if s.client() != nil {
+	if c := s.client(); c != nil {
+		// Connected, but to a copy made by an older build.
+		if sc, ok := c.(interface{ Stale() bool }); ok && sc.Stale() {
+			return HelperStatus{State: HelperReinstall}
+		}
 		return HelperStatus{State: HelperReady}
 	}
 	return helperStatus(s.status(ctx))

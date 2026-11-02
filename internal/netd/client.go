@@ -30,6 +30,9 @@ type Client struct {
 	done   chan struct{}
 }
 
+// Stale reports whether the helper is not the one shipped beside Hostbay.
+func (c *Client) Stale() bool { return stale(c.Build) }
+
 // Dial connects to the installed helper. A *Error with CodeVersion means the
 // helper is from another Hostbay version and wants reinstalling; CodeDenied
 // means it is paired with another Hostbay copy or user and wants re-pairing.
