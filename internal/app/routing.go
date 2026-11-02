@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/netip"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -519,7 +520,7 @@ func (s *RoutingService) deleteAdded(ctx context.Context, c netdClient, added []
 		del := ch
 		del.Kind, del.Op, del.Reason = routing.KindDelete, netd.Delete, "added by Hostbay"
 		r := ChangeResult{Change: del}
-		if err := c.Delete(ctx, ch.Route()); err != nil {
+		if err := c.Delete(ctx, ch.Route()); err != nil && !routeGone(err) {
 			r.Error = err.Error()
 			kept = append(kept, ch)
 		}
@@ -529,6 +530,14 @@ func (s *RoutingService) deleteAdded(ctx context.Context, c netdClient, added []
 	s.added = kept
 	s.mu.Unlock()
 	return rep
+}
+
+// routeGone reports whether err says the route is no longer in the table,
+// as one does once its tunnel has ended: deleting it again can only fail, so
+// it must not stay on the list of routes to reset.
+func routeGone(err error) bool {
+	m := strings.ToLower(err.Error())
+	return strings.Contains(m, "not in table") || strings.Contains(m, "no such process") || strings.Contains(m, "no such route")
 }
 
 // Narrow saves the subnets to keep of a greedy route on profile id's

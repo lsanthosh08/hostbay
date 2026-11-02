@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"net/netip"
 	"slices"
 	"strings"
@@ -323,5 +324,16 @@ func TestSystemWideWireGuardEndpointIsPinnedBehindAFullTunnel(t *testing.T) {
 	if !pinned() {
 		rs, _ := e.f.Routes()
 		t.Fatalf("peer not pinned: %v", rs)
+	}
+}
+
+func TestRouteGoneRecognisesTheToolsMissingRouteErrors(t *testing.T) {
+	for _, m := range []string{"route: writing to routing socket: not in table", "RTNETLINK answers: No such process"} {
+		if !routeGone(errors.New(m)) {
+			t.Errorf("%q not taken for a gone route", m)
+		}
+	}
+	if routeGone(errors.New("operation not permitted")) {
+		t.Error("a permission error taken for a gone route")
 	}
 }
