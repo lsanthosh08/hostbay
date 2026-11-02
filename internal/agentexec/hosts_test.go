@@ -349,6 +349,33 @@ func TestHostJobAllowlist(t *testing.T) {
 	}
 }
 
+// AutoRead runs a read-only command and a folder listing with no card; a
+// command that writes, and a request without AutoRead, still ask.
+func TestHostJobAutoReadOnly(t *testing.T) {
+	h, f, _ := newHostRig(t)
+	r := run("tokA", "h1", "df -h")
+	r.AutoRead = true
+	if v, _ := h.Start(context.Background(), r); v.State != JobDone {
+		t.Fatalf("read-only with AutoRead = %+v", v)
+	}
+	for name, r := range map[string]HostRequest{
+		"writes":     {Principal: "tokA", Host: "h1", Tool: ToolRun, Command: "rm -rf /tmp/x", AutoRead: true},
+		"chains":     {Principal: "tokA", Host: "h1", Tool: ToolRun, Command: "df -h; reboot", AutoRead: true},
+		"switch off": {Principal: "tokA", Host: "h1", Tool: ToolRun, Command: "df -h"},
+	} {
+		res := startAsync(h, context.Background(), r)
+		p := pendingFor(t, h.Approvals)
+		if p.Bytes != r.Command {
+			t.Fatalf("%s: card = %q", name, p.Bytes)
+		}
+		h.Approvals.Answer(p.ID, false)
+		<-res
+	}
+	if got := f.runs(); len(got) != 1 || got[0] != "h1: df -h" {
+		t.Fatalf("ran %q", got)
+	}
+}
+
 // Revoking a token denies its waiting request; its running job finishes,
 // and its output is dropped.
 func TestHostJobRevoke(t *testing.T) {

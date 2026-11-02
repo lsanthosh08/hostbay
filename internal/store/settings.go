@@ -156,6 +156,11 @@ type MCPSettings struct {
 	// VPNAllow is the VPN profiles a token connects and disconnects without
 	// a card (KTD6), added only in Settings.
 	VPNAllow []VPNAllowEntry `json:"vpnAllow,omitempty"`
+	// AutoReadOnly lets a client list a remote folder and run a read-only
+	// command (agentexec.ReadOnly) without a card. Everything else still
+	// asks. It widens what runs unattended, so only Settings turns it on,
+	// behind the same verification as a new token.
+	AutoReadOnly bool `json:"autoReadOnly,omitempty"`
 }
 
 // VPNAllowEntry lets one token connect and disconnect one VPN profile
