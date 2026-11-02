@@ -209,7 +209,9 @@ func TestStatusOffersReinstallForAStaleConnectedHelper(t *testing.T) {
 		t.Fatalf("status %+v", st)
 	}
 	s.c = nil
-	s.status = func(context.Context) netd.Status { return netd.Status{Installed: true, Paired: true, Running: true, Current: true} }
+	s.status = func(context.Context) netd.Status {
+		return netd.Status{Installed: true, Paired: true, Running: true, Current: true}
+	}
 	if st := s.Status(context.Background()); st.State != HelperReady {
 		t.Fatalf("status %+v", st)
 	}

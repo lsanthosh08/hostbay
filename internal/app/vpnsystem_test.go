@@ -658,6 +658,30 @@ func TestExternalProfileDoesNotClaimHostbaysOwnTunnel(t *testing.T) {
 	}
 }
 
+// Sync can delete a profile while its tunnel is up; the next refresh ends
+// the run rather than leaving a tunnel nothing owns.
+func TestProfileDeletedBySyncEndsItsRun(t *testing.T) {
+	e := newVPNEnv(t, vpntest.OK)
+	f := useTunnels(e.svc)
+	f.reply = func(m netd.Msg) (netd.Msg, error) {
+		go f.event(netd.Msg{Tunnel: m.Tunnel, State: netd.TunnelUp, Iface: "utun7"})
+		return netd.Msg{}, nil
+	}
+	a := saveSystemWG(t, e.svc, "Office", false)
+	if _, err := e.svc.ConnectVPN(context.Background(), a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.svc.st.Edit(func(d *store.Data) error { return d.PurgeVPN(a.ID) }); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.svc.refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if n := e.svc.ConnectedVPNs(); n != 0 {
+		t.Fatalf("%d runs left for a deleted profile", n)
+	}
+}
+
 // A profile that keeps dropping at once, a rejected password say, is retried
 // a few times and then left for the user, not sent every minute forever.
 func TestReconnectStopsAfterRepeatedQuickDrops(t *testing.T) {

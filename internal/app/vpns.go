@@ -92,12 +92,14 @@ type VPNState struct {
 // VPNService saves VPN profiles and runs the app-scoped ones, one
 // hostbay-vpn helper per connected profile (KTD1).
 type VPNService struct {
-	st      *store.Store
-	vault   *secrets.Vault
-	helper  func() (string, error) // vpn.HelperPath; tests point it at a fake
-	detect  func(context.Context) (detect.Snapshot, error)
-	emit    func(name string, data any)
-	openURL func(url string) // the default browser, for a browser sign-in
+	st     *store.Store
+	vault  *secrets.Vault
+	helper func() (string, error) // vpn.HelperPath; tests point it at a fake
+	detect func(context.Context) (detect.Snapshot, error)
+	emit   func(name string, data any)
+	// forgotten is told when a profile is deleted, for state kept by id elsewhere.
+	forgotten func(id string)
+	openURL   func(url string) // the default browser, for a browser sign-in
 	// checkConnect refuses a system-wide connect the routing plan cannot
 	// place (R13); RoutingService sets it.
 	checkConnect func(id string) error
@@ -286,6 +288,9 @@ func (s *VPNService) DeleteVPN(id string) error {
 	delete(s.states, id)
 	delete(s.exited, id)
 	s.mu.Unlock()
+	if s.forgotten != nil {
+		s.forgotten(id)
+	}
 	return nil
 }
 
