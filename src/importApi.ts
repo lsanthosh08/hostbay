@@ -36,6 +36,14 @@ export const previewVpnImport = (path: string) =>
 /** Saves the kept drafts with their review edits and closes the import;
  *  an empty list saves nothing. */
 export const commitVpnImport = (token: string, keep: Vpn[]): Promise<ImportReport> => HostService.CommitVPNImport(token, keep);
+/** Forgets a previewed file, and the secrets read from it, when its review is closed unsaved. */
+export const cancelVpnImport = (token: string) => {
+  try {
+    void Promise.resolve(HostService.CancelVPNImport(token)).catch(() => {});
+  } catch {
+    // the preview expires by itself
+  }
+};
 export const scanVpnConfigs = () => Promise.resolve(HostService.ScanVPNConfigs()).then((r) => r ?? []);
 
 /** Files dropped on an element marked data-file-drop-target, by path. */

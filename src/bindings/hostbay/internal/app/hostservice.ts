@@ -23,6 +23,14 @@ import * as vpnconf$0 from "../importer/vpnconf/models.js";
 import * as $models from "./models.js";
 
 /**
+ * CancelVPNImport forgets a previewed file, and the secrets read from it,
+ * when the user closes the review without saving.
+ */
+export function CancelVPNImport(token: string): $CancellablePromise<void> {
+    return $Call.ByID(3414700909, token);
+}
+
+/**
  * ClearRecent forgets when every host was last connected to, emptying the
  * recent list. Like the stamp, it is not an edit to sync.
  */
