@@ -208,9 +208,14 @@ export function VpnPanelView(p: {
   return (
     <>
       <PanelHeader title={t("nav.vpns")}>
-        <IconButton label={t("vpn.import")} icon={ImportIcon} onClick={p.onImport} />
         {p.onDetect && <IconButton label={t("vpn.detect")} icon={RefreshIcon} onClick={p.onDetect} />}
-        <IconButton label={t("vpn.new")} icon={AddIcon} onClick={p.onNew} />
+        {/* Written out: an icon alone hid where a .ovpn file is imported. */}
+        <Button size="sm" icon={ImportIcon} aria-label={t("vpn.import")} onClick={p.onImport}>
+          {t("vpn.importShort")}
+        </Button>
+        <Button size="sm" variant="primary" icon={AddIcon} aria-label={t("vpn.new")} onClick={p.onNew}>
+          {t("vpn.newShort")}
+        </Button>
       </PanelHeader>
       {p.detected && (
         <section className="px-2 pb-2" aria-label={t("vpn.detected")}>
@@ -344,6 +349,7 @@ export function VpnPanelView(p: {
         ) : (
           shown.length === 0 && <li className="px-2 py-2 text-xs text-muted">{t("vpn.noMatch")}</li>
         )}
+        {p.vpns.length > 0 && <li className="px-2 py-2 text-xs text-muted">{t("vpn.dropHint")}</li>}
       </ul>
     </>
   );
