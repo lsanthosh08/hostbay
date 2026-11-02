@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"hostbay/internal/store"
 	"hostbay/internal/vpn/vpntest"
 )
 
