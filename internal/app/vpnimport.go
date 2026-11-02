@@ -4,8 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"hostbay/internal/importer"
 	"hostbay/internal/importer/tunnelhub"
@@ -37,10 +39,36 @@ type VPNImportPreview struct {
 
 // vpnImports holds each previewed file, secrets included, until it is
 // committed; the secrets never go to the UI.
+// One nobody commits or cancels is dropped after vpnImportTTL.
 var vpnImports = struct {
 	sync.Mutex
-	m map[string]importer.Result
-}{m: map[string]importer.Result{}}
+	m map[string]pendingImport
+}{m: map[string]pendingImport{}}
+
+type pendingImport struct {
+	res importer.Result
+	at  time.Time
+}
+
+const vpnImportTTL = 10 * time.Minute
+
+// sweepVPNImports drops the previews that outlived vpnImportTTL; the caller
+// holds vpnImports.
+func sweepVPNImports() {
+	for t, p := range vpnImports.m {
+		if time.Since(p.at) > vpnImportTTL {
+			delete(vpnImports.m, t)
+		}
+	}
+}
+
+// CancelVPNImport forgets a previewed file, and the secrets read from it,
+// when the user closes the review without saving.
+func (s *HostService) CancelVPNImport(token string) {
+	vpnImports.Lock()
+	delete(vpnImports.m, token)
+	vpnImports.Unlock()
+}
 
 // PreviewVPNImport reads a VPN configuration file or bundle folder (R38),
 // or a TunnelHub vpn-config.json (R41), and returns its profiles for review
@@ -59,7 +87,8 @@ func (s *HostService) PreviewVPNImport(path string) (VPNImportPreview, error) {
 		pre.Drafts = append(pre.Drafts, VPNDraft{Profile: vpnToUI(p), Ignored: res.VPNs[i].Ignored, AskPassword: res.VPNs[i].AskPassword})
 	}
 	vpnImports.Lock()
-	vpnImports.m[pre.Token] = res
+	sweepVPNImports()
+	vpnImports.m[pre.Token] = pendingImport{res, time.Now()}
 	vpnImports.Unlock()
 	return pre, nil
 }
@@ -72,7 +101,9 @@ func (s *HostService) PreviewVPNImport(path string) (VPNImportPreview, error) {
 func (s *HostService) CommitVPNImport(token string, keep []VPN) (importer.Report, error) {
 	vpnImports.Lock()
 	defer vpnImports.Unlock()
-	res, ok := vpnImports.m[token]
+	sweepVPNImports()
+	pend, ok := vpnImports.m[token]
+	res := pend.res
 	if !ok {
 		return importer.Report{}, errors.New("this import is no longer open; import the file again")
 	}
@@ -80,7 +111,7 @@ func (s *HostService) CommitVPNImport(token string, keep []VPN) (importer.Report
 	var meta []importer.VPNImport
 	for _, k := range keep {
 		for i, p := range res.Bundle.VPNs {
-			if p.ID != k.ID {
+			if p.ID != k.ID || slices.ContainsFunc(vpns, func(q store.VPN) bool { return q.ID == p.ID }) {
 				continue
 			}
 			p.Name, p.Tags, p.Routes, p.DNSServers, p.DNSDomains = strings.TrimSpace(k.Name), k.Tags, k.Routes, k.DNSServers, k.DNSDomains

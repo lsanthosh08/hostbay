@@ -93,3 +93,30 @@ func TestVPNImportCommitChecksEdits(t *testing.T) {
 		t.Fatalf("the import closed on a refused edit: %v", err)
 	}
 }
+
+// A previewed file holds its secrets in memory until it is committed, so a
+// closed review forgets them, and one nobody closed expires.
+func TestVPNImportIsForgottenWhenCancelledOrExpired(t *testing.T) {
+	s, _, _ := newHostService(t, fakeVerifier(secrets.Passed))
+	cancelled, err := s.PreviewVPNImport(ovpnFixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.CancelVPNImport(cancelled.Token)
+	if _, err := s.CommitVPNImport(cancelled.Token, nil); err == nil {
+		t.Fatal("a cancelled import's token still works")
+	}
+
+	stale, err := s.PreviewVPNImport(ovpnFixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vpnImports.Lock()
+	p := vpnImports.m[stale.Token]
+	p.at = p.at.Add(-2 * vpnImportTTL)
+	vpnImports.m[stale.Token] = p
+	vpnImports.Unlock()
+	if _, err := s.CommitVPNImport(stale.Token, nil); err == nil {
+		t.Fatal("an expired import's token still works")
+	}
+}

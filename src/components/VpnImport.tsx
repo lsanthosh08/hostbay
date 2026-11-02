@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { Vpn } from "../api";
 import { open, openFolder } from "../dialogs";
 import { t } from "../i18n";
-import { commitVpnImport, previewVpnImport, scanVpnConfigs, type FoundVpnConfig, type VpnDraft, type VpnImportPreview } from "../importApi";
+import { cancelVpnImport, commitVpnImport, previewVpnImport, scanVpnConfigs, type FoundVpnConfig, type VpnDraft, type VpnImportPreview } from "../importApi";
 import { RouteEditor } from "../shell/settings/Vpns";
 import { AUTH_LABEL, hasRouting, typeLabel, validateVpn, type VpnField } from "../shell/vpnForm";
 import { Button } from "../ui/Button";
@@ -197,6 +197,7 @@ export function VpnImport({ path, onClose, onSaved, more = 0 }: { path?: string;
   // Nothing is written until the last draft, so closing keeps nothing; ask when work would be lost.
   const cancel = async () => {
     if (pre && review.kept.length && !(await confirm(t("vpnImport.cancelConfirm", { count: review.kept.length }), { confirmLabel: t("vpnImport.cancel") }))) return;
+    if (pre) cancelVpnImport(pre.token);
     onClose();
   };
   const last = !!pre && review.at === pre.drafts.length - 1;
