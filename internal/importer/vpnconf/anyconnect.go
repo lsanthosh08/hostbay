@@ -34,11 +34,9 @@ func anyconnect(b *importer.Builder, raw []byte) error {
 			addr = host
 			ignored = append(ignored, "HostAddress path /"+path)
 		}
-		if h.Group != "" {
-			ignored = append(ignored, "UserGroup "+h.Group)
-		}
 		p := newProfile(strings.TrimSpace(h.Name), "anyconnect", store.VPNTierApp)
 		p.Gateway, p.Port = hostPort(addr, 443)
+		p.AuthGroup = strings.TrimSpace(h.Group)
 		if p.Name == "" {
 			p.Name = p.Gateway
 		}

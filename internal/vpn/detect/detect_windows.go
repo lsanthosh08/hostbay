@@ -22,6 +22,9 @@ func detect(ctx context.Context) (Snapshot, error) {
 		if err == nil {
 			break
 		}
+		if err == windows.ERROR_NO_DATA { // no adapters at all
+			return s, nil
+		}
 		if err != windows.ERROR_BUFFER_OVERFLOW {
 			return Snapshot{}, err
 		}

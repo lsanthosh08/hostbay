@@ -75,6 +75,20 @@ func TestDarwinAppsAreAgentsByTheirNameNotTheirArguments(t *testing.T) {
 	}
 }
 
+func TestDarwinTwoServicesOfOneTypeAreBothListed(t *testing.T) {
+	nc := ncList + `* (Disconnected)   22222222-0000-0000-0000-000000000000 VPN (com.wireguard.macos) "Other WG"                [VPN:com.wireguard.macos]
+`
+	n := 0
+	for _, v := range fromDarwin(nc, map[string]string{"Lab WG": ncStatus}, ifconfigOut, psOut).VPNs {
+		if v.Name == "Lab WG" || v.Name == "Other WG" {
+			n++
+		}
+	}
+	if n != 2 {
+		t.Fatalf("%d of the 2 WireGuard services listed", n)
+	}
+}
+
 func TestDarwinAgentsOutnumberingTunnelsAreNotConnected(t *testing.T) {
 	ps := psOut + "/Applications/Other VPN.app/Contents/MacOS/Other VPN\n"
 	s := fromDarwin(ncList, map[string]string{"Lab WG": ncStatus}, ifconfigOut, ps)
