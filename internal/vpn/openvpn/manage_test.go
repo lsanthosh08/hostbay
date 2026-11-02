@@ -2,6 +2,7 @@ package openvpn
 
 import (
 	"bufio"
+	"encoding/base64"
 	"net"
 	"slices"
 	"strings"
@@ -136,4 +137,44 @@ func TestEventStates(t *testing.T) {
 	if slices.ContainsFunc(got, func(s string) bool { return s != Connecting }) {
 		t.Fatalf("states %v", got)
 	}
+}
+
+// A static-challenge profile asks for a one-time code; the password goes out
+// as OpenVPN's SCRV1:base64(password):base64(code), once.
+func TestManageStaticChallengeSendsSCRV1(t *testing.T) {
+	a, b := net.Pipe()
+	f := &fakeOpenVPN{conn: b, cmds: make(chan string, 16)}
+	go func() {
+		sc := bufio.NewScanner(b)
+		for sc.Scan() {
+			f.cmds <- sc.Text()
+		}
+		close(f.cmds)
+	}()
+	t.Cleanup(func() { b.Close() })
+	asked := make(chan struct{}, 1)
+	go Manage2(a, asked)
+	f.expect(t, "state on")
+	f.say(t, ">PASSWORD:Need 'Auth' username/password SC:1,Enter your code")
+	f.expect(t, `username "Auth" "alice"`, `password "Auth" "SCRV1:`+base64.StdEncoding.EncodeToString([]byte("s3cret"))+":"+base64.StdEncoding.EncodeToString([]byte("123456"))+`"`)
+	select {
+	case <-asked:
+	default:
+		t.Fatal("the code was never asked for")
+	}
+}
+
+func TestManageStaticChallengeWithoutAWayToAskFails(t *testing.T) {
+	f, events, _ := manage(t, "alice", "s3cret", "")
+	f.expect(t, "state on")
+	f.say(t, ">PASSWORD:Need 'Auth' username/password SC:1,Enter your code")
+	if e := <-events; e.State != Failed || !strings.Contains(e.Reason, "one-time code") {
+		t.Fatalf("event %+v", e)
+	}
+	f.expect(t, "signal SIGTERM")
+}
+
+// Manage2 runs ManageOTP with the code 123456, noting that it was asked.
+func Manage2(rw net.Conn, asked chan struct{}) {
+	ManageOTP(rw, "alice", "s3cret", "", func() (string, error) { asked <- struct{}{}; return "123456", nil }, func(Event) {})
 }

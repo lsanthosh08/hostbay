@@ -29,10 +29,11 @@ import (
 
 // Version is bumped on any incompatible change to the messages below, or to
 // what the helper accepts in them (3: OpenVPN profiles need a CA or peer
-// fingerprint, and peer-fingerprint is allowed). A helper and a Hostbay that
+// fingerprint, and peer-fingerprint is allowed; 4: static-challenge is
+// allowed, for profiles that ask for a one-time code). A helper and a Hostbay that
 // disagree refuse each other with CodeVersion, and Hostbay offers to
 // reinstall the helper.
-const Version = 3
+const Version = 4
 
 // Message tags.
 const (

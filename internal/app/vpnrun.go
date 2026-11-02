@@ -471,6 +471,12 @@ func (s *VPNService) keepNodeState(id string, a *vpnAttempt, state string) {
 func (s *VPNService) AnswerVPN(id, code string) error {
 	s.mu.Lock()
 	r := s.runs[id]
+	if r != nil && r.att != nil && s.states[id].Status == VPNSigningIn {
+		if a, ok := r.att.sys.(interface{ Answer(string) error }); ok {
+			s.mu.Unlock()
+			return a.Answer(code) // a system-wide OpenVPN's management interface
+		}
+	}
 	if r == nil || r.att == nil || r.att.h == nil || s.states[id].Status != VPNSigningIn {
 		s.mu.Unlock()
 		return errors.New("this VPN profile is not waiting for a code")
