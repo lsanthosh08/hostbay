@@ -157,6 +157,14 @@ export interface MCPSettings {
      * a card (KTD6), added only in Settings.
      */
     "vpnAllow"?: VPNAllowEntry[] | null;
+
+    /**
+     * AutoReadOnly lets a client list a remote folder and run a read-only
+     * command (agentexec.ReadOnly) without a card. Everything else still
+     * asks. It widens what runs unattended, so only Settings turns it on,
+     * behind the same verification as a new token.
+     */
+    "autoReadOnly"?: boolean;
 }
 
 /**

@@ -1610,6 +1610,9 @@ export const en = {
   "mcp.server": "MCP server",
   "mcp.serverHint": "Lets AI clients on this computer, such as Claude Code, ask to run commands and copy files on your saved SSH hosts. Every request waits for your approval here. It listens on 127.0.0.1 only and is off until you turn it on.",
   "mcp.enable": "Turn on the MCP server",
+  "mcp.autoReadOnly": "Run read-only requests without asking",
+  "mcp.autoReadOnlyHint":
+    "Folder listings and commands such as ls, cat, df, ps, docker ps and git log run at once. Everything else still waits for your approval, in the window and in a notification with Allow and Deny. Their output goes to the client, so anything the SSH user can read may reach it, except files whose names look like keys or secrets.",
   "mcp.port": "Port",
   "mcp.portSave": "Save port",
   "mcp.portSaved": "Port saved.",
