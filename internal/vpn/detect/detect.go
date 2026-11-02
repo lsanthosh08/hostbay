@@ -54,7 +54,7 @@ var vendors = []struct{ word, typ string }{
 	{"cisco", "anyconnect"}, {"anyconnect", "anyconnect"}, {"secureclient", "anyconnect"}, {"secure client", "anyconnect"},
 	{"paloalto", "globalprotect"}, {"globalprotect", "globalprotect"}, {"pangp", "globalprotect"},
 	{"pulse", "pulse"}, {"ivanti", "pulse"}, {"juniper", "pulse"},
-	{"perimeter81", "perimeter81"}, {"perimeter 81", "perimeter81"}, {"harmony", "perimeter81"},
+	{"perimeter81", "perimeter81"}, {"perimeter 81", "perimeter81"}, {"harmony", "perimeter81"}, {"check point sase", "perimeter81"}, {"safervpn", "perimeter81"},
 	{"wireguard", "wireguard"}, {"tailscale", "tailscale"}, {"zerotier", "zerotier"}, {"openvpn", "openvpn"},
 }
 
