@@ -267,7 +267,8 @@ tasks:
       - cmd: |
           if [ -f "{{.BIN_DIR}}/hostbay-sso" ]; then
             signin="{{.BIN_DIR}}/{{.APP_BUNDLE}}.app/Contents/Helpers/HostbaySignIn.app/Contents"
-            mkdir -p "$signin"
+            mkdir -p "$signin/Resources"
+            cp build/darwin/icons.icns "$signin/Resources"
             cp build/darwin/SignIn.Info.plist "$signin/Info.plist"
             sh build/darwin/bundle-openconnect.sh "$signin" "{{.BIN_DIR}}/hostbay-sso"
           fi
