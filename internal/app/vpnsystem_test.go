@@ -19,6 +19,7 @@ import (
 	"hostbay/internal/apperr"
 	"hostbay/internal/netd"
 	"hostbay/internal/store"
+	"hostbay/internal/vpn/detect"
 	"hostbay/internal/vpn/osvpn"
 	"hostbay/internal/vpn/routing"
 	"hostbay/internal/vpn/vpntest"
@@ -594,6 +595,32 @@ func TestReconnectBacksOffWhenItDropsAtOnce(t *testing.T) {
 	e.svc.DisconnectVPN(a.ID)
 	if n := f.started(); n < 2 || n > 6 {
 		t.Fatalf("%d starts in 600ms, want the waits to double", n)
+	}
+}
+
+// Hostbay's own system-wide tunnel has no scutil owner; a lone external
+// profile of the same shape must not claim it as its VPN's.
+func TestExternalProfileDoesNotClaimHostbaysOwnTunnel(t *testing.T) {
+	e := newVPNEnv(t, vpntest.OK)
+	f := useTunnels(e.svc)
+	f.reply = func(m netd.Msg) (netd.Msg, error) {
+		go f.event(netd.Msg{Tunnel: m.Tunnel, State: netd.TunnelUp, Iface: "utun7"})
+		return netd.Msg{}, nil
+	}
+	fd := &fakeDetect{}
+	e.svc.detect = fd.detect
+	fd.set(detect.Snapshot{Tunnels: []detect.Tunnel{p2pTunnel("utun7", "10.9.0.2", "10.9.0.2")}})
+	ext := saveExternal(t, e.svc, "Harmony SASE", func(v *VPN) { v.Type = "perimeter81" })
+	own := saveSystemWG(t, e.svc, "Office", false)
+	if _, err := e.svc.ConnectVPN(context.Background(), own.ID); err != nil {
+		t.Fatal(err)
+	}
+	e.waitFor(t, own.ID, VPNConnected)
+	if err := e.svc.refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if st := stateOf(e.svc, ext.ID); st.Status != VPNDisconnected || st.Iface != "" {
+		t.Fatalf("external profile took Hostbay's tunnel: %+v", st)
 	}
 }
 
