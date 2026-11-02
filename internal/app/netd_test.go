@@ -195,3 +195,22 @@ func TestHelperConnectionKeepsItself(t *testing.T) {
 		t.Fatal("quitting left the helper connection open")
 	}
 }
+
+type staleClient struct{ netdClient }
+
+func (staleClient) Stale() bool { return true }
+
+// Connected to a helper copied by an older build, Hostbay still offers to
+// reinstall it rather than reporting it ready.
+func TestStatusOffersReinstallForAStaleConnectedHelper(t *testing.T) {
+	s := NewNetdService()
+	s.c = staleClient{}
+	if st := s.Status(context.Background()); st.State != HelperReinstall {
+		t.Fatalf("status %+v", st)
+	}
+	s.c = nil
+	s.status = func(context.Context) netd.Status { return netd.Status{Installed: true, Paired: true, Running: true, Current: true} }
+	if st := s.Status(context.Background()); st.State != HelperReady {
+		t.Fatalf("status %+v", st)
+	}
+}
