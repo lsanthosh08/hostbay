@@ -171,6 +171,22 @@ func TestBrowserMappingsSaveReplaceDelete(t *testing.T) {
 	}
 }
 
+// Deleting a profile takes its browser mappings with it, not leaving rows
+// that point at nothing.
+func TestDeletingAVPNDropsItsBrowserMappings(t *testing.T) {
+	e := newVPNEnv(t, vpntest.OK)
+	v, keep := e.save(t, false), e.save(t, false)
+	e.svc.SaveBrowserMapping(store.BrowserMapping{Browser: "chrome", Profile: "Default", VPN: v.ID})
+	e.svc.SaveBrowserMapping(store.BrowserMapping{Browser: "chrome", Profile: "Work", VPN: keep.ID})
+	if err := e.svc.DeleteVPN(v.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := e.svc.BrowserMappings()
+	if err != nil || len(got) != 1 || got[0].VPN != keep.ID {
+		t.Fatalf("mappings after delete %+v, %v", got, err)
+	}
+}
+
 // A TunnelHub import saves the Chrome mappings of the VPNs the user kept,
 // matched by the name the file gave them, and drops the rest.
 func TestImportedBrowserMappingsSaveForKeptVPNs(t *testing.T) {
