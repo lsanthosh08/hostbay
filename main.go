@@ -16,6 +16,7 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
+	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 
 	"hostbay/internal/app"
 	"hostbay/internal/container"
@@ -233,6 +234,11 @@ func main() {
 	// MCP clients share the agent's gate and approval tray (KTD32, KTD35).
 	mcpSvc := app.NewMCPService(st, connSvc, creds, aiSvc)
 	a.RegisterService(application.NewService(mcpSvc))
+	// A waiting MCP request also shows as an OS notification with Allow and
+	// Deny, for a user who is in another app.
+	notices := notifications.New()
+	a.RegisterService(application.NewService(notices))
+	app.LinkNotices(mcpSvc, notices)
 
 	mainWindow = a.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:            app.Name,
