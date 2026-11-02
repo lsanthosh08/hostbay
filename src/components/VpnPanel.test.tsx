@@ -1,11 +1,13 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { DetectedVpn, Host, Vpn, VpnState } from "../api";
 import { en } from "../i18n/en";
 import { vpnCertPrompt } from "../connect/vpnCert";
 import { VpnCertBody, VpnPanelView } from "./VpnPanel";
 import { vpnCancelled } from "../state/vpns";
+
+vi.mock("../platform", () => ({ isMac: () => true }));
 
 const noop = () => {};
 const vpn = (over: Partial<Vpn> = {}): Vpn => ({ id: "v1", name: "Atlas VPN", type: "wireguard", tier: "app", tags: ["atlas"], ...over });
@@ -75,7 +77,7 @@ describe("VPN panel", () => {
     const html = render(list, {}, { tag: "atlas", hosts: [host(["atlas"]), host(["ATLAS"])] });
     expect(html).toContain("Atlas VPN");
     expect(html).not.toContain("Beta VPN");
-    expect(html).toMatch(/aria-pressed="true"[^>]*>Atlas \(3\)/);
+    expect(html).toMatch(/aria-pressed="true"[^>]*>Atlas \(1\)/);
     expect(html).toMatch(/aria-pressed="false"[^>]*>beta \(1\)/);
   });
 

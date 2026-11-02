@@ -8,6 +8,7 @@ import { AUTH_LABEL, hasRouting, typeLabel, validateVpn, type VpnField } from ".
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 import { Field, Input } from "../ui/Field";
+import { usePrompt } from "../ui/prompt";
 import { useAsyncToast, useToast } from "../ui/toast";
 import { TagEditor } from "./TagEditor";
 import { reloadVpns } from "../state/vpns";
@@ -137,9 +138,10 @@ function PreviewNotes({ pre }: { pre: VpnImportPreview }) {
  *  installed client keeps, then save or skip each profile it holds. Nothing
  *  is saved until a profile is saved; closing keeps only those saved. With
  *  `path`, it opens that file straight away. */
-export function VpnImport({ path, onClose, onSaved }: { path?: string; onClose: () => void; onSaved?: () => void }) {
+export function VpnImport({ path, onClose, onSaved, more = 0 }: { path?: string; onClose: () => void; onSaved?: () => void; /** Files dropped after this one, waiting their turn. */ more?: number }) {
   const run = useAsyncToast();
   const { push } = useToast();
+  const { confirm } = usePrompt();
   const [pre, setPre] = useState<VpnImportPreview | null>(null);
   const [review, setReview] = useState<Review>({ at: 0, kept: [] });
   const [value, setValue] = useState<Vpn | null>(null);
@@ -167,7 +169,13 @@ export function VpnImport({ path, onClose, onSaved }: { path?: string; onClose: 
     setBusy(true);
     const rep = await run(() => commitVpnImport(pre.token, kept));
     setBusy(false);
-    if (rep === undefined) return; // a refused edit: the import stays open
+    if (rep === undefined) {
+      // A refused profile may be an earlier one kept: start the review over so each can be fixed.
+      setReview({ at: 0, kept: [] });
+      setValue(pre.drafts[0]?.profile ?? null);
+      setTried(false);
+      return;
+    }
     if (kept.length) {
       push("success", t("vpnImport.saved", { count: rep.vpns?.length ?? 0 }));
       reloadVpns();
@@ -186,6 +194,12 @@ export function VpnImport({ path, onClose, onSaved }: { path?: string; onClose: 
   };
 
   const draft = pre?.drafts[review.at];
+  // Nothing is written until the last draft, so closing keeps nothing; ask when work would be lost.
+  const cancel = async () => {
+    if (pre && review.kept.length && !(await confirm(t("vpnImport.cancelConfirm", { count: review.kept.length }), { confirmLabel: t("vpnImport.cancel") }))) return;
+    onClose();
+  };
+  const last = !!pre && review.at === pre.drafts.length - 1;
   const pick = async () => {
     const p = await open({ filters: [{ name: "VPN", extensions: FILE_TYPES }, { name: "All files", extensions: ["*"] }] });
     if (typeof p === "string") load(p);
@@ -198,26 +212,30 @@ export function VpnImport({ path, onClose, onSaved }: { path?: string; onClose: 
   return (
     <Dialog
       title={draft ? t("vpnImport.review", { name: draft.profile.name, n: review.at + 1, count: pre!.drafts.length }) : t("vpn.import")}
-      onClose={() => (pre ? finish(review.kept) : onClose())}
+      onClose={cancel}
       dismissible={!pre}
       size="lg"
       footer={
         draft && value ? (
           <>
+            <Button variant="ghost" className="mr-auto" disabled={busy} onClick={cancel}>
+              {t("vpnImport.cancel")}
+            </Button>
             <Button variant="ghost" disabled={busy} onClick={() => step(false)}>
               {t("vpnImport.skip")}
             </Button>
             <Button variant="primary" disabled={busy} onClick={() => step(true)}>
-              {t("hostForm.save")}
+              {last ? t("vpnImport.saveAll", { count: review.kept.length + 1 }) : t("vpnImport.keep")}
             </Button>
           </>
         ) : (
-          <Button variant="ghost" disabled={busy} onClick={() => (pre ? finish([]) : onClose())}>
+          <Button variant="ghost" disabled={busy} onClick={onClose}>
             {t("common.close")}
           </Button>
         )
       }
     >
+      {more > 0 && <p className="text-xs text-muted mb-2">{t("vpnImport.more", { count: more })}</p>}
       {pre && review.at === 0 && <PreviewNotes pre={pre} />}
       {draft && value ? (
         <VpnDraftView key={draft.profile.id} draft={draft} value={value} tried={tried} onChange={setValue} />
