@@ -309,6 +309,15 @@ func checkVPN(v VPN) error {
 	if strings.TrimSpace(v.Name) == "" || bad(v.Name, false) {
 		return errors.New("name the VPN profile")
 	}
+	if len([]rune(v.Name)) > 100 {
+		return errors.New("the VPN profile's name is too long")
+	}
+	for _, tag := range v.Tags {
+		// Tags reach the MCP agent's tools and error messages as they are.
+		if strings.TrimSpace(tag) == "" || len([]rune(tag)) > 64 || bad(tag, false) {
+			return fmt.Errorf("the tag %q is not valid; use up to 64 characters without line breaks", tag)
+		}
+	}
 	if err := store.CheckVPN(store.VPN{Type: v.Type, Tier: v.Tier, Gateway: v.Gateway, Port: v.Port, User: v.User, Auth: v.Auth, AuthGroup: v.AuthGroup,
 		Address: v.Address, PeerKey: v.PeerKey, Routes: v.Routes, DNSServers: v.DNSServers, DNSDomains: v.DNSDomains, MTU: v.MTU, Client: v.Client}); err != nil {
 		return err
