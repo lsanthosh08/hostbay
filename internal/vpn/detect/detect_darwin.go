@@ -34,7 +34,7 @@ func fromDarwin(nc string, status map[string]string, ifconfig, ps string) Snapsh
 				}
 			}
 		}
-		s.VPNs = add(s.VPNs, v)
+		s.VPNs = addNamed(s.VPNs, v)
 	}
 	unexplained := 0
 	for _, t := range utuns(ifconfig) {
@@ -63,6 +63,17 @@ func fromDarwin(nc string, status map[string]string, ifconfig, ps string) Snapsh
 func add(vs []VPN, v VPN) []VPN {
 	for _, w := range vs {
 		if v.Type != "other" && w.Type == v.Type || strings.EqualFold(w.Name, v.Name) {
+			return vs
+		}
+	}
+	return append(vs, v)
+}
+
+// addNamed appends v unless a VPN of its name is there: two services of one
+// type, two WireGuard tunnels say, are two VPNs.
+func addNamed(vs []VPN, v VPN) []VPN {
+	for _, w := range vs {
+		if strings.EqualFold(w.Name, v.Name) {
 			return vs
 		}
 	}

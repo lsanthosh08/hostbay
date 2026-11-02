@@ -224,8 +224,13 @@ func (t *netdTunnel) manage(r netd.Msg, user, pass string) {
 			t.up(ifaceWith(e.Local), addrs)
 		case openvpn.Connecting:
 			t.rep(proto.Msg{T: proto.State, State: proto.Connecting})
-		case openvpn.Failed, openvpn.Exiting:
+		case openvpn.Failed:
 			reason = e.Reason
+		case openvpn.Exiting:
+			// It only repeats the cause as a raw token ("auth-failure").
+			if reason == "OpenVPN stopped." {
+				reason = e.Reason
+			}
 		}
 	})
 	conn.Close()
@@ -352,6 +357,7 @@ func (s *VPNService) startOSVPN(v *store.VPN, stop <-chan struct{}, up func(stri
 	go func() {
 		defer close(t.done)
 		started, wasUp := time.Now(), false
+		unreadable := 0 // reads in a row that failed while up; one slow scutil or nmcli is no drop
 		for {
 			select {
 			case <-t.stop:
@@ -365,6 +371,9 @@ func (s *VPNService) startOSVPN(v *store.VPN, stop <-chan struct{}, up func(stri
 				wasUp = true
 				up(st.Iface, nil)
 			case err == nil && st.Connected:
+				unreadable = 0
+			case wasUp && err != nil && unreadable < 2:
+				unreadable++
 			case wasUp:
 				ended(rep, true, fmt.Sprintf("The system disconnected VPN %s.", name))
 				return
