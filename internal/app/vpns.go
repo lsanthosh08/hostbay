@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 
@@ -272,6 +273,8 @@ func (s *VPNService) DeleteVPN(id string) error {
 		delete(l.VPNIfaces, id)
 		delete(l.VPNNodeStates, id)
 		delete(l.VPNNarrow, id)
+		l.BrowserMappings = slices.DeleteFunc(l.BrowserMappings, func(m store.BrowserMapping) bool { return m.VPN == id })
+		l.MCP.VPNAllow = slices.DeleteFunc(l.MCP.VPNAllow, func(e store.VPNAllowEntry) bool { return e.Profile == id })
 		return nil
 	}); err != nil {
 		return err
