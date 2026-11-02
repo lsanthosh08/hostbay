@@ -256,9 +256,12 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
   const chooseApp = async () => {
     const path = await openApp().catch(() => null);
     if (!path) return;
-    // The name the OS gives the VPN stays as typed; an empty one takes the app's.
+    // A client that is empty or only repeats the profile's name takes the app's
+    // own name (Harmony SASE installs as Check Point SASE); a name the user set
+    // to what the OS calls the VPN, such as FortiClient VPN, stays.
     const name = path.split(/[\\/]/).pop()?.replace(/\.(app|exe)$/i, "") ?? "";
-    set({ clientPath: path, client: v.client?.trim() ? v.client : name });
+    const client = v.client?.trim();
+    set({ clientPath: path, client: !client || client.toLowerCase() === v.name.trim().toLowerCase() ? name : client });
   };
 
   const save = async () => {
