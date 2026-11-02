@@ -27,10 +27,12 @@ import (
 	"hostbay/internal/vpn/openvpn"
 )
 
-// Version is bumped on any incompatible change to the messages below. A
-// helper and a Hostbay that disagree refuse each other with CodeVersion, and
-// Hostbay offers to reinstall the helper.
-const Version = 2
+// Version is bumped on any incompatible change to the messages below, or to
+// what the helper accepts in them (3: OpenVPN profiles need a CA or peer
+// fingerprint, and peer-fingerprint is allowed). A helper and a Hostbay that
+// disagree refuse each other with CodeVersion, and Hostbay offers to
+// reinstall the helper.
+const Version = 3
 
 // Message tags.
 const (

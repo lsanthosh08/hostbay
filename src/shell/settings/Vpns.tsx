@@ -209,7 +209,16 @@ export function RouteEditor({ v, set, err }: { v: Vpn; set: (patch: Partial<Vpn>
           { value: "split", label: t("vpnForm.split") },
           { value: "full", label: t("vpnForm.full") },
         ]}
-        onChange={(m) => set({ routes: m === "full" ? [...FULL_TUNNEL] : (v.routes ?? []).filter((r) => !FULL_TUNNEL.includes(r)) })}
+        // The mode is saved with the routes: the routing engine applies "split" by
+        // removing the vendor's own default routes, which routes alone never did.
+        onChange={(m) =>
+          set({
+            routes: m === "full" ? [...FULL_TUNNEL] : (v.routes ?? []).filter((r) => !FULL_TUNNEL.includes(r)),
+            routingMode: m,
+            // An external client installs its routes itself, so Hostbay has to put them right as it connects.
+            ...(v.tier === "external" && v.autoApply === undefined ? { autoApply: true } : {}),
+          })
+        }
       />
       {full ? <p className="text-xs text-muted">{t("vpnForm.fullHint")}</p> : list(t("vpnForm.routes"), "routes", "10.0.0.0/8", t("vpnForm.routesHint"))}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -532,7 +541,7 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
           <input type="checkbox" checked={!!v.autoReconnect} onChange={(e) => set({ autoReconnect: e.target.checked })} />
           {t("vpnForm.autoReconnect")}
         </label>
-        {!external && (
+        {hasRouting(v.type) && (
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={!!v.autoApply} onChange={(e) => set({ autoApply: e.target.checked })} />
             {t("vpnForm.autoApply")}
