@@ -155,6 +155,9 @@ func (s *Server) start(ctx context.Context, req *sdk.CallToolRequest, r agentexe
 	if r.Tool == agentexec.ToolRun {
 		r.Allow = s.allowed(r.Principal, r.Host)
 	}
+	if l, err := s.St.Local(); err == nil {
+		r.AutoRead = l.MCP.AutoReadOnly
+	}
 	v, err := s.Jobs.Start(clientGone(ctx), r)
 	if err != nil {
 		return nil, v, clientErr(err)

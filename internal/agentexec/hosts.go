@@ -72,6 +72,10 @@ type HostRequest struct {
 	Remote    string             // the remote folder or file
 	Local     string             // the file in the MCP folder, as the card shows it
 	Allow     []store.AllowEntry // the principal's exact entries for Host; run_command only
+	// AutoRead lets a read-only request run without a card: a folder
+	// listing, or a run_command that ReadOnly accepts. The user turns it on
+	// in Settings > MCP; it is off until then.
+	AutoRead bool
 	// Open reads the local file of an upload; Create makes the local file of
 	// a download, and discard removes it if the download fails. Neither is
 	// called before the request is approved.
@@ -165,6 +169,9 @@ func (h *HostJobs) Start(ctx context.Context, r HostRequest) (HostJobView, error
 		return HostJobView{}, &Refusal{err.Error()}
 	}
 	auto := r.Tool == ToolRun && Match(r.Command, r.Allow)
+	if r.AutoRead && (r.Tool == ToolList || r.Tool == ToolRun && ReadOnly(r.Command)) {
+		auto = true
+	}
 	j := &HostJob{ID: newID(), Principal: r.Principal, Host: r.Host, state: JobAwaiting, done: make(chan struct{})}
 	if auto {
 		j.state = JobRunning

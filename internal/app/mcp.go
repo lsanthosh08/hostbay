@@ -129,6 +129,8 @@ type MCPStatus struct {
 	Endpoint string `json:"endpoint"`
 	Error    string `json:"error,omitempty"` // why an enabled server is not running
 	Folder   string `json:"folder"`
+	// AutoReadOnly says read-only requests run without a card.
+	AutoReadOnly bool `json:"autoReadOnly"`
 }
 
 func (s *MCPService) Status() (MCPStatus, error) {
@@ -140,7 +142,7 @@ func (s *MCPService) Status() (MCPStatus, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return MCPStatus{Enabled: l.MCP.Enabled, Running: s.srv.Port() != 0, Port: p, Endpoint: "http://127.0.0.1:" + strconv.Itoa(p) + mcp.Path,
-		Error: s.lastErr, Folder: l.MCP.Folder}, nil
+		Error: s.lastErr, Folder: l.MCP.Folder, AutoReadOnly: l.MCP.AutoReadOnly}, nil
 }
 
 // widen asks in a dialog Go opens, then through OS verification (KTD32).
@@ -170,6 +172,22 @@ func (s *MCPService) SetEnabled(ctx context.Context, on bool) error {
 		s.start(m)
 	}
 	return nil
+}
+
+// SetAutoReadOnly lets MCP clients list folders and run read-only commands
+// without a card, or asks for every request again. Turning it on widens
+// what runs unattended, so it asks in a dialog and then for verification.
+func (s *MCPService) SetAutoReadOnly(ctx context.Context, on bool) error {
+	if on {
+		if err := s.widen(ctx, "Run read-only requests without asking?",
+			"MCP clients will list folders and run read-only commands such as ls, cat, df, ps or docker ps on your saved SSH hosts without a card. Their output goes to the client, so anything the SSH user can read may reach it, apart from files whose names look like keys or secrets. Every other command still asks."); err != nil {
+			return err
+		}
+	}
+	return s.st.EditLocal(func(l *store.Local) error {
+		l.MCP.AutoReadOnly = on
+		return nil
+	})
 }
 
 // SetPort changes the port, restarting a running server on it.
