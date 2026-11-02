@@ -70,7 +70,9 @@ func Label(tuns []Tunnel, ps []Profile) []Labeled {
 		}
 		var open []int
 		for i, l := range out {
-			if l.Profile == "" && l.Shape == shape {
+			// A tunnel the OS names after a VPN belongs to that VPN, so its
+			// shape says nothing about any other profile.
+			if l.Profile == "" && l.Shape == shape && l.VPN == "" {
 				open = append(open, i)
 			}
 		}

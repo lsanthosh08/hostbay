@@ -117,6 +117,7 @@ func TestShapeAndTypeTables(t *testing.T) {
 	for _, c := range []struct{ vendor, typ, shape string }{
 		{"com.fortinet.forticlient.vpn", "sslvpn", PeerLess},
 		{"Harmony SASE", "perimeter81", PointToPoint},
+		{"Check Point SASE", "perimeter81", PointToPoint}, // Harmony SASE's installed app name
 		{"com.cisco.anyconnect", "anyconnect", PointToPoint},
 		{"com.wireguard.macos", "wireguard", PointToPoint},
 		{"OpenVPNConnect", "openvpn", PointToPoint},
@@ -128,5 +129,21 @@ func TestShapeAndTypeTables(t *testing.T) {
 		if got := ShapeFor(c.typ); got != c.shape {
 			t.Errorf("ShapeFor(%q) = %q, want %q", c.typ, got, c.shape)
 		}
+	}
+}
+
+// A tunnel the OS names after FortiClient is FortiClient's, whatever its
+// shape: the only free point-to-point profile (Harmony SASE, not connected)
+// must not claim it just because the shapes match.
+func TestOSNamedTunnelIsNeverLabeledByShapeToAnotherVPN(t *testing.T) {
+	forti := p2p("utun4", "10.212.134.41", "10.212.134.41")
+	forti.VPN = "FortiClient VPN"
+	ps := []Profile{
+		{ID: "emro", Names: []string{"eMRO VPN", "FortiClient VPN"}, Shape: PeerLess},
+		{ID: "od", Names: []string{"OD Internal", "FortiClient VPN"}, Shape: PeerLess},
+		{ID: "harmony", Names: []string{"Harmony SASE"}, Shape: PointToPoint, Ranges: []string{"10.91.0.0/16"}},
+	}
+	if got := labels([]Tunnel{forti}, ps); len(got) != 0 {
+		t.Fatalf("labeled %v, want none: two profiles share the OS name and Harmony has no tunnel", got)
 	}
 }
