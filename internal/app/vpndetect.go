@@ -155,7 +155,8 @@ func (s *VPNService) DetectVPNs(ctx context.Context) ([]detect.VPN, error) {
 	}
 	names := func(v store.VPN) func(detect.VPN) bool {
 		return func(f detect.VPN) bool {
-			return strings.EqualFold(f.Name, v.Name) || strings.EqualFold(f.Name, v.Client)
+			// The app's own path names it too: Harmony SASE installs as "Check Point SASE".
+			return strings.EqualFold(f.Name, v.Name) || strings.EqualFold(f.Name, v.Client) || (f.Client != "" && f.Client == l.VPNClients[v.ID])
 		}
 	}
 	// Hosts and routes both count as users (R23).

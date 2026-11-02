@@ -555,6 +555,24 @@ func TestDetectVPNsOffersNewOnesAndDropsRemovedOnes(t *testing.T) {
 	}
 }
 
+// A profile that points at the app by path is that app, whatever the app
+// calls itself: Harmony SASE installs as "Check Point SASE", and detection
+// must not offer it again as a new VPN.
+func TestDetectVPNsRecognisesAProfilesAppByPath(t *testing.T) {
+	e := newVPNEnv(t, vpntest.OK)
+	f := &fakeDetect{}
+	e.svc.detect = f.detect
+	app := filepath.Join(t.TempDir(), "Check Point SASE.app")
+	if err := os.Mkdir(app, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	saveExternal(t, e.svc, "Harmony SASE", func(v *VPN) { v.Client = "Harmony SASE"; v.ClientPath = app })
+	f.set(detect.Snapshot{VPNs: []detect.VPN{{Name: "Check Point SASE", Type: "perimeter81", Client: app}}})
+	if offers, err := e.svc.DetectVPNs(context.Background()); err != nil || len(offers) != 0 {
+		t.Fatalf("offers %+v, %v", offers, err)
+	}
+}
+
 // Hostbay never runs a helper for an external profile, and launches only
 // the client program saved on this computer, never a synced name (KTD4).
 func TestExternalProfilesAreLeftToTheirOwnApp(t *testing.T) {
