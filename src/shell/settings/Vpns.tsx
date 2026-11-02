@@ -232,7 +232,11 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
   const [groups, setGroups] = useState<string[]>([]);
   const [fetchingGroups, setFetchingGroups] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [tunnels, setTunnels] = useState<api.VpnTunnel[]>([]);
   const { vpns: saved } = useVpns();
+  useEffect(() => {
+    if (initial.tier === "external") api.vpnTunnels().then(setTunnels, () => {});
+  }, [initial.tier]);
   const errors = validateVpn(v);
   const err = (f: VpnField) => (tried && errors[f] ? t(errors[f]!) : undefined);
   const dirty = JSON.stringify(v) !== JSON.stringify(start);
@@ -383,19 +387,25 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
               <Input className="w-full" spellCheck={false} value={v.client ?? ""} onChange={(e) => set({ client: e.target.value })} />
             </Field>
             {list(t("vpnForm.address"), "address", "10.255.0.0/16", t("vpnForm.addressExternalHint"))}
-            <div className="grid grid-cols-1 sm:grid-cols-[1fr_10rem] gap-3 items-start">
-              <Field label={t("vpnForm.clientPath")} hint={t("vpnForm.clientPathHint")}>
-                <div className="flex gap-2">
-                  <Input className="w-full" spellCheck={false} value={v.clientPath ?? ""} onChange={(e) => set({ clientPath: e.target.value })} />
-                  <Button type="button" onClick={chooseApp}>
-                    {t("vpnForm.chooseApp")}
-                  </Button>
-                </div>
-              </Field>
-              <Field label={t("vpnForm.iface")} hint={t("vpnForm.ifaceHint")}>
-                <Input className="w-full font-mono" spellCheck={false} value={v.iface ?? ""} onChange={(e) => set({ iface: e.target.value.trim() })} />
-              </Field>
-            </div>
+            <Field label={t("vpnForm.clientPath")} hint={t("vpnForm.clientPathHint")}>
+              <div className="flex gap-2">
+                <Input className="w-full" spellCheck={false} value={v.clientPath ?? ""} onChange={(e) => set({ clientPath: e.target.value })} />
+                <Button type="button" className="shrink-0 whitespace-nowrap" onClick={chooseApp}>
+                  {t("vpnForm.chooseApp")}
+                </Button>
+              </div>
+            </Field>
+            <Field label={t("vpnForm.iface")} hint={t("vpnForm.ifaceHint")}>
+              <Select className="w-full" value={v.iface ?? ""} onChange={(e) => set({ iface: e.target.value })}>
+                <option value="">{t("vpnForm.ifaceAuto")}</option>
+                {/* A pin that is not up now stays selectable, so saving does not drop it. */}
+                {(v.iface && !tunnels.some((x) => x.iface === v.iface) ? [{ iface: v.iface, local: "" } as api.VpnTunnel, ...tunnels] : tunnels).map((x) => (
+                  <option key={x.iface} value={x.iface}>
+                    {[x.iface, x.local, x.vpn && `(${x.vpn})`].filter(Boolean).join(" ")}
+                  </option>
+                ))}
+              </Select>
+            </Field>
             {sharesClient && <p className="text-xs text-warning">{t("vpnForm.clientSharedWarning")}</p>}
           </>
         )}

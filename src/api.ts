@@ -962,6 +962,8 @@ export const vpnStates = () => list(VPNService.VPNStates()) as Promise<VpnState[
 export const onVpnState = (cb: (s: VpnState) => void) => on<VpnState>("vpn-state", cb);
 // A VPN found on this computer that no profile names yet (R22).
 export type DetectedVpn = { name: string; type: string; shape?: string; connected: boolean; iface?: string; client?: string };
+export type VpnTunnel = { iface: string; local: string; peer?: string; shape?: string; vpn?: string };
+export const vpnTunnels = () => list(VPNService.VPNTunnels()) as Promise<VpnTunnel[]>;
 export const detectVpns = () => list(VPNService.DetectVPNs()) as Promise<DetectedVpn[]>;
 // Opens an external profile's client program saved on this computer (R3).
 export const launchVpnClient = (id: string) => VPNService.LaunchVPNClient(id);

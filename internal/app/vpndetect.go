@@ -135,6 +135,19 @@ func (s *VPNService) iface(ctx context.Context, id, name string) (string, error)
 	return st.Iface, nil
 }
 
+// VPNTunnels lists the tunnel interfaces up on this computer now, for the
+// profile form to offer when a tunnel must be pinned. It changes nothing.
+func (s *VPNService) VPNTunnels(ctx context.Context) ([]detect.Tunnel, error) {
+	snap, err := s.detect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if snap.Tunnels == nil {
+		return []detect.Tunnel{}, nil
+	}
+	return snap.Tunnels, nil
+}
+
 // DetectVPNs looks for VPNs on this computer now and lists the ones no
 // profile names yet, to offer as external profiles (R22). It also drops an
 // external profile whose client program this computer saved and has since

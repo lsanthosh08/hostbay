@@ -622,3 +622,18 @@ func TestRoutesNeverClaimAnotherVPNsTunnel(t *testing.T) {
 		t.Fatalf("Harmony by its own range: %+v", st)
 	}
 }
+
+// The profile form offers the tunnels up now to pin one; it never gets nil.
+func TestVPNTunnelsListsWhatDetectionSees(t *testing.T) {
+	e := newVPNEnv(t, vpntest.OK)
+	f := &fakeDetect{}
+	e.svc.detect = f.detect
+	f.set(detect.Snapshot{})
+	if got, err := e.svc.VPNTunnels(context.Background()); err != nil || got == nil || len(got) != 0 {
+		t.Fatalf("no tunnels: %+v, %v", got, err)
+	}
+	f.set(detect.Snapshot{Tunnels: []detect.Tunnel{{Iface: "utun4", Local: "10.212.134.41", VPN: "FortiClient VPN"}}})
+	if got, err := e.svc.VPNTunnels(context.Background()); err != nil || len(got) != 1 || got[0].Iface != "utun4" {
+		t.Fatalf("tunnels: %+v, %v", got, err)
+	}
+}

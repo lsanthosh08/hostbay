@@ -187,3 +187,11 @@ export function VPNGroups(gateway: string, port: number): $CancellablePromise<st
 export function VPNStates(): $CancellablePromise<$models.VPNState[] | null> {
     return $Call.ByID(49931180);
 }
+
+/**
+ * VPNTunnels lists the tunnel interfaces up on this computer now, for the
+ * profile form to offer when a tunnel must be pinned. It changes nothing.
+ */
+export function VPNTunnels(): $CancellablePromise<detect$0.Tunnel[] | null> {
+    return $Call.ByID(1630817405);
+}
