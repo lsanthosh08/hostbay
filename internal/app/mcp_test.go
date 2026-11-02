@@ -137,6 +137,54 @@ func TestMCPEnableNeedsTheDialog(t *testing.T) {
 	}
 }
 
+// Read-only requests skip the card only after the user turned that on behind
+// the dialog; turning it off needs no dialog, and a command that writes
+// still asks.
+func TestMCPAutoReadOnly(t *testing.T) {
+	e := newMCPEnv(t)
+	if err := e.s.SetEnabled(t.Context(), true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.s.CreateToken(t.Context(), "claude-code"); err != nil {
+		t.Fatal(err)
+	}
+	e.confirm = false
+	if err := e.s.SetAutoReadOnly(t.Context(), true); err == nil {
+		t.Fatal("turned on without the dialog")
+	}
+	if st, _ := e.s.Status(); st.AutoReadOnly {
+		t.Fatal("status says on after a refusal")
+	}
+	e.confirm = true
+	if err := e.s.SetAutoReadOnly(t.Context(), true); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := e.s.Status(); !st.AutoReadOnly {
+		t.Fatal("status says off")
+	}
+	cs := e.client(t, e.copied)
+	_, text := mcpCall(t, cs, agentexec.ToolRun, map[string]any{"hostId": e.host, "command": "uname"})
+	if !strings.Contains(text, `"exitCode":0`) {
+		t.Fatalf("read-only without a card = %s", text)
+	}
+	done := make(chan string, 1)
+	go func() {
+		_, text := mcpCall(t, cs, agentexec.ToolRun, map[string]any{"hostId": e.host, "command": "touch /tmp/auto-denied"})
+		done <- text
+	}()
+	e.answer(t, false)
+	if text := <-done; !strings.Contains(text, `"denied"`) {
+		t.Fatalf("write = %s", text)
+	}
+	e.confirm = false
+	if err := e.s.SetAutoReadOnly(t.Context(), false); err != nil {
+		t.Fatalf("turning off asked: %v", err)
+	}
+	if st, _ := e.s.Status(); st.AutoReadOnly {
+		t.Fatal("status says on after turning off")
+	}
+}
+
 // The whole path: an approved command runs on the host's lease without a
 // terminal, a denied one runs nothing, and no result, binding or token
 // file holds the host's password or the token.

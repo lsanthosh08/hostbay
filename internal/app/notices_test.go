@@ -95,8 +95,21 @@ func TestMCPNoticeAnswers(t *testing.T) {
 }
 
 func TestNoticeTextVPN(t *testing.T) {
-	title, body, actions := noticeText(agentexec.Pending{Client: "Claude", Host: "Office", Tool: "connect_vpn", Gateway: "vpn.example.com"})
-	if !strings.Contains(title, "Claude") || body != "connect VPN Office (vpn.example.com)" || !actions {
+	title, body, actions := noticeText(agentexec.Pending{Client: "Claude", Host: "Office", Tool: "connect_vpn", Tier: "system", Gateway: "vpn.example.com", Tag: "acme"})
+	if !strings.Contains(title, "Claude") || body != "connect VPN Office, tier system, gateway vpn.example.com, tag acme" || !actions {
 		t.Fatalf("%q %q %v", title, body, actions)
+	}
+}
+
+// The text at the limit keeps Allow and Deny; one rune over loses them.
+func TestNoticeTextLimit(t *testing.T) {
+	p := agentexec.Pending{Host: "h", Tool: "run_command"}
+	p.Bytes = strings.Repeat("x", noticeMax-len("h: "))
+	if _, _, actions := noticeText(p); !actions {
+		t.Fatal("a request that fits lost its buttons")
+	}
+	p.Bytes += "x"
+	if _, body, actions := noticeText(p); actions || !strings.HasSuffix(body, "…") {
+		t.Fatalf("a request that does not fit kept its buttons: %q", body)
 	}
 }

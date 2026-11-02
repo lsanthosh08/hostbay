@@ -43,9 +43,17 @@ func noticeText(p agentexec.Pending) (title, body string, actions bool) {
 		if p.Tool == "disconnect_vpn" {
 			verb = "disconnect"
 		}
+		// Everything the card shows: a system-wide profile changes every
+		// connection on this computer, which a name alone would hide.
 		body = verb + " VPN " + p.Host
+		if p.Tier != "" {
+			body += ", tier " + p.Tier
+		}
 		if p.Gateway != "" {
-			body += " (" + p.Gateway + ")"
+			body += ", gateway " + p.Gateway
+		}
+		if p.Tag != "" {
+			body += ", tag " + p.Tag
 		}
 	default:
 		body = p.Host + ": " + p.Bytes

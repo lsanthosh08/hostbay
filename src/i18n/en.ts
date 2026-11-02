@@ -1612,7 +1612,7 @@ export const en = {
   "mcp.enable": "Turn on the MCP server",
   "mcp.autoReadOnly": "Run read-only requests without asking",
   "mcp.autoReadOnlyHint":
-    "Folder listings and commands such as ls, cat, df, ps, docker ps and git log run at once. Everything else still waits for your approval, in the window and in a notification with Allow and Deny. Their output goes to the client, so anything the SSH user can read may reach it, except files whose names look like keys or secrets.",
+    "Folder listings and commands such as ls, cat, df, ps and docker ps run at once. Everything else still waits for your approval, in the window and in a notification with Allow and Deny. Their output goes to the client, so anything the SSH user can read may reach it, except files whose names look like keys or secrets, which are a best-effort check.",
   "mcp.port": "Port",
   "mcp.portSave": "Save port",
   "mcp.portSaved": "Port saved.",

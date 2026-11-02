@@ -7,10 +7,13 @@ import (
 
 // ReadOnly reports whether cmd only reads: one program, or a pipeline of
 // them, from the list below, with no redirect, chaining, substitution or
-// option known to write, follow or run something. It is deliberately
-// short; a command it does not know asks, as any other does. It does not
-// make reading harmless: output still goes to the client, so an argument
-// that names a key, token or secret file is refused here too.
+// glob, and with every option on that program's allowlist. It is
+// deliberately short; a command it does not know asks, as any other does.
+// Options are allowed by name, never denied by name: a denylist misses
+// abbreviations (--out for --output) and other spellings of what it meant
+// to stop. It does not make reading harmless: output still goes to the
+// client, so an argument that names a key, token or secret file is refused
+// here too, as a best effort.
 func ReadOnly(cmd string) bool {
 	segs, ok := pipeline(cmd)
 	if !ok {
@@ -20,8 +23,8 @@ func ReadOnly(cmd string) bool {
 		if len(seg) == 0 {
 			return false
 		}
-		check, known := readOnlyProgs[seg[0]]
-		if !known || !check(seg[1:]) {
+		spec, known := readOnlyProgs[seg[0]]
+		if !known || !spec.allows(seg[1:]) {
 			return false
 		}
 		for _, a := range seg[1:] {
@@ -51,7 +54,7 @@ func pipeline(cmd string) ([][]string, bool) {
 	}
 	for _, r := range cmd {
 		switch {
-		case strings.ContainsRune(";&<>`$()\\{}!\n\r\x00*?~", r):
+		case strings.ContainsRune(";&<>`$()[]\\{}!\n\r\x00*?~", r):
 			return nil, false
 		case quote != 0:
 			if r == quote {
@@ -79,104 +82,99 @@ func pipeline(cmd string) ([][]string, bool) {
 }
 
 var sensitiveParts = []string{".ssh", "id_rsa", "id_ed25519", "id_ecdsa", "id_dsa", "shadow", ".env", "secret", "credential",
-	"token", ".pem", ".key", ".pgpass", ".netrc", ".aws", ".kube", ".gnupg", "history", "private", "passwd", "keytab", ".p12", ".pfx"}
+	"token", ".pem", ".key", ".pgpass", ".netrc", ".aws", ".kube", ".gnupg", "history", "private", "passwd", "keytab", ".p12", ".pfx", "environ"}
 
 func sensitiveArg(a string) bool {
 	a = strings.ToLower(a)
 	return slices.ContainsFunc(sensitiveParts, func(p string) bool { return strings.Contains(a, p) })
 }
 
-// anyArg is the check for a program that cannot write or follow whatever
-// its arguments are.
-func anyArg([]string) bool { return true }
+// progSpec is what one program may be given. A word that starts with - must
+// be listed: as a long option by exact name (with =value or not), or as a
+// cluster of the listed short letters and digits. Words that do not start
+// with - are operands (paths, patterns, values of an option) and are free
+// unless the program takes a verb or no operands at all.
+type progSpec struct {
+	anyOpt    bool     // every option is read-only: no list needed
+	short     string   // allowed short option letters
+	long      []string // allowed long option names, without the dashes
+	verbs     []string // the first word must be one of these, exactly
+	noOperand bool     // no word but options
+	operands  []string // when set, the only operands allowed, exactly
+	plus      bool     // operands must start with + (date +%s; date MMDDhhmm sets the clock)
+	need      string   // an option the call must carry (docker stats --no-stream)
+}
 
-// without refuses the listed options, long or short, and a short option
-// cluster holding one of the short ones (-fn holds -f).
-func without(bad ...string) func([]string) bool {
-	return func(args []string) bool {
-		for _, a := range args {
-			if slices.Contains(bad, a) {
+func (p progSpec) allows(args []string) bool {
+	if len(p.verbs) > 0 {
+		// The verb is the first word that is not an option: ip -br addr.
+		i := slices.IndexFunc(args, func(a string) bool { return !strings.HasPrefix(a, "-") })
+		if i < 0 || !slices.Contains(p.verbs, args[i]) {
+			return false
+		}
+	}
+	seenNeed := p.need == ""
+	for _, a := range args {
+		switch {
+		case strings.HasPrefix(a, "--"):
+			name, _, _ := strings.Cut(a[2:], "=")
+			if !p.anyOpt && !slices.Contains(p.long, name) {
 				return false
 			}
-			if len(a) > 1 && a[0] == '-' && a[1] != '-' {
-				for _, b := range bad {
-					if len(b) == 2 && strings.Contains(a[1:], b[1:]) {
-						return false
-					}
-				}
-			}
-			for _, b := range bad {
-				if len(b) > 2 && strings.HasPrefix(a, b+"=") {
+			seenNeed = seenNeed || name == p.need
+		case len(a) > 1 && a[0] == '-':
+			for _, r := range a[1:] {
+				if !p.anyOpt && !strings.ContainsRune(p.short, r) && (r < '0' || r > '9') {
 					return false
 				}
 			}
+		case p.noOperand:
+			return false
+		case p.plus && !strings.HasPrefix(a, "+"):
+			return false
+		case p.operands != nil && !slices.Contains(p.operands, a):
+			return false
 		}
-		return true
 	}
+	return seenNeed
 }
 
-// sub allows a program only when its first argument is one of subs and no
-// later argument is in bad.
-func sub(subs []string, bad ...string) func([]string) bool {
-	return func(args []string) bool {
-		return len(args) > 0 && slices.Contains(subs, args[0]) && !slices.ContainsFunc(args[1:], func(a string) bool { return slices.Contains(bad, a) })
-	}
+func anyOpts() progSpec { return progSpec{anyOpt: true} }
+
+func shortOnly(letters string) progSpec { return progSpec{short: letters} }
+
+var readOnlyProgs = map[string]progSpec{
+	"pwd": anyOpts(), "whoami": anyOpts(), "id": anyOpts(), "uname": anyOpts(), "uptime": anyOpts(),
+	"nproc": anyOpts(), "groups": anyOpts(), "lscpu": anyOpts(), "lsblk": anyOpts(), "w": anyOpts(), "who": anyOpts(),
+	"last": anyOpts(), "df": anyOpts(), "du": anyOpts(), "free": anyOpts(), "ls": anyOpts(), "stat": anyOpts(),
+	"wc": anyOpts(), "cut": anyOpts(), "tr": anyOpts(), "basename": anyOpts(), "dirname": anyOpts(), "which": anyOpts(),
+	"netstat": anyOpts(), "cat": anyOpts(),
+	// hostname with an operand sets the name.
+	"hostname": {short: "fsiIdA", noOperand: true},
+	"file":     {short: "bikLhsz", long: []string{"brief", "mime", "mime-type", "mime-encoding", "dereference"}},
+	// head and tail read a file once; -f/-F follow and never return.
+	"head": {short: "nqcv", long: []string{"lines", "bytes", "quiet", "silent", "verbose"}},
+	"tail": {short: "nqcv", long: []string{"lines", "bytes", "quiet", "silent", "verbose"}},
+	// grep without -r reads only the files it is named; -r would walk past
+	// the names the sensitive-argument check can see.
+	"grep":  grepSpec,
+	"egrep": grepSpec,
+	"fgrep": grepSpec,
+	// sort -o and --compress-program write and run.
+	"sort": {short: "nrufbdgMhVk" + "t", long: []string{"numeric-sort", "reverse", "unique", "ignore-case", "version-sort", "human-numeric-sort", "key", "field-separator"}},
+	"date": {plus: true, short: "uRI", long: []string{"utc", "universal", "rfc-email", "iso-8601"}},
+	"ps":   {operands: []string{"aux", "ax"}, short: "eAf"},
+	// ss -D writes a file, -K kills sockets.
+	"ss":         shortOnly("tuxlnaperHoOs46"),
+	"ip":         {verbs: []string{"addr", "address", "link", "route", "neigh"}, short: "s46br", long: []string{"brief", "stats", "color"}, operands: []string{"addr", "address", "link", "route", "neigh", "show", "list"}},
+	"systemctl":  {verbs: []string{"status", "is-active", "is-enabled", "is-failed", "list-units", "list-unit-files", "list-timers"}, short: "la", long: []string{"no-pager", "full", "all", "failed"}},
+	"journalctl": {short: "unpbrqSU", long: []string{"no-pager", "unit", "lines", "priority", "boot", "reverse", "since", "until", "quiet", "utc"}},
+	"docker":     {verbs: []string{"ps", "images", "version", "info", "logs"}, short: "aqlsnt", long: []string{"all", "quiet", "latest", "size", "no-trunc", "tail", "since", "until", "timestamps", "format", "filter"}},
 }
 
-var follow = []string{"-f", "-F", "--follow", "--follow=name", "--follow=descriptor"}
-
-var readOnlyProgs = map[string]func([]string) bool{
-	"pwd": anyArg, "whoami": anyArg, "id": anyArg, "hostname": without("-b", "-F", "--file"), "uname": anyArg,
-	"uptime": anyArg, "df": anyArg, "du": anyArg, "free": anyArg, "w": anyArg, "who": anyArg, "last": anyArg,
-	"lsblk": anyArg, "lscpu": anyArg, "nproc": anyArg, "arch": anyArg, "groups": anyArg, "which": anyArg,
-	"ls": anyArg, "stat": anyArg, "wc": anyArg, "cut": anyArg, "tr": anyArg, "basename": anyArg, "dirname": anyArg,
-	"cat": anyArg, "head": anyArg, "file": without("-C", "--compile"), "sort": without("-o", "--output", "-T", "--temporary-directory"),
-	"tail": without(follow...), "grep": anyArg, "egrep": anyArg, "fgrep": anyArg,
-	"date": func(args []string) bool {
-		for _, a := range args {
-			if a != "-u" && a != "-R" && a != "-I" && !strings.HasPrefix(a, "+") {
-				return false
-			}
-		}
-		return true
-	},
-	"ps": func(args []string) bool {
-		for _, a := range args {
-			if !slices.Contains([]string{"aux", "ax", "-e", "-A", "-f", "-ef", "-aux", "-ax"}, a) {
-				return false
-			}
-		}
-		return true
-	},
-	"ss": without("-K", "--kill"), "netstat": anyArg,
-	"ip":         sub([]string{"addr", "address", "a", "link", "l", "route", "r", "neigh", "n"}, "add", "del", "delete", "flush", "set", "change", "replace"),
-	"systemctl":  sub([]string{"status", "is-active", "is-enabled", "is-failed", "list-units", "list-unit-files", "list-timers", "show", "cat"}),
-	"journalctl": without(append(slices.Clone(follow), "--vacuum-size", "--vacuum-time", "--vacuum-files", "--flush", "--rotate", "--sync", "--setup-keys", "--update-catalog")...),
-	"docker":     dockerReadOnly,
-	"git":        sub([]string{"status", "log", "diff", "show", "rev-parse", "describe", "remote"}, "--output", "-o", "set-url", "add", "remove", "rm", "rename", "prune"),
-	"kubectl":    kubectlReadOnly,
-}
-
-func dockerReadOnly(args []string) bool {
-	if len(args) == 0 {
-		return false
-	}
-	switch args[0] {
-	case "ps", "images", "version", "info", "inspect", "top", "port", "diff":
-		return true
-	case "logs", "stats", "events":
-		return without(append(slices.Clone(follow), "--follow")...)(args[1:]) && (args[0] != "stats" || slices.Contains(args, "--no-stream")) && args[0] != "events"
-	}
-	return false
-}
-
-func kubectlReadOnly(args []string) bool {
-	if len(args) == 0 || !slices.Contains([]string{"get", "describe", "logs", "top", "version", "cluster-info"}, args[0]) {
-		return false
-	}
-	// A Secret's data is the secret.
-	if slices.ContainsFunc(args, func(a string) bool { return strings.HasPrefix(strings.ToLower(a), "secret") }) {
-		return false
-	}
-	return without(append(slices.Clone(follow), "--follow", "-w", "--watch")...)(args[1:])
+var grepSpec = progSpec{
+	short: "ivnclLwxEFGhHoqsaIAmBCe",
+	long: []string{"ignore-case", "invert-match", "line-number", "count", "files-with-matches", "files-without-match", "word-regexp", "line-regexp",
+		"extended-regexp", "fixed-strings", "no-filename", "with-filename", "only-matching", "quiet", "silent", "text", "max-count", "regexp",
+		"after-context", "before-context", "context"},
 }
