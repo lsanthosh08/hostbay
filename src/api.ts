@@ -1370,7 +1370,7 @@ export const aiAskSql = (databaseId: string, question: string) => unlocking(() =
 // to the clipboard, and the page sees only names and dates.
 export type MCPStatus = { enabled: boolean; running: boolean; port: number; endpoint: string; error?: string; folder: string };
 export type MCPToken = { id: string; name: string; created: number; lastUsed?: number };
-export type MCPNewToken = { token: MCPToken; copied: boolean; config: string };
+export type MCPNewToken = { token: MCPToken; copied: boolean; config: string; claudeCode: string };
 export type MCPAllowEntry = { tokenId: string; tokenName: string; hostId: string; hostLabel: string; command: string };
 export const mcpStatus = () => MCPService.Status() as Promise<MCPStatus>;
 // On asks in a dialog Go opens, then OS verification.
