@@ -7,6 +7,7 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
+	"hostbay/internal/store"
 	"hostbay/internal/vpn/proto"
 )
 
@@ -24,6 +25,9 @@ type TrayItem struct {
 	Checked bool // the profile holds a run
 	Action  string
 	VPN     string // the profile, for connect and disconnect
+	// External profiles are connected by their own app (or the command line
+	// Hostbay drives it with), never by a run of Hostbay's.
+	External bool
 }
 
 var trayStatus = map[string]string{
@@ -59,7 +63,7 @@ func trayMenu(profiles []VPN, states []VPNState) []TrayItem {
 		case s.Status == VPNDropped && p.AutoReconnect:
 			text, held = "Dropped, reconnecting", true
 		}
-		it := TrayItem{Label: p.Name + " — " + text, Checked: held, Action: TrayConnect, VPN: p.ID}
+		it := TrayItem{Label: p.Name + " — " + text, Checked: held, Action: TrayConnect, VPN: p.ID, External: p.Tier == store.VPNTierExternal}
 		if held {
 			it.Action = TrayDisconnect
 		}
@@ -133,7 +137,7 @@ func (t *Tray) Refresh() {
 		log.Printf("tray: %v", err)
 	} else {
 		for _, v := range d.VPNs.Items {
-			profiles = append(profiles, VPN{ID: v.ID, Name: v.Name, AutoReconnect: v.AutoReconnect})
+			profiles = append(profiles, VPN{ID: v.ID, Name: v.Name, AutoReconnect: v.AutoReconnect, Tier: v.Tier})
 		}
 	}
 	t.render(trayMenu(profiles, t.vpns.VPNStates()))
@@ -144,7 +148,9 @@ func (t *Tray) Refresh() {
 // VPN panel open, where it asks for it. It reads the service, so it must not run under
 // the service's lock; Wails calls Go listeners on their own goroutines.
 func (t *Tray) StateChanged(st VPNState) {
-	if st.Status == VPNSigningIn {
+	// Only a one-time code is typed in the window; a browser sign-in happens in
+	// the browser that just opened, which the window would take focus from.
+	if st.Status == VPNSigningIn && st.Need == proto.NeedOTP {
 		t.showVPNs()
 	}
 	t.Refresh()
@@ -153,6 +159,22 @@ func (t *Tray) StateChanged(st VPNState) {
 // Do runs a menu item. Connect and disconnect run off the menu's thread:
 // a connect waits through sign-in.
 func (t *Tray) Do(it TrayItem) {
+	switch it.Action {
+	case TrayConnect, TrayDisconnect:
+		if it.External {
+			go func() {
+				do := t.vpns.ConnectVPNClient
+				if it.Action == TrayDisconnect {
+					do = t.vpns.DisconnectVPNClient
+				}
+				// A client Hostbay cannot drive is opened or left to its app; either way the panel says why.
+				if err := do(context.Background(), it.VPN); err != nil {
+					t.showVPNs()
+				}
+			}()
+			return
+		}
+	}
 	switch it.Action {
 	case TrayConnect:
 		go func() {

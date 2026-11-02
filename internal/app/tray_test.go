@@ -195,3 +195,12 @@ func TestQuitQuestion(t *testing.T) {
 		}
 	}
 }
+
+// An external profile is connected by its own app, so the tray must not
+// start a run of Hostbay's for it: the item says so, and Do drives the client.
+func TestTrayMarksExternalProfiles(t *testing.T) {
+	items := trayMenu([]VPN{{ID: "a", Name: "Harmony", Tier: store.VPNTierExternal}, {ID: "b", Name: "Lab", Tier: store.VPNTierApp}}, nil)
+	if !items[0].External || items[1].External {
+		t.Fatalf("items %+v", items)
+	}
+}
