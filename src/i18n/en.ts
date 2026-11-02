@@ -524,7 +524,7 @@ export const en = {
   "vpnForm.clientHint": "The installed app that connects this VPN. Hostbay detects the tunnel it brings up.",
   "vpnForm.clientPath": "Client program on this computer",
   "vpnForm.clientPathHint": "The app's full path, such as /Applications/Example VPN.app. The VPN list opens it.",
-  "vpnForm.iface": "Tunnel interface on this computer",
+  "vpnForm.iface": "Tunnel interface",
   "vpnForm.ifaceHint": "Pin one, such as utun4, when Hostbay cannot tell two connected VPNs apart.",
   "vpnForm.addressExternalHint": "The range the VPN's own tunnel address falls in. Hostbay uses it to tell this VPN's tunnel from another's.",
   "vpnForm.address": "Tunnel addresses",
