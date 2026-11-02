@@ -231,7 +231,7 @@ function HostRow({ h, ctx, depth = 0 }: { h: Host; ctx: TreeCtx; depth?: number 
       }}
       onContextMenu={ctx.menu(hostMenu(h, ctx))}
       className={
-        "px-2 py-1 rounded-control text-sm cursor-pointer flex items-center gap-1.5 group outline-none focus-visible:ring-2 focus-visible:ring-focus " +
+        "relative px-2 py-1 rounded-control text-sm cursor-pointer flex items-center gap-1.5 group outline-none focus-visible:ring-2 focus-visible:ring-focus " +
         (selected ? "bg-active" : "hover:bg-hover")
       }
       title={`${h.user}@${h.hostname}:${h.port}`}
@@ -240,7 +240,8 @@ function HostRow({ h, ctx, depth = 0 }: { h: Host; ctx: TreeCtx; depth?: number 
       <Kind className="size-3.5 shrink-0 text-muted" aria-hidden />
       <span className="truncate flex-1 min-w-0">{h.alias}</span>
       {status && <StatusDot status={status} />}
-      <span className="flex items-center opacity-0 group-hover:opacity-100 shrink-0">
+      {/* Over the row's right end on hover, so it takes no width from the name when idle. */}
+      <span className="absolute right-1 inset-y-0 hidden group-hover:flex group-focus-within:flex items-center rounded-control bg-inherit">
         {status ? (
           <RowAction label={t("host.disconnect")} icon={StopIcon} tone="danger" onClick={() => ctx.onDisconnect(h)} />
         ) : (
@@ -289,13 +290,13 @@ function FolderNode({ node, ctx, depth = 0 }: { node: TreeNode; ctx: TreeCtx; de
           }
         }}
         onContextMenu={ctx.menu(folderMenu(f, ctx))}
-        className="px-2 py-1 rounded-control flex items-center gap-1 text-xs font-semibold uppercase tracking-wide cursor-pointer transition-colors group text-muted hover:text-fg hover:bg-hover outline-none focus-visible:ring-2 focus-visible:ring-focus"
+        className="relative px-2 py-1 rounded-control flex items-center gap-1 text-xs font-semibold uppercase tracking-wide cursor-pointer transition-colors group text-muted hover:text-fg hover:bg-hover outline-none focus-visible:ring-2 focus-visible:ring-focus"
       >
         <Guides depth={depth} />
         {isCollapsed ? <CollapsedIcon className="size-3 shrink-0" aria-hidden /> : <ExpandedIcon className="size-3 shrink-0" aria-hidden />}
         <span className="truncate">{f.name}</span>
         <span className="opacity-60 font-normal lowercase">{count}</span>
-        <span className="ml-auto flex items-center opacity-0 group-hover:opacity-100 normal-case">
+        <span className="absolute right-1 inset-y-0 hidden group-hover:flex group-focus-within:flex items-center rounded-control bg-inherit normal-case">
           <RowAction label={t("folder.addHost")} icon={AddIcon} onClick={() => ctx.manager.newHost(f.id)} />
           <RowAction label={t("common.more")} icon={MoreIcon} onClick={moreAt(folderMenu(f, ctx).slice(1), ctx)} />
         </span>
