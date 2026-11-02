@@ -8,10 +8,8 @@ place, on Windows, macOS and Linux. It never connects to a host whose SSH key
 or RDP certificate it has not verified, and it never keeps a saved secret on
 disk in readable form.
 
-Hostbay is a Go rewrite of SSH Manager on [Wails v3](https://v3.wails.io).
-The plan is in
+Hostbay is built on [Wails v3](https://v3.wails.io). The plan is in
 [docs/plans/2026-10-22-1100-feat-hostbay-go-desktop-port-plan.md](docs/plans/2026-10-22-1100-feat-hostbay-go-desktop-port-plan.md).
-The previous Tauri app's source remains in git history before its removal.
 
 ## Develop
 
@@ -30,8 +28,7 @@ go test ./...     # backend tests
 
 On Linux, install `libgtk-3-dev` and `libwebkit2gtk-4.1-dev` first.
 
-The React UI lives in `src/` and is shared with the old app during the port.
-The Go backend lives in `internal/`.
+The React UI lives in `src/`. The Go backend lives in `internal/`.
 
 ## License
 

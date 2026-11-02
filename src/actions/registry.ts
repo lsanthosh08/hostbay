@@ -53,7 +53,6 @@ export type AppCommands = {
   newHost(): void;
   newFolder(): void;
   importSshConfig(): void;
-  importSshManager(): void;
   restore(): void;
   openLocalShell(): void;
   openSerial(): void;
@@ -149,7 +148,6 @@ export const actions: Action[] = [
   { id: "host.new", label: "action.newHost", icon: AddIcon, run: (app) => app.newHost() },
   { id: "folder.new", label: "folder.new", icon: NewFolderIcon, run: (app) => app.newFolder() },
   { id: "import.sshConfig", label: "action.importSshConfig", icon: ImportIcon, run: (app) => app.importSshConfig() },
-  { id: "import.sshManager", label: "action.importSshManager", icon: ImportIcon, run: (app) => app.importSshManager() },
   {
     id: "settings.open",
     label: "settings.title",

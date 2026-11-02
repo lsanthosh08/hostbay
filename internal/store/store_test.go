@@ -9,7 +9,6 @@ import (
 	"reflect"
 	"runtime"
 	"testing"
-	"time"
 )
 
 // testHost mirrors the shape of SSH Manager's Host: camelCase JSON plus sync metadata.
@@ -224,11 +223,10 @@ func TestDeviceIDAndImportMarkerPersist(t *testing.T) {
 	if id == "" {
 		t.Fatal("empty device ID")
 	}
-	if _, ok := s.SSHManagerImportedAt(); ok {
+	if s.SettingsImported() {
 		t.Fatal("fresh store reports an import")
 	}
-	at := time.Date(2026, 10, 22, 11, 0, 0, 0, time.UTC)
-	if err := s.MarkSSHManagerImported(at); err != nil {
+	if err := s.MarkSettingsImported(); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()
@@ -238,7 +236,7 @@ func TestDeviceIDAndImportMarkerPersist(t *testing.T) {
 	if s.DeviceID() != id {
 		t.Fatalf("device ID %q after reopen, want %q", s.DeviceID(), id)
 	}
-	if got, ok := s.SSHManagerImportedAt(); !ok || !got.Equal(at) {
-		t.Fatalf("import marker = %v, %v; want %v", got, ok, at)
+	if !s.SettingsImported() {
+		t.Fatal("import marker lost after reopen")
 	}
 }

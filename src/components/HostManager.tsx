@@ -36,7 +36,6 @@ export type HostManager = {
   renameFolder: (f: Folder) => void;
   deleteFolder: (f: Folder) => void;
   importSshConfig: () => void;
-  importSshManager: () => void;
   restore: () => void;
   setMasterPassword: () => void;
 };
@@ -125,17 +124,17 @@ export function HostManagerProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Restore from a Hostbay backup or SSH Manager .sshmbak (both ask for the
-  // passphrase) or a plain JSON export.
+  // Restore from a Hostbay backup (asks for the passphrase) or a plain JSON
+  // export.
   const restoreStore = async () => {
     const path = await open({
       filters: [
-        { name: "Backup", extensions: ["hostbay", "sshmbak", "json"] },
+        { name: "Backup", extensions: ["hostbay", "json"] },
       ],
     });
     if (typeof path !== "string") return;
     let pass: string | undefined;
-    if (/\.(hostbay|sshmbak)$/i.test(path)) {
+    if (/\.hostbay$/i.test(path)) {
       const p = await prompt("Enter the backup passphrase", "", true);
       if (!p) return;
       pass = p;
@@ -146,20 +145,6 @@ export function HostManagerProvider({ children }: { children: ReactNode }) {
       for (const note of r.notes ?? []) push("info", note);
       onChanged();
     }
-  };
-
-  // Retry SSH Manager's import, e.g. for a file the first launch skipped.
-  const reimportSshManager = async () => {
-    const r = await run(() => api.importFromSshManager());
-    if (r === undefined) return;
-    push(
-      "success",
-      `Imported ${r.hosts} host(s), ${r.folders} folder(s), ${r.scripts} script(s), ${r.keys} key(s) from SSH Manager`
-    );
-    for (const s of r.skipped ?? []) push("error", `Skipped ${s.file}: ${s.reason}`);
-    if (r.passwordsNeeded > 0)
-      push("info", `${r.passwordsNeeded} password(s) could not be saved; those hosts ask at connect`);
-    onChanged();
   };
 
   const value: HostManager = {
@@ -178,7 +163,6 @@ export function HostManagerProvider({ children }: { children: ReactNode }) {
     renameFolder,
     deleteFolder,
     importSshConfig: importCfg,
-    importSshManager: reimportSshManager,
     restore: restoreStore,
     setMasterPassword: () => setSettingMaster(true),
   };

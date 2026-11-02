@@ -68,9 +68,6 @@ export function StartPage({ app }: { app: AppCommands }) {
               <Button variant="ghost" icon={ImportIcon} onClick={app.importSshConfig}>
                 {t("action.importSshConfig")}
               </Button>
-              <Button variant="ghost" icon={ImportIcon} onClick={app.importSshManager}>
-                {t("action.importSshManager")}
-              </Button>
               <Button variant="ghost" icon={ArchiveIcon} onClick={app.restore}>
                 {t("action.restore")}
               </Button>
@@ -118,9 +115,6 @@ export function StartPage({ app }: { app: AppCommands }) {
                 </Button>
                 <Button variant="ghost" size="sm" icon={ImportIcon} onClick={app.importSshConfig}>
                   {t("action.importSshConfig")}
-                </Button>
-                <Button variant="ghost" size="sm" icon={ImportIcon} onClick={app.importSshManager}>
-                  {t("action.importSshManager")}
                 </Button>
               </>
             )}

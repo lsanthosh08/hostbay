@@ -283,15 +283,11 @@ export const exportHost = (id: string, path: string, passphrase: string) =>
 export const writeTextFile = (path: string, content: string) =>
   HostService.WriteTextFile(path, content);
 export const readTextFile = (path: string) => HostService.ReadTextFile(path);
-// Restore auto-detects a Hostbay backup, an SSH Manager .sshmbak, or plain JSON.
+// Restore auto-detects a Hostbay backup or plain JSON.
 // Resolves to { imported, notes }: notes name hosts that need a jump host or
 // proxy chosen.
 export const importStore = (path: string, passphrase?: string) =>
   HostService.ImportStore(path, passphrase ?? null);
-// Runs the SSH Manager import again (first launch runs it once). Resolves to
-// counts added, files skipped with why, and passwordsNeeded: hosts that ask
-// for their password at connect because the keychain refused to seal it.
-export const importFromSshManager = () => HostService.ImportFromSshManager();
 export const revealPassword = (id: string) => HostService.RevealPassword(id);
 
 // ---- Master password (Linux user verification, KTD7) ----
@@ -906,6 +902,7 @@ export type Vpn = {
   port?: number;
   user?: string;
   auth?: VpnAuth | ""; // "" is none
+  authGroup?: string; // AnyConnect: the gateway group to sign in to, when it offers several
   address?: string[] | null; // WireGuard: the tunnel's own addresses
   peerKey?: string; // WireGuard: the server's public key
   routes?: string[] | null; // networks sent through the VPN; 0.0.0.0/0 and ::/0 are a full tunnel

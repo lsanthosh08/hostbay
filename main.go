@@ -19,7 +19,6 @@ import (
 
 	"hostbay/internal/app"
 	"hostbay/internal/container"
-	"hostbay/internal/importer/sshmanager"
 	"hostbay/internal/mcp"
 	"hostbay/internal/secrets"
 	"hostbay/internal/sshx"
@@ -157,16 +156,6 @@ func main() {
 	// Linux verifies with the Hostbay master password, asked for in the UI.
 	passwordPrompt := app.NewMasterPasswordPrompt()
 	ver.ask = vault.UnlockingPrompt(passwordPrompt.Ask)
-	// First launch brings SSH Manager's data across once. If the keychain
-	// refuses, hosts still come across without passwords (AE7); any other
-	// failure writes nothing and retries on the next launch.
-	if src, err := sshmanager.DefaultSourceDir(); err == nil {
-		if rep, err := sshmanager.ImportOnce(st, vault, src); err != nil {
-			log.Printf("SSH Manager import: %v", err)
-		} else if rep.Ran {
-			log.Printf("SSH Manager import: %+v", rep)
-		}
-	}
 	a.RegisterService(application.NewService(app.NewHostService(st, vault, ver)))
 	a.RegisterService(application.NewService(app.NewSettingsService(st)))
 	a.RegisterService(application.NewService(app.NewAppearanceService(st, dir)))
