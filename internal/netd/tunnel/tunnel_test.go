@@ -169,7 +169,7 @@ func TestOpenVPNManagementSocketIsTheInstallingUsers(t *testing.T) {
 		}
 		p.onStop = func() { ln.Close() }
 	}
-	r, err := e.start(netd.Msg{T: netd.OpenVPNStart, OpenVPN: &openvpn.Profile{Remote: "vpn.example.test", UserPass: true}})
+	r, err := e.start(netd.Msg{T: netd.OpenVPNStart, OpenVPN: &openvpn.Profile{Remote: "vpn.example.test", UserPass: true, Extra: "peer-fingerprint AA:BB"}})
 	if err != nil {
 		t.Fatal(err)
 	}

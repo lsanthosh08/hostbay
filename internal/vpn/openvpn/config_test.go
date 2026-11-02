@@ -12,6 +12,11 @@ import (
 
 const pem = "-----BEGIN CERTIFICATE-----\nMIIBszCCAVmgAwIBAgIUQ\n-----END CERTIFICATE-----"
 
+const (
+	caBlock     = "<ca>\n" + pem + "\n</ca>"
+	fingerprint = "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99"
+)
+
 var unixMgmt = Management{Socket: "/Library/PrivilegedHelperTools/dev.hostbay.netd/run/AB12CD34.sock", User: "alice"}
 
 func lines(conf string) []string { return strings.Split(strings.TrimSpace(conf), "\n") }
@@ -61,7 +66,7 @@ func TestBuildWritesTypedFieldsAndAllowlistedExtras(t *testing.T) {
 
 // A full tunnel is redirect-gateway def1, never a default route line.
 func TestBuildFullTunnelRedirectsTheGateway(t *testing.T) {
-	conf, err := Build(Profile{Remote: "203.0.113.9", Routes: []string{"0.0.0.0/0", "::/0", "10.1.0.0/24"}}, unixMgmt)
+	conf, err := Build(Profile{Remote: "203.0.113.9", Routes: []string{"0.0.0.0/0", "::/0", "10.1.0.0/24"}, Extra: caBlock}, unixMgmt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +119,7 @@ func TestBuildRefusesBadTypedFields(t *testing.T) {
 
 // Windows: the management interface listens on loopback with a password file.
 func TestBuildWindowsManagement(t *testing.T) {
-	conf, err := Build(Profile{Remote: "vpn"}, Management{Addr: "127.0.0.1:50123", PassFile: `C:\Program Files\HostbayNetd\run\AB.pw`})
+	conf, err := Build(Profile{Remote: "vpn", Extra: caBlock}, Management{Addr: "127.0.0.1:50123", PassFile: `C:\Program Files\HostbayNetd\run\AB.pw`})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,8 +141,12 @@ func TestBuildAcceptsWhatImportKeeps(t *testing.T) {
 		if err := json.Unmarshal([]byte(v.Secret), &sec); err != nil {
 			t.Fatal(err)
 		}
+		extra := sec.OpenVPN
+		if name == "full.ovpn" {
+			extra += "\npeer-fingerprint " + fingerprint // its ca is a file reference, which import drops
+		}
 		conf, err := Build(Profile{Remote: v.Gateway, Port: v.Port, Routes: v.Routes, MTU: v.MTU, UserPass: v.Auth == "password",
-			Extra: sec.OpenVPN, Key: sec.PrivateKey}, unixMgmt)
+			Extra: extra, Key: sec.PrivateKey}, unixMgmt)
 		if err != nil {
 			t.Errorf("%s: %v", name, err)
 		} else if name == "office.ovpn" && !strings.Contains(conf, "<ca>") {
@@ -157,5 +166,21 @@ func TestRefusalNeverQuotesKeyMaterial(t *testing.T) {
 	}
 	if _, err := Build(Profile{Remote: "vpn", Extra: "plugin /x.so"}, unixMgmt); err == nil || !strings.Contains(err.Error(), "(plugin)") {
 		t.Fatalf("err %v", err)
+	}
+}
+
+// OpenVPN stops at its options error "You must define CA file" and exits
+// 1 before it opens the management socket; a hand-made profile with only
+// a server, user and password reached that, and the run showed only
+// "exit status 1". Build refuses it up front, naming the cause.
+func TestBuildRefusesAProfileOpenVPNCannotTrust(t *testing.T) {
+	_, err := Build(Profile{Remote: "203.0.113.9", UserPass: true, Routes: []string{"0.0.0.0/0", "::/0"}}, unixMgmt)
+	if err == nil || !strings.Contains(err.Error(), "no CA certificate or peer fingerprint") {
+		t.Fatalf("a profile with no CA built: %v", err)
+	}
+	for _, extra := range []string{caBlock, "peer-fingerprint " + fingerprint} {
+		if _, err := Build(Profile{Remote: "203.0.113.9", Extra: extra}, unixMgmt); err != nil {
+			t.Errorf("Extra %.20q: %v", extra, err)
+		}
 	}
 }
