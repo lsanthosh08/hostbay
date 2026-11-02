@@ -137,7 +137,7 @@ function PreviewNotes({ pre }: { pre: VpnImportPreview }) {
  *  installed client keeps, then save or skip each profile it holds. Nothing
  *  is saved until a profile is saved; closing keeps only those saved. With
  *  `path`, it opens that file straight away. */
-export function VpnImport({ path, onClose }: { path?: string; onClose: () => void }) {
+export function VpnImport({ path, onClose, onSaved }: { path?: string; onClose: () => void; onSaved?: () => void }) {
   const run = useAsyncToast();
   const { push } = useToast();
   const [pre, setPre] = useState<VpnImportPreview | null>(null);
@@ -171,6 +171,7 @@ export function VpnImport({ path, onClose }: { path?: string; onClose: () => voi
     if (kept.length) {
       push("success", t("vpnImport.saved", { count: rep.vpns?.length ?? 0 }));
       reloadVpns();
+      onSaved?.();
     }
     onClose();
   };
