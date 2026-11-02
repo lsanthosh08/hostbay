@@ -54,6 +54,7 @@ type launch struct {
 	typ      string
 	cfg      config
 	password string
+	cookie   string // a session cookie from a sign-in Hostbay did itself; it replaces the sign-in
 }
 
 var pinRE = regexp.MustCompile(`pin-sha256:[A-Za-z0-9+/]{43}=`)
@@ -61,7 +62,7 @@ var pinRE = regexp.MustCompile(`pin-sha256:[A-Za-z0-9+/]{43}=`)
 // prepare checks a start message's type, Config and Secrets
 // (secrets["password"]). No error names the password.
 func prepare(typ, conf string, secrets map[string]string) (launch, error) {
-	l := launch{typ: typ, password: secrets["password"]}
+	l := launch{typ: typ, password: secrets["password"], cookie: secrets["cookie"]}
 	if !proto.IsOpenConnect(typ) {
 		return l, fmt.Errorf("OpenConnect cannot run VPN type %q.", typ)
 	}
@@ -82,6 +83,8 @@ func prepare(typ, conf string, secrets map[string]string) (launch, error) {
 		return l, fmt.Errorf("The pinned gateway certificate %q is not a pin-sha256 fingerprint.", c.ServerCert)
 	case c.Browser && !browserTypes[typ]:
 		return l, errors.New("This VPN type has no browser sign-in.")
+	case strings.ContainsAny(l.cookie, "\r\n"):
+		return l, errors.New("The session cookie has a line break.")
 	case strings.ContainsAny(l.password, "\r\n"):
 		// openconnect reads one line; the rest would answer its next prompt.
 		return l, errors.New("The password has a line break.")
@@ -97,10 +100,19 @@ func unsafe(r rune) bool { return r <= ' ' || r == 0x7f }
 // stdin.
 func (l launch) args(self string) []string {
 	a := l.signIn([]string{"--protocol=" + proto.OpenConnectTypes[l.typ], "--non-inter", "--script-tun", "--script=" + shellQuote(self) + " tun-fd"})
-	if l.cfg.Browser {
+	if l.cfg.Browser && l.cookie == "" {
 		a = append(a, "--external-browser="+self)
 	}
 	return append(a, "--", l.cfg.Gateway)
+}
+
+// stdinSecret is the one line openconnect reads from stdin while it starts:
+// the session cookie, or the password, or nothing.
+func (l launch) stdinSecret() string {
+	if l.cookie != "" {
+		return l.cookie
+	}
+	return l.password
 }
 
 // SystemArgs is openconnect's command line for a system-wide run under
@@ -124,6 +136,10 @@ func SystemArgs(typ, conf string, secrets map[string]string, iface, script strin
 // signIn appends the user name, the group, the password's stdin flag and the pinned
 // gateway certificate to a.
 func (l launch) signIn(a []string) []string {
+	if l.cookie != "" {
+		// Signed in already: the cookie stands in for the user, group and password.
+		return l.pin(append(a, "--cookie-on-stdin"))
+	}
 	if l.cfg.User != "" {
 		a = append(a, "--user="+l.cfg.User)
 	}
@@ -133,6 +149,11 @@ func (l launch) signIn(a []string) []string {
 	if l.password != "" {
 		a = append(a, "--passwd-on-stdin")
 	}
+	return l.pin(a)
+}
+
+// pin appends the pinned gateway certificate to a.
+func (l launch) pin(a []string) []string {
 	if l.cfg.ServerCert != "" {
 		// This also turns off system trust: only this certificate is accepted.
 		a = append(a, "--servercert="+l.cfg.ServerCert)

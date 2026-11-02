@@ -206,7 +206,10 @@ func (s *VPNService) run(id string, r *vpnRun) {
 		end, err := s.attempt(id, r)
 		var m proto.Msg
 		var upFor time.Duration
-		if err == nil {
+		var sf *ssoFailure
+		if errors.As(err, &sf) {
+			m, err = sf.msg, nil // a coded failure, as a helper's would be
+		} else if err == nil {
 			select {
 			case m = <-end:
 				s.mu.Lock()
@@ -338,9 +341,19 @@ func (s *VPNService) launch(id string, r *vpnRun, a *vpnAttempt, prev <-chan str
 		}
 		return s.launchSystem(id, r, a, v)
 	}
+	cookie := ""
+	if signsInInWindow(v) {
+		// The window comes before the helper: openconnect has no browser to sign in with.
+		if cookie, err = s.ssoSignIn(id, r, a, v); err != nil {
+			return nil, err
+		}
+	}
 	start, err := s.startMsgFor(id, v)
 	if err != nil {
 		return nil, err
+	}
+	if cookie != "" {
+		start.Secrets["cookie"] = cookie
 	}
 	path, err := s.helper()
 	if err != nil {

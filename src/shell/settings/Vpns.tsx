@@ -221,6 +221,8 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
   const set = (patch: Partial<Vpn>) => setV((x) => ({ ...x, ...patch }));
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [groups, setGroups] = useState<string[]>([]);
+  const [fetchingGroups, setFetchingGroups] = useState(false);
   const errors = validateVpn(v);
   const err = (f: VpnField) => (tried && errors[f] ? t(errors[f]!) : undefined);
   const dirty = JSON.stringify(v) !== JSON.stringify(start);
@@ -404,14 +406,40 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
             </div>
             {v.type === "anyconnect" && (
               <Field label={t("vpnForm.authGroup")} error={err("authGroup")}>
-                <Input
-                  className="w-full"
-                  spellCheck={false}
-                  autoComplete="off"
-                  placeholder={t("vpnForm.authGroupPlaceholder")}
-                  value={v.authGroup ?? ""}
-                  onChange={(e) => set({ authGroup: e.target.value })}
-                />
+                <div className="flex gap-2">
+                  {groups.length > 0 ? (
+                    <Select className="w-full" value={v.authGroup ?? ""} onChange={(e) => set({ authGroup: e.target.value })}>
+                      <option value="">{t("vpnForm.authGroupDefault")}</option>
+                      {(v.authGroup && !groups.includes(v.authGroup) ? [v.authGroup, ...groups] : groups).map((g) => (
+                        <option key={g} value={g}>
+                          {g}
+                        </option>
+                      ))}
+                    </Select>
+                  ) : (
+                    <Input
+                      className="w-full"
+                      spellCheck={false}
+                      autoComplete="off"
+                      placeholder={t("vpnForm.authGroupPlaceholder")}
+                      value={v.authGroup ?? ""}
+                      onChange={(e) => set({ authGroup: e.target.value })}
+                    />
+                  )}
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={fetchingGroups || !(v.gateway ?? "").trim()}
+                    onClick={async () => {
+                      setFetchingGroups(true);
+                      const g = await run(() => api.vpnGroups((v.gateway ?? "").trim(), v.port ?? 0));
+                      setFetchingGroups(false);
+                      if (g) setGroups(g);
+                    }}
+                  >
+                    {fetchingGroups ? t("vpnForm.authGroupFetching") : t("vpnForm.authGroupFetch")}
+                  </Button>
+                </div>
                 <p className="text-xs text-muted mt-1">{t("vpnForm.authGroupHint")}</p>
               </Field>
             )}

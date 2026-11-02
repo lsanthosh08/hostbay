@@ -955,6 +955,9 @@ export const forgetVpnCert = (id: string) => unlocking(() => VPNService.ForgetVP
 // Disconnects a Tailscale profile and forgets this computer's node, so the
 // next connect signs in afresh.
 export const signInAgainVpn = (id: string) => VPNService.SignInAgainVPN(id);
+// The sign-in groups an AnyConnect gateway offers, for the profile form's
+// list; empty when it offers none to choose from. Signs in to nothing.
+export const vpnGroups = (gateway: string, port: number) => list(VPNService.VPNGroups(gateway, port)) as Promise<string[]>;
 export const vpnStates = () => list(VPNService.VPNStates()) as Promise<VpnState[]>;
 export const onVpnState = (cb: (s: VpnState) => void) => on<VpnState>("vpn-state", cb);
 // A VPN found on this computer that no profile names yet (R22).

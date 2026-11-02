@@ -172,6 +172,15 @@ export function TrustVPNCert(id: string, pin: string): $CancellablePromise<void>
 }
 
 /**
+ * VPNGroups asks a gateway which sign-in groups it offers, for the profile
+ * form's group list. It signs in to nothing. An empty list means the gateway
+ * offers none to choose from, or this build cannot ask.
+ */
+export function VPNGroups(gateway: string, port: number): $CancellablePromise<string[] | null> {
+    return $Call.ByID(1421199138, gateway, port);
+}
+
+/**
  * VPNStates lists every profile whose state is known; the rest are
  * disconnected.
  */

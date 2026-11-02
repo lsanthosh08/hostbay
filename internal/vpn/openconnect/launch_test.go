@@ -89,6 +89,33 @@ func TestAuthGroup(t *testing.T) {
 	}
 }
 
+func TestSessionCookieReplacesSignIn(t *testing.T) {
+	const cookie = "SESSIONCOOKIEVALUE"
+	l, err := prepare(proto.TypeAnyConnect, `{"gateway":"vpn.example.test","user":"u","browser":true,"authGroup":"Employee","serverCert":"pin-sha256:`+strings.Repeat("A", 43)+`="}`, map[string]string{"cookie": cookie, "password": "pw"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := l.args(self)
+	for _, a := range args {
+		if strings.Contains(a, cookie) || a == "pw" {
+			t.Fatalf("a secret is an argument: %q", args)
+		}
+	}
+	if !slices.Contains(args, "--cookie-on-stdin") || slices.Contains(args, "--passwd-on-stdin") || slices.Contains(args, "--external-browser="+self) ||
+		slices.Contains(args, "--user=u") || slices.Contains(args, "--authgroup=Employee") {
+		t.Fatalf("argv %q", args)
+	}
+	if !slices.ContainsFunc(args, func(a string) bool { return strings.HasPrefix(a, "--servercert=") }) {
+		t.Fatalf("the pin was dropped: %q", args)
+	}
+	if l.stdinSecret() != cookie {
+		t.Fatalf("stdin secret %q", l.stdinSecret())
+	}
+	if _, err := prepare(proto.TypeAnyConnect, `{"gateway":"vpn.example.test"}`, map[string]string{"cookie": "a\nb"}); err == nil {
+		t.Error("a cookie with a line break was accepted")
+	}
+}
+
 func TestPrepareRefuses(t *testing.T) {
 	for name, c := range map[string]struct {
 		typ, conf string
