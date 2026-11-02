@@ -67,7 +67,7 @@ export const defaultPort = (type: string) => (type === "wireguard" ? 51820 : typ
 export const FULL_TUNNEL = ["0.0.0.0/0", "::/0"];
 export const isFullTunnel = (routes?: string[] | null) => FULL_TUNNEL.every((r) => routes?.includes(r));
 
-export type VpnField = "name" | "gateway" | "port" | "user" | "authGroup" | "mtu" | "address" | "peerKey" | "privateKey" | "routes" | "dnsServers" | "dnsDomains";
+export type VpnField = "name" | "gateway" | "port" | "user" | "authGroup" | "mtu" | "address" | "peerKey" | "privateKey" | "routes" | "dnsServers" | "dnsDomains" | "clientPath";
 
 // eslint-disable-next-line no-control-regex
 const control = /[\x00-\x1f\x7f]/;
@@ -112,6 +112,8 @@ export function validateVpn(v: Vpn): Partial<Record<VpnField, MessageKey>> {
   if (!(v.routes ?? []).every(validCidr)) e.routes = "vpnForm.error.cidr";
   if (!(v.dnsServers ?? []).every(validIp)) e.dnsServers = "vpnForm.error.dnsServer";
   if (!(v.dnsDomains ?? []).every((d) => d && !spaceOrControl.test(d) && !d.includes(","))) e.dnsDomains = "vpnForm.error.dnsDomain";
+  const cp = v.clientPath?.trim();
+  if (cp && (control.test(cp) || !(cp.startsWith("/") || /^[A-Za-z]:[\\/]/.test(cp)))) e.clientPath = "vpnForm.error.clientPath";
   if (v.type === "wireguard" && !external) {
     // Without these the tunnel cannot come up or routes nothing.
     if (!v.address?.length) e.address ??= "vpnForm.error.address";
