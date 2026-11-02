@@ -4,5 +4,6 @@
   <ServerList>
     <HostEntry><HostName>HQ</HostName><HostAddress>vpn-hq.example.test</HostAddress><UserGroup>engineering</UserGroup></HostEntry>
     <HostEntry><HostName>Branch</HostName><HostAddress>vpn-branch.example.test:8443</HostAddress></HostEntry>
+    <HostEntry><HostName>Pathy</HostName><HostAddress>https://vpn-path.example.test/staff</HostAddress></HostEntry>
   </ServerList>
 </AnyConnectProfile>
