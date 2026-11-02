@@ -84,6 +84,7 @@ func (s *HostService) CommitVPNImport(token string, keep []VPN) (importer.Report
 				continue
 			}
 			p.Name, p.Tags, p.Routes, p.DNSServers, p.DNSDomains = strings.TrimSpace(k.Name), k.Tags, k.Routes, k.DNSServers, k.DNSDomains
+			p.RoutingMode, p.AutoApply = k.RoutingMode, k.AutoApply
 			if err := checkVPN(vpnToUI(p)); err != nil {
 				return importer.Report{}, fmt.Errorf("%s: %w", p.Name, err)
 			}

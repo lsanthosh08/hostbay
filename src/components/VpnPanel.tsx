@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Browser } from "@wailsio/runtime";
+import { isMac } from "../platform";
 import * as api from "../api";
 import type { DetectedVpn, Host, Vpn, VpnState } from "../api";
 import { useConnect } from "../connect/useConnect";
@@ -71,7 +72,12 @@ export function useVpnConnect() {
     } catch (e) {
       const cert = vpnCertPrompt(e);
       if (cert) setTrust({ id, cert, quiet });
-      else if (!vpnCancelled(e)) fail(e, () => connect(id, quiet), quiet ? { onStep: () => {} } : {});
+      else if (!vpnCancelled(e)) {
+        // The row shows a failed connect itself, but a refusal before it starts (a routing
+        // conflict, bad settings) sets no state, so the panel says it here.
+        if (quiet) push("error", api.errorInfo(e).message);
+        fail(e, () => connect(id, quiet), quiet ? { onStep: () => {} } : {});
+      }
     }
   };
   const disconnect = (id: string) => api.disconnectVpn(id).catch((e) => push("error", api.errorInfo(e).message));
@@ -176,7 +182,7 @@ export function VpnSignIn({ id, state }: { id: string; state: VpnState }) {
 }
 
 /** Whether Hostbay connects this external profile itself: Harmony SASE's app has a command line. */
-const driven = (v: Vpn) => v.type === "perimeter81" && !!v.clientPath;
+const driven = (v: Vpn) => v.type === "perimeter81" && !!v.clientPath && isMac();
 
 /** The VPN list without its data source, so tests can render it. */
 export function VpnPanelView(p: {
@@ -236,7 +242,13 @@ export function VpnPanelView(p: {
                 <span className="truncate flex-1">
                   {d.name} <span className="text-xs text-muted">{typeLabel(d.type)}</span>
                 </span>
-                <IconButton size="sm" label={t("vpn.addDetected", { name: d.name })} icon={AddIcon} onClick={() => p.onAddDetected?.(d)} />
+                <IconButton
+                  size="sm"
+                  label={t("vpn.addDetected", { name: d.name })}
+                  icon={AddIcon}
+                  disabled={p.busy?.includes("add:" + d.name)}
+                  onClick={() => p.onAddDetected?.(d)}
+                />
               </li>
             ))}
           </ul>
@@ -273,7 +285,7 @@ export function VpnPanelView(p: {
                       "h-6 px-2 rounded-full text-xs border " + (on ? "bg-active border-focus text-fg" : "border-line text-muted hover:text-fg hover:bg-hover")
                     }
                   >
-                    {c.label} ({c.hosts + c.vpns})
+                    {c.label} ({c.vpns})
                   </button>
                 );
               })}
@@ -289,7 +301,7 @@ export function VpnPanelView(p: {
           const external = v.tier === "external";
           const users = p.using[v.id] ?? [];
           return (
-            <li key={v.id} className="group px-2 py-1 rounded text-sm hover:bg-hover">
+            <li key={v.id} className="group px-2 py-1 rounded text-sm hover:bg-hover" aria-busy={p.busy?.includes(v.id) || undefined}>
               <div className="flex items-center gap-2">
                 <StatusDot status={dot(s)} />
                 <button className="truncate text-left flex-1" onClick={() => p.onEdit(v)} title={t("vpn.edit", { name: v.name })}>
@@ -314,14 +326,14 @@ export function VpnPanelView(p: {
                   />
                 )}
               </div>
-              <div className="pl-4 text-xs text-muted truncate">
-                {vpnStatusText(s)} · {typeLabel(v.type)}
+              <div className="pl-4 text-xs text-muted truncate" title={`${vpnStatusText(s)} · ${typeLabel(v.type)}`}>
+                {p.busy?.includes(v.id) ? t("vpn.working") : vpnStatusText(s)} · {typeLabel(v.type)}
               </div>
               {s?.status === "connected" && (
                 <div className="pl-4 text-xs text-muted flex flex-col allow-select">
                   {!!s.iface && <span className="truncate">{t("vpn.iface", { iface: s.iface })}</span>}
-                  {!!s.address?.length && <span className="truncate">{t("vpn.address", { address: s.address.join(", ") })}</span>}
-                  {!!s.routes?.length && <span className="truncate">{t("vpn.routes", { routes: s.routes.join(", ") })}</span>}
+                  {!!s.address?.length && <span className="truncate" title={s.address.join(", ")}>{t("vpn.address", { address: s.address.join(", ") })}</span>}
+                  {!!s.routes?.length && <span className="truncate" title={s.routes.join(", ")}>{t("vpn.routes", { routes: s.routes.join(", ") })}</span>}
                   {!!s.since && <span>{t("vpn.uptime", { time: uptime(s.since, p.now) })}</span>}
                   {users.length > 0 && <span className="truncate">{t("vpn.usedBy", { hosts: users.join(", ") })}</span>}
                 </div>
@@ -398,11 +410,16 @@ export function VpnPanel() {
 
   // Read out each profile whose state changed since the last render.
   const seen = useRef(states);
+  const announceN = useRef(0);
   useEffect(() => {
-    const changed = Object.values(states).find((s) => seen.current[s.id]?.status !== s.status);
+    const changed = Object.values(states).filter((s) => seen.current[s.id]?.status !== s.status);
     seen.current = states;
-    const v = changed && vpns.find((x) => x.id === changed.id);
-    if (v) setAnnounce(t("vpn.announce", { name: v.name, state: vpnStatusText(changed) }));
+    const said = changed.flatMap((c) => {
+      const v = vpns.find((x) => x.id === c.id);
+      return v ? [t("vpn.announce", { name: v.name, state: vpnStatusText(c) })] : [];
+    });
+    // A counter keeps the same sentence twice in a row from being swallowed as unchanged.
+    if (said.length) setAnnounce(said.join(". ") + (announceN.current++ % 2 ? "\u200b" : ""));
   }, [states, vpns]);
 
   const [busy, setBusy] = useState<string[]>([]);
@@ -447,22 +464,30 @@ export function VpnPanel() {
             (e) => push("error", api.errorInfo(e).message)
           )
         }
-        onAddDetected={(d) =>
-          api.saveVpn({ id: "", name: d.name, type: d.type, tier: "external", client: d.name, clientPath: d.client, tags: [] }).then(
-            () => {
-              setDetected((x) => x?.filter((y) => y.name !== d.name));
-              reloadVpns();
-            },
-            (e) => push("error", api.errorInfo(e).message)
-          )
-        }
+        onAddDetected={(d) => {
+          // Twice before the save returns would save two profiles.
+          const key = "add:" + d.name;
+          setBusy((b) => [...b, key]);
+          api
+            .saveVpn({ id: "", name: d.name, type: d.type, tier: "external", client: d.name, clientPath: d.client, tags: [] })
+            .then(
+              () => {
+                setDetected((x) => x?.filter((y) => y.name !== d.name));
+                reloadVpns();
+              },
+              (e) => push("error", api.errorInfo(e).message)
+            )
+            .finally(() => setBusy((b) => b.filter((x) => x !== key)));
+        }}
         onLaunch={(id) => api.launchVpnClient(id).catch((e) => push("error", api.errorInfo(e).message))}
         busy={busy}
         onClientConnect={(id) => drive(id, api.connectVpnClient)}
         onClientDisconnect={(id) => drive(id, api.disconnectVpnClient)}
       />
       <BrowserMappings vpns={vpns} />
-      {importing.length > 0 && <VpnImport key={importing[0].id} path={importing[0].path} onClose={() => setImporting((q) => q.slice(1))} />}
+      {importing.length > 0 && (
+        <VpnImport key={importing[0].id} path={importing[0].path} more={importing.length - 1} onClose={() => setImporting((q) => q.slice(1))} />
+      )}
       {editing && (
         <VpnForm
           initial={editing}
