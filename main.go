@@ -105,8 +105,11 @@ func main() {
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
 		},
+		// Off: hiding the last window to the menu bar counts as closing it, and
+		// macOS would quit Hostbay. Quitting is explicit: the window's close
+		// hook, the tray and the menu all end in a.Quit.
 		Mac: application.MacOptions{
-			ApplicationShouldTerminateAfterLastWindowClosed: true,
+			ApplicationShouldTerminateAfterLastWindowClosed: false,
 		},
 		// Runs after the single-instance lock is released, and on macOS in
 		// place of main's return, so a restart here is not handed back to
