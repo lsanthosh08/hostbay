@@ -39,7 +39,10 @@ type MCPService struct {
 	Raise   func()                             // shows the main window when an MCP request waits; set by main
 	mu      sync.Mutex
 	lastErr string
-	waiting int // MCP requests in the tray, to raise the window on a new one
+	seen    map[string]bool // MCP requests in the tray, to raise the window and notify on a new one
+	offered map[string]bool // those whose notification carries Allow and Deny
+	notice  noticeSender
+	answer  func(id string, allow bool) error
 }
 
 // NewMCPService builds the server over the agent's executor's tray, so
@@ -49,6 +52,9 @@ type MCPService struct {
 func NewMCPService(st *store.Store, conns *ConnService, creds *HostCredentials, ai *AIService) *MCPService {
 	jobs := agentexec.NewHostJobs(ai.exec.Approvals, &mcpHosts{conns: conns, creds: creds})
 	s := &MCPService{
+		seen:    map[string]bool{},
+		offered: map[string]bool{},
+		answer:  ai.exec.Approvals.Answer,
 		st:      st,
 		srv:     &mcp.Server{St: st, Jobs: jobs, Tokens: mcp.NewTokens(st), VPNs: &mcpVPNs{creds: creds}, Home: st.Home()},
 		confirm: container.NativeConfirm,
@@ -70,20 +76,68 @@ func NewMCPService(st *store.Store, conns *ConnService, creds *HostCredentials, 
 	return s
 }
 
-// raise shows the window when a new MCP request joins the tray, since a
-// client's user may be in another app.
+// raise shows the window and an OS notification when a new MCP request
+// joins the tray, since a client's user may be in another app, and withdraws
+// the notification of one that left it. Each request counts once, so an
+// answer arriving with a new request cannot hide the new one.
 func (s *MCPService) raise(l []agentexec.Pending) {
-	n := 0
+	now := map[string]agentexec.Pending{}
 	for _, p := range l {
 		if strings.HasPrefix(p.Principal, "mcp:") {
-			n++
+			now[p.ID] = p
 		}
 	}
+	type note struct {
+		p       agentexec.Pending
+		actions bool
+	}
+	var fresh []note
+	var gone []string
 	s.mu.Lock()
-	more := n > s.waiting
-	s.waiting = n
+	for id := range s.seen {
+		if _, ok := now[id]; !ok {
+			delete(s.seen, id)
+			delete(s.offered, id)
+			gone = append(gone, id)
+		}
+	}
+	for id, p := range now {
+		if !s.seen[id] {
+			s.seen[id] = true
+			_, _, actions := noticeText(p)
+			s.offered[id] = actions
+			fresh = append(fresh, note{p, actions})
+		}
+	}
+	notice := s.notice
 	s.mu.Unlock()
-	if more && s.Raise != nil {
+	if len(fresh) > 0 && s.Raise != nil {
+		s.Raise()
+	}
+	if notice == nil {
+		return
+	}
+	for _, id := range gone {
+		notice.Clear(id)
+	}
+	for _, n := range fresh {
+		title, body, _ := noticeText(n.p)
+		_ = notice.Send(n.p.ID, title, body, n.actions)
+	}
+}
+
+// noticeAnswered takes a click on a notification: Allow or Deny answers the
+// request, and only when its notification offered them with all of the
+// request in view; any other click brings the window forward to its card.
+func (s *MCPService) noticeAnswered(id, action string) {
+	s.mu.Lock()
+	ok := s.offered[id]
+	s.mu.Unlock()
+	if action != "" && ok {
+		_ = s.answer(id, action == noticeAllow) // already answered in the window: nothing to do
+		return
+	}
+	if s.Raise != nil {
 		s.Raise()
 	}
 }
