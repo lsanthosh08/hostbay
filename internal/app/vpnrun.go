@@ -551,6 +551,9 @@ func (s *VPNService) connectedBy(id string) (string, bool) {
 	if r := s.runs[id]; r != nil {
 		return r.by, true
 	}
+	if by, ok := s.extBy[id]; ok && s.states[id].Status == VPNConnected {
+		return by, true
+	}
 	return "", false
 }
 

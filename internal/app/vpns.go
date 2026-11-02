@@ -121,12 +121,15 @@ type VPNService struct {
 	// exited is closed once the profile's latest helper has exited; the
 	// next one starts only after, so two never share a profile's state.
 	exited map[string]chan struct{}
+	// extBy is who connected an external profile through its client's command
+	// line (an MCP client); one its own app connected has no entry.
+	extBy map[string]string
 }
 
 func NewVPNService(st *store.Store, vault *secrets.Vault) *VPNService {
 	return &VPNService{
 		st: st, vault: vault, helper: vpn.HelperPath, detect: detect.Detect, emit: emitEvent, openURL: openInBrowser, osvpn: systemOSVPN,
-		runs: map[string]*vpnRun{}, states: map[string]VPNState{}, changed: make(chan struct{}), exited: map[string]chan struct{}{},
+		runs: map[string]*vpnRun{}, states: map[string]VPNState{}, changed: make(chan struct{}), exited: map[string]chan struct{}{}, extBy: map[string]string{},
 	}
 }
 

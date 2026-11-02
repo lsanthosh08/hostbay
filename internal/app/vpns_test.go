@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -688,5 +689,50 @@ func TestVPNClientWithoutACommandLineIsLeftToItsApp(t *testing.T) {
 	}
 	if err := e.svc.ConnectVPNClient(context.Background(), "nope"); err == nil {
 		t.Fatal("an unknown profile connected")
+	}
+}
+
+// An MCP client can connect a Harmony SASE profile through its app's command
+// line, owns what it connected, and no other client may disconnect it.
+func TestMCPClientDrivesAnExternalSASEProfileAndOwnsIt(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("the command line client is macOS's")
+	}
+	e := newVPNEnv(t, vpntest.OK)
+	fd := &fakeDetect{}
+	e.svc.detect = fd.detect
+	app := filepath.Join(t.TempDir(), "Fake.app")
+	bin := filepath.Join(app, "Contents", "MacOS", "Fake")
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\ncase \"$1\" in connect) echo 'Status: connected';; disconnect) echo 'Status: disconnected';; esac\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	v := saveExternal(t, e.svc, "Harmony SASE", func(v *VPN) { v.Type, v.ClientPath = "perimeter81", app })
+	if !e.svc.canDriveClient(v.ID) {
+		t.Fatal("a Harmony profile with its app saved cannot be driven")
+	}
+	if e.svc.canDriveClient("nope") || e.svc.canDriveClient(saveExternal(t, e.svc, "Other", nil).ID) {
+		t.Fatal("a profile with no command line client can be driven")
+	}
+	fd.set(detect.Snapshot{Tunnels: []detect.Tunnel{p2pTunnel("utun7", "10.255.0.4", "10.255.0.4")}})
+	ctx := context.Background()
+	if err := e.svc.connectClientAs(ctx, v.ID, "mcp:a"); err != nil {
+		t.Fatal(err)
+	}
+	if by, ok := e.svc.connectedBy(v.ID); !ok || by != "mcp:a" {
+		t.Fatalf("connected by %q, %v", by, ok)
+	}
+	if err := e.svc.disconnectClientAs(ctx, v.ID, "mcp:b"); err == nil {
+		t.Fatal("another client disconnected it")
+	}
+	fd.set(detect.Snapshot{})
+	if err := e.svc.disconnectClientAs(ctx, v.ID, "mcp:a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := e.svc.connectedBy(v.ID); ok {
+		t.Fatal("still owned after disconnecting")
 	}
 }

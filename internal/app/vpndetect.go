@@ -132,6 +132,11 @@ func (s *VPNService) labelNow(ctx context.Context, d *store.Data, l store.Local)
 		}
 		s.set(st)
 	}
+	for id := range s.extBy {
+		if s.states[id].Status != VPNConnected {
+			delete(s.extBy, id) // its app, or the VPN itself, ended it
+		}
+	}
 	// A profile moved off the external tier keeps no tunnel; a system-wide
 	// run's tunnel is its own.
 	for id, st := range s.states {
@@ -243,6 +248,55 @@ func (s *VPNService) LaunchVPNClient(id string) error {
 		return fmt.Errorf("could not open %s: %w", path, err)
 	}
 	go cmd.Wait()
+	return nil
+}
+
+// canDriveClient reports whether Hostbay can connect and disconnect external
+// profile id through its client's command line, with no window.
+func (s *VPNService) canDriveClient(id string) bool {
+	d, err := s.st.Data()
+	if err != nil {
+		return false
+	}
+	l, err := s.st.Local()
+	if err != nil {
+		return false
+	}
+	v := d.VPN(id)
+	return v != nil && v.Tier == store.VPNTierExternal && v.Type == "perimeter81" && sase.Bin(l.VPNClients[id]) != ""
+}
+
+// connectClientAs is ConnectVPNClient for by, an MCP client, who then owns
+// the connection: only it may disconnect it.
+func (s *VPNService) connectClientAs(ctx context.Context, id, by string) error {
+	if !s.canDriveClient(id) {
+		return errors.New("this VPN connects in its own app")
+	}
+	if err := s.ConnectVPNClient(ctx, id); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	if s.states[id].Status == VPNConnected {
+		s.extBy[id] = by
+	}
+	s.mu.Unlock()
+	return nil
+}
+
+// disconnectClientAs ends what connectClientAs started, and nothing else.
+func (s *VPNService) disconnectClientAs(ctx context.Context, id, by string) error {
+	s.mu.Lock()
+	owner, ok := s.extBy[id]
+	s.mu.Unlock()
+	if !ok || owner != by {
+		return errors.New("this VPN profile is not connected by this client")
+	}
+	if err := s.DisconnectVPNClient(ctx, id); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	delete(s.extBy, id)
+	s.mu.Unlock()
 	return nil
 }
 
