@@ -119,8 +119,11 @@ func processVPNs(ps string) (agents, daemons []VPN) {
 		if strings.HasPrefix(l, "/system/") || strings.Contains(l, "com.apple.") {
 			continue
 		}
-		if _, rest, ok := strings.Cut(line, "/Applications/"); ok && containsAny(l, "vpn", "sase", "wireguard", "wg-quick") {
-			if app, _, ok := strings.Cut(rest, ".app"); ok && !strings.Contains(app, "/") {
+		// An app is a VPN agent by its own name, never by its arguments: Claude's
+		// helper runs with "vpn" among them and is no VPN.
+		if rest, ok := strings.CutPrefix(line, "/Applications/"); ok {
+			if app, _, ok := strings.Cut(rest, ".app"); ok && !strings.Contains(app, "/") &&
+				(TypeFor(app) != "other" || containsAny(strings.ToLower(app), "vpn", "sase", "wireguard")) {
 				typ := TypeFor(app)
 				agents = add(agents, VPN{Name: app, Type: typ, Shape: ShapeFor(typ), Client: "/Applications/" + app + ".app"})
 				continue

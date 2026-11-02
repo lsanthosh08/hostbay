@@ -64,6 +64,17 @@ func TestDarwinDetectsSystemDaemonAndAgentVPNs(t *testing.T) {
 	}
 }
 
+// An app whose arguments mention vpn is not a VPN agent: Claude's helper was
+// taken for one, which also made a real agent look disconnected.
+func TestDarwinAppsAreAgentsByTheirNameNotTheirArguments(t *testing.T) {
+	ps := psOut + "/Applications/Claude.app/Contents/Helpers/disclaimer /x/claude-code --vpn-check\n"
+	for _, v := range fromDarwin(ncList, map[string]string{"Lab WG": ncStatus}, ifconfigOut, ps).VPNs {
+		if v.Name == "Claude" {
+			t.Fatalf("Claude taken for a VPN: %+v", v)
+		}
+	}
+}
+
 func TestDarwinAgentsOutnumberingTunnelsAreNotConnected(t *testing.T) {
 	ps := psOut + "/Applications/Other VPN.app/Contents/MacOS/Other VPN\n"
 	s := fromDarwin(ncList, map[string]string{"Lab WG": ncStatus}, ifconfigOut, ps)
