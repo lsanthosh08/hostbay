@@ -21,6 +21,7 @@ import (
 type fakeVPNs struct {
 	mu       sync.Mutex
 	live     map[string]VPNLive
+	drivable map[string]bool
 	connects []string
 	stops    []string
 }
@@ -49,6 +50,13 @@ func (f *fakeVPNs) Disconnect(id, principal string) error {
 	delete(f.live, id)
 	f.stops = append(f.stops, id)
 	return nil
+}
+
+// CanDrive makes the profiles named in drivable connectable from here.
+func (f *fakeVPNs) CanDrive(id string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.drivable[id]
 }
 
 func (f *fakeVPNs) calls() (connects, stops []string) {
@@ -444,5 +452,25 @@ func TestListConnectionsShowsJumpHostVPN(t *testing.T) {
 		if c.VPN == nil || c.VPN.ID != "atlas-a" {
 			t.Fatalf("%s vpn = %+v", c.ID, c.VPN)
 		}
+	}
+}
+
+// An external profile whose app Hostbay can drive connects like any other:
+// after the user approves the card, and it is then the token's.
+func TestConnectVPNExternalThatCanBeDriven(t *testing.T) {
+	r := newRig(t)
+	addExternalVPN(t, r)
+	r.vpns.drivable = map[string]bool{"ext": true}
+	cs := r.session(t, mcptest.V20260728)
+	done := background(t, cs, ToolConnectVPN, map[string]any{"profileId": "ext"})
+	if p := r.approveNext(t, true); p.Tier != store.VPNTierExternal || p.Target != "ext" {
+		t.Fatalf("card = %+v", p)
+	}
+	var v VPNView
+	if err := json.Unmarshal([]byte(<-done), &v); err != nil || v.State != "connected" || v.ConnectedBy != "you" {
+		t.Fatalf("driven external = %+v %v", v, err)
+	}
+	if c, _ := r.vpns.calls(); !slices.Equal(c, []string{"ext"}) {
+		t.Fatalf("connects %v", c)
 	}
 }

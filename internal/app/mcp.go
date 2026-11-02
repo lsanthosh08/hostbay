@@ -510,13 +510,24 @@ func (m *mcpVPNs) State(id string) mcp.VPNLive {
 }
 
 func (m *mcpVPNs) Connect(ctx context.Context, id, principal string) (mcp.VPNLive, error) {
+	if m.CanDrive(id) {
+		err := m.creds.vpns.connectClientAs(ctx, id, principal)
+		return m.State(id), err
+	}
 	_, err := m.creds.vpns.connectAs(ctx, id, principal)
 	return m.State(id), err
 }
 
 func (m *mcpVPNs) Disconnect(id, principal string) error {
+	if m.CanDrive(id) {
+		return m.creds.vpns.disconnectClientAs(context.Background(), id, principal)
+	}
 	return m.creds.vpns.disconnectAs(id, principal)
 }
+
+// CanDrive reports whether an external profile can be connected from here,
+// through its app's command line.
+func (m *mcpVPNs) CanDrive(id string) bool { return m.creds.vpns.canDriveClient(id) }
 
 // mcpHosts is saved SSH hosts as the MCP gate reaches them: each request
 // dials or joins the host's lease with no prompts and releases it when done.

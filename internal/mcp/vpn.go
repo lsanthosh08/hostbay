@@ -84,7 +84,7 @@ type vpnConnect struct {
 func (s *Server) addVPNTools(srv *sdk.Server) {
 	sdk.AddTool(srv, &sdk.Tool{Name: "list_vpns", Description: "Lists the user's VPN profiles with their state and who connected each, filtered by tag or name."}, s.listVPNs)
 	sdk.AddTool(srv, &sdk.Tool{Name: "vpn_status", Description: "Reports one VPN profile's state."}, s.vpnStatus)
-	sdk.AddTool(srv, &sdk.Tool{Name: ToolConnectVPN, Description: "Connects a VPN profile, by id or by a tag only one profile has. It waits for the user to approve it in Hostbay, then up to 20 seconds for the profile to come up; call vpn_status while it is still connecting. A profile that connects in its own app (tier external) is not connected here: ask the user to open it. A state of signing_in (a one-time code or a browser sign-in) needs the user, so tell them and call vpn_status until it connects."}, s.connectVPN)
+	sdk.AddTool(srv, &sdk.Tool{Name: ToolConnectVPN, Description: "Connects a VPN profile, by id or by a tag only one profile has. It waits for the user to approve it in Hostbay, then up to 20 seconds for the profile to come up; call vpn_status while it is still connecting. A profile that connects in its own app (tier external) is connected here only when Hostbay can drive that app (Harmony SASE); otherwise ask the user to open it. A state of signing_in (a one-time code or a browser sign-in) needs the user, so tell them and call vpn_status until it connects."}, s.connectVPN)
 	sdk.AddTool(srv, &sdk.Tool{Name: ToolDisconnectVPN, Description: "Disconnects a VPN profile you connected, after the user approves it in Hostbay. Profiles the user or another client connected are refused."}, s.disconnectVPN)
 }
 
@@ -189,9 +189,10 @@ func (s *Server) connectVPN(ctx context.Context, req *sdk.CallToolRequest, in vp
 	if l := s.VPNs.State(v.ID); l.By != "" || l.Status == "connected" {
 		return nil, s.vpnView(v, p), nil
 	}
-	// Hostbay never connects an external profile, so asking would only
-	// end in a refusal.
-	if v.Tier == store.VPNTierExternal {
+	// An external profile connects only where Hostbay can drive its app's
+	// command line (Harmony SASE); for any other, asking would only end in a
+	// refusal.
+	if cd, ok := s.VPNs.(interface{ CanDrive(id string) bool }); v.Tier == store.VPNTierExternal && !(ok && cd.CanDrive(v.ID)) {
 		return nil, VPNView{}, clientErr(apperr.New(apperr.VPNFailed, "VPN "+v.Name+" connects in its own app, not through Hostbay. Ask the user to open it there, then call vpn_status."))
 	}
 	if err := s.gateVPN(ctx, p, client, ToolConnectVPN, v, in.Tag); err != nil {
