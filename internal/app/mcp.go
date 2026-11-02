@@ -219,6 +219,9 @@ type MCPNewToken struct {
 	Token  MCPToken `json:"token"`
 	Copied bool     `json:"copied"`
 	Config string   `json:"config"`
+	// ClaudeCode is the two terminal lines that register this server in
+	// Claude Code; the token is not in them, the first line asks for it.
+	ClaudeCode string `json:"claudeCode"`
 }
 
 // CreateToken makes a token for one client, after the dialog and
@@ -253,7 +256,9 @@ func (s *MCPService) CreateToken(ctx context.Context, name string) (MCPNewToken,
     }
   }
 }`, st.Endpoint, exe)
-	return MCPNewToken{Token: MCPToken{ID: tok.ID, Name: tok.Name, Created: tok.Created}, Copied: s.copy(secret), Config: cfg}, nil
+	cc := "export HOSTBAY_MCP_TOKEN='<paste the token>'\n" +
+		"claude mcp add --transport http --scope user hostbay " + st.Endpoint + ` --header "Authorization: Bearer $HOSTBAY_MCP_TOKEN"`
+	return MCPNewToken{Token: MCPToken{ID: tok.ID, Name: tok.Name, Created: tok.Created}, Copied: s.copy(secret), Config: cfg, ClaudeCode: cc}, nil
 }
 
 // RevokeToken deletes a token and its allowlist and VPN entries: new calls get

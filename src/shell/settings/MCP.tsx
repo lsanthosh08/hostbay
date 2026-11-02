@@ -91,6 +91,7 @@ function Server({ status, onChange }: { status: MCPStatus | null; onChange: () =
 
 function Tokens({ tokens, onChange }: { tokens: MCPToken[]; onChange: () => void }) {
   const run = useAsyncToast();
+  const { push } = useToast();
   const failed = useWiden();
   const { confirm } = usePrompt();
   const [name, setName] = useState("");
@@ -133,6 +134,23 @@ function Tokens({ tokens, onChange }: { tokens: MCPToken[]; onChange: () => void
           <p className={created.copied ? "text-success" : "text-danger"}>
             {created.copied ? t("mcp.token.copied", { name: created.token.name }) : t("mcp.token.notCopied")}
           </p>
+          <p className="font-medium">{t("mcp.token.ccTitle")}</p>
+          <ol className="list-decimal pl-5 text-muted flex flex-col gap-0.5">
+            <li>{t("mcp.token.cc1")}</li>
+            <li>{t("mcp.token.cc2")}</li>
+            <li>{t("mcp.token.cc3")}</li>
+          </ol>
+          <pre tabIndex={0} className="overflow-auto p-2 rounded-control bg-raised font-mono text-xs allow-select">
+            {created.claudeCode}
+          </pre>
+          <Button
+            className="w-fit"
+            variant="ghost"
+            size="sm"
+            onClick={() => navigator.clipboard.writeText(created.claudeCode).then(() => push("success", t("mcp.token.ccCopied")), () => {})}
+          >
+            {t("mcp.token.ccCopy")}
+          </Button>
           <p className="text-muted">{t("mcp.token.config")}</p>
           <pre tabIndex={0} className="max-h-60 overflow-auto p-2 rounded-control bg-raised font-mono text-xs allow-select">
             {created.config}

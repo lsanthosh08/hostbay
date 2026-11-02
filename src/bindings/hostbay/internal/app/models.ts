@@ -505,6 +505,12 @@ export interface MCPNewToken {
     "token": MCPToken;
     "copied": boolean;
     "config": string;
+
+    /**
+     * ClaudeCode is the two terminal lines that register this server in
+     * Claude Code; the token is not in them, the first line asks for it.
+     */
+    "claudeCode": string;
 }
 
 /**

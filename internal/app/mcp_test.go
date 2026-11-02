@@ -150,7 +150,8 @@ func TestMCPEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := json.Marshal(nt)
-	if e.copied == "" || strings.Contains(string(b), e.copied) || !strings.Contains(nt.Config, "HOSTBAY_MCP_TOKEN") || strings.Contains(nt.Config, e.copied) {
+	if e.copied == "" || strings.Contains(string(b), e.copied) || !strings.Contains(nt.Config, "HOSTBAY_MCP_TOKEN") || strings.Contains(nt.Config, e.copied) ||
+		!strings.Contains(nt.ClaudeCode, "claude mcp add --transport http") || strings.Contains(nt.ClaudeCode, e.copied) {
 		t.Fatalf("new token result = %s", b)
 	}
 	list, _ := e.s.ListTokens()
