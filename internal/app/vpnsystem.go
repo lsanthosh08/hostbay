@@ -60,6 +60,9 @@ var (
 	osVPNPoll = time.Second
 	// tunnelStartWait bounds a start request to the helper.
 	tunnelStartWait = 30 * time.Second
+	// openvpnConnectWait is how long a system-wide OpenVPN may take to
+	// connect before Hostbay gives up on it.
+	openvpnConnectWait = 90 * time.Second
 	// osVPNCallWait bounds each state and disconnect call to the OS VPN
 	// service, so a hung one cannot hold up disconnect, delete or quit.
 	osVPNCallWait = 10 * time.Second
@@ -211,9 +214,16 @@ func (t *netdTunnel) manage(r netd.Msg, user, pass string) {
 	t.mgmt = conn
 	t.mu.Unlock()
 	reason := "OpenVPN stopped."
+	// A server that never answers (a wrong address, say) leaves OpenVPN
+	// retrying for ever; the profile would stay "connecting".
+	giveUp := time.AfterFunc(openvpnConnectWait, func() {
+		t.end("OpenVPN did not connect in " + openvpnConnectWait.String() + ". Check the server address and your network.")
+	})
+	defer giveUp.Stop()
 	err = openvpn.Manage(conn, user, pass, r.MgmtPass, func(e openvpn.Event) {
 		switch e.State {
 		case openvpn.Connected:
+			giveUp.Stop()
 			t.mu.Lock()
 			t.wasUp = true
 			t.mu.Unlock()

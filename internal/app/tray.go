@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
@@ -180,7 +181,10 @@ func (t *Tray) Do(it TrayItem) {
 		go func() {
 			// A failure, a gateway certificate to trust among them, shows the
 			// window: the panel says why, and its own connect asks to trust.
-			if st, err := t.vpns.ConnectVPN(context.Background(), it.VPN); err != nil && st.Status == VPNFailed {
+			// The wait ends after a sign-in's time; the connection itself goes on.
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			if st, err := t.vpns.ConnectVPN(ctx, it.VPN); err != nil && st.Status == VPNFailed {
 				t.showVPNs()
 			}
 		}()
