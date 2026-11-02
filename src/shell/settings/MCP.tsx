@@ -140,6 +140,7 @@ function Tokens({ tokens, onChange }: { tokens: MCPToken[]; onChange: () => void
             <li>{t("mcp.token.cc2")}</li>
             <li>{t("mcp.token.cc3")}</li>
           </ol>
+          <p className="text-muted text-xs">{t("mcp.token.ccAsk")}</p>
           <pre tabIndex={0} className="overflow-auto p-2 rounded-control bg-raised font-mono text-xs allow-select">
             {created.claudeCode}
           </pre>

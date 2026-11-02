@@ -1621,6 +1621,7 @@ export const en = {
   "mcp.token.create": "Create token…",
   "mcp.token.copied": "The token for {name} is on the clipboard. Paste it into the client's HOSTBAY_MCP_TOKEN now; Hostbay cannot show it again.",
   "mcp.token.notCopied": "The token could not be copied to the clipboard. Revoke it and create another.",
+  "mcp.token.ccAsk": "Claude Code also asks before it calls any tool. Hostbay's own approval card is the real check, so to be asked only once, add \"mcp__hostbay\" to \"permissions.allow\" in ~/.claude/settings.json.",
   "mcp.token.ccTitle": "Use it in Claude Code",
   "mcp.token.cc1": "Open a terminal. In the first line, replace <paste the token> with the token (it is on your clipboard), then run it.",
   "mcp.token.cc2": "Run the second line. It adds Hostbay to Claude Code once, for all your projects.",
