@@ -186,6 +186,25 @@ func TestChangingThePeerKeyDropsTheSavedSecrets(t *testing.T) {
 	}
 }
 
+func TestSaveVPNRefusesBadTagsAndLongNames(t *testing.T) {
+	e := newVPNEnv(t, vpntest.OK)
+	v := e.save(t, false)
+	for _, tags := range [][]string{{"ok", "a\nb"}, {" "}, {strings.Repeat("x", 65)}} {
+		v.Tags = tags
+		if _, err := e.svc.SaveVPN(v); err == nil {
+			t.Errorf("saved tags %q", tags)
+		}
+	}
+	v.Tags, v.Name = []string{"Project X"}, strings.Repeat("n", 101)
+	if _, err := e.svc.SaveVPN(v); err == nil {
+		t.Error("saved a 101 character name")
+	}
+	v.Name = "Fine"
+	if _, err := e.svc.SaveVPN(v); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSaveVPNRefusesConfigInjection(t *testing.T) {
 	e := newVPNEnv(t, vpntest.OK)
 	for _, v := range []VPN{
