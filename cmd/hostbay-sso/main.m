@@ -230,6 +230,10 @@ int main(int argc, char **argv) {
 	@autoreleasepool {
 		for (int i = 1; i < argc; i++) {
 			NSString *k = @(argv[i]);
+			if ([k isEqualToString:@"--version"]) { // the bundling script checks the binary runs
+				puts("hostbay-sso 1");
+				return 0;
+			}
 			if ([k isEqualToString:@"--list-groups"]) {
 				listGroups = YES;
 				continue;
