@@ -62,12 +62,13 @@ type NetdService struct {
 	onConnect func()
 	onEvent   func()
 
-	mu        sync.Mutex
-	c         netdClient
-	connected chan struct{} // closed and replaced on every connect
-	wake      chan struct{}
-	stop      context.CancelFunc
-	exited    chan struct{} // closed when the connection loop has ended
+	installing sync.Mutex
+	mu         sync.Mutex
+	c          netdClient
+	connected  chan struct{} // closed and replaced on every connect
+	wake       chan struct{}
+	stop       context.CancelFunc
+	exited     chan struct{} // closed when the connection loop has ended
 }
 
 func NewNetdService() *NetdService {
@@ -113,6 +114,9 @@ func (s *NetdService) Status(ctx context.Context) HelperStatus {
 // Install installs, reinstalls or re-pairs the helper after one native
 // administrator prompt that says what it can do (R30).
 func (s *NetdService) Install() (HelperStatus, error) {
+	// One at a time: two administrator prompts racing leave launchd half loaded.
+	s.installing.Lock()
+	defer s.installing.Unlock()
 	err := s.install()
 	if err == nil {
 		s.drop() // a connection to the helper this replaced

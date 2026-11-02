@@ -29,18 +29,22 @@ export function useHelperPrompt() {
         return;
       }
       if (gone || st.state !== "reinstall") return;
+      // Held through the install too: the window regains focus when the
+      // administrator prompt closes, and must not ask a second time.
       asking = true;
-      const yes = await confirm(t("helper.reinstallPrompt"), { focusConfirm: true, confirmLabel: t("routing.reinstall") });
-      asking = false;
-      if (!yes) {
-        declined = Date.now();
-        return;
-      }
       try {
+        const yes = await confirm(t("helper.reinstallPrompt"), { focusConfirm: true, confirmLabel: t("routing.reinstall") });
+        if (!yes) {
+          declined = Date.now();
+          return;
+        }
         const after = await api.installHelper();
         push(after.state === "ready" ? "success" : "info", t(after.state === "ready" ? "helper.reinstalled" : "helper.reinstallPending"));
       } catch (e) {
+        declined = Date.now();
         push("error", api.errorInfo(e).message);
+      } finally {
+        asking = false;
       }
     };
     void check();
