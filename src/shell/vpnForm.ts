@@ -67,7 +67,7 @@ export const defaultPort = (type: string) => (type === "wireguard" ? 51820 : typ
 export const FULL_TUNNEL = ["0.0.0.0/0", "::/0"];
 export const isFullTunnel = (routes?: string[] | null) => FULL_TUNNEL.every((r) => routes?.includes(r));
 
-export type VpnField = "name" | "gateway" | "port" | "user" | "mtu" | "address" | "peerKey" | "privateKey" | "routes" | "dnsServers" | "dnsDomains";
+export type VpnField = "name" | "gateway" | "port" | "user" | "authGroup" | "mtu" | "address" | "peerKey" | "privateKey" | "routes" | "dnsServers" | "dnsDomains";
 
 // eslint-disable-next-line no-control-regex
 const control = /[\x00-\x1f\x7f]/;
@@ -105,6 +105,7 @@ export function validateVpn(v: Vpn): Partial<Record<VpnField, MessageKey>> {
   if (gw.length > 253 || spaceOrControl.test(gw) || (needsGateway(v.type) && !external && !gw)) e.gateway = "vpnForm.error.gateway";
   if (v.port != null && v.port !== 0 && !(Number.isInteger(v.port) && v.port >= 1 && v.port <= 65535)) e.port = "hostForm.error.port";
   if (control.test(v.user ?? "")) e.user = "vpnForm.error.user";
+  if (control.test(v.authGroup ?? "")) e.authGroup = "vpnForm.error.authGroup";
   if (v.mtu && !(Number.isInteger(v.mtu) && v.mtu >= 576 && v.mtu <= 65535)) e.mtu = "vpnForm.error.mtu";
   if (Number.isNaN(v.mtu)) e.mtu = "vpnForm.error.mtu";
   if (!(v.address ?? []).every(validCidr)) e.address = "vpnForm.error.cidr";

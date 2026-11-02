@@ -73,6 +73,22 @@ func TestBrowserSignIn(t *testing.T) {
 	}
 }
 
+func TestAuthGroup(t *testing.T) {
+	l, err := prepare(proto.TypeAnyConnect, `{"gateway":"vpn.example.test","browser":true,"authGroup":"Employee"}`, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if args := l.args(self); !slices.Contains(args, "--authgroup=Employee") {
+		t.Fatalf("argv %q", args)
+	}
+	l, _ = prepare(proto.TypeAnyConnect, `{"gateway":"vpn.example.test"}`, nil)
+	for _, a := range l.args(self) {
+		if strings.HasPrefix(a, "--authgroup") {
+			t.Fatalf("no group set, got %q", a)
+		}
+	}
+}
+
 func TestPrepareRefuses(t *testing.T) {
 	for name, c := range map[string]struct {
 		typ, conf string
@@ -83,6 +99,7 @@ func TestPrepareRefuses(t *testing.T) {
 		"gateway as an option":   {proto.TypeAnyConnect, `{"gateway":"--script=/tmp/x"}`, nil},
 		"gateway with a space":   {proto.TypeAnyConnect, `{"gateway":"vpn.example.test --script=x"}`, nil},
 		"user with a line break": {proto.TypeAnyConnect, `{"gateway":"vpn.example.test","user":"a\nb"}`, nil},
+		"group as an option":     {proto.TypeAnyConnect, `{"gateway":"vpn.example.test","authGroup":"--script=x"}`, nil},
 		"pin not pin-sha256":     {proto.TypeAnyConnect, `{"gateway":"vpn.example.test","serverCert":"sha1:00"}`, nil},
 		"unknown field":          {proto.TypeAnyConnect, `{"gateway":"vpn.example.test","script":"/tmp/x"}`, nil},
 		"password line break":    {proto.TypeAnyConnect, `{"gateway":"vpn.example.test"}`, map[string]string{"password": "a\nb"}},

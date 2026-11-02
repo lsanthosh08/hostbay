@@ -24,6 +24,8 @@ type VPN struct {
 	Port    int    `json:"port,omitempty"`
 	User    string `json:"user,omitempty"`
 	Auth    string `json:"auth,omitempty"` // the sign-in method, such as "password", "certificate" or "otp"
+	// AuthGroup is the gateway group an OpenConnect sign-in picks, for a gateway that offers several.
+	AuthGroup string `json:"authGroup,omitempty"`
 	// WireGuard: the tunnel's own addresses (CIDR) and the server's public
 	// key. Neither is secret.
 	Address []string `json:"address,omitempty"`
@@ -69,7 +71,7 @@ func CheckVPN(v VPN) error {
 		return fmt.Errorf("port %d is out of range", v.Port)
 	case v.MTU != 0 && (v.MTU < 576 || v.MTU > 65535):
 		return fmt.Errorf("MTU %d is out of range", v.MTU)
-	case bad(v.User, false) || bad(v.Auth, true) || bad(v.Client, false):
+	case bad(v.User, false) || bad(v.AuthGroup, false) || bad(v.Auth, true) || bad(v.Client, false):
 		return errors.New("a field contains a line break or control character")
 	}
 	for _, p := range append(slices.Clone(v.Address), v.Routes...) {

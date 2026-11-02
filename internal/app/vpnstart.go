@@ -52,6 +52,7 @@ type openConnectConfig struct {
 	User       string `json:"user,omitempty"`
 	ServerCert string `json:"serverCert,omitempty"`
 	Browser    bool   `json:"browser,omitempty"`
+	AuthGroup  string `json:"authGroup,omitempty"`
 }
 
 type tailnetConfig struct {
@@ -116,7 +117,7 @@ func (s *VPNService) startMsgFor(id string, v *store.VPN) (proto.Msg, error) {
 		m.Config = string(b)
 		m.Secrets = map[string]string{"authKey": sec.AuthKey, "nodeState": node}
 	default:
-		c := openConnectConfig{Gateway: openConnectGateway(v.Gateway, v.Port), User: v.User, ServerCert: v.PeerKey,
+		c := openConnectConfig{Gateway: openConnectGateway(v.Gateway, v.Port), User: v.User, ServerCert: v.PeerKey, AuthGroup: v.AuthGroup,
 			Browser: v.Type == proto.TypeAnyConnect && v.Auth == "browser"}
 		pass := sec.Password
 		if c.Browser {

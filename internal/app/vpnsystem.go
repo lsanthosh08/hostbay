@@ -154,7 +154,7 @@ func (s *VPNService) startTunnel(v *store.VPN, sec store.VPNSecrets, up func(str
 	case v.Type == proto.TypeWireGuard:
 		m.T, m.WireGuard = netd.WireGuardStart, &netd.WireGuard{Conf: wireGuardConfig(v), PrivateKey: sec.PrivateKey, PresharedKey: sec.PresharedKey}
 	case proto.IsOpenConnect(v.Type) && v.Auth != "certificate":
-		b, _ := json.Marshal(openConnectConfig{Gateway: openConnectGateway(v.Gateway, v.Port), User: v.User, ServerCert: v.PeerKey})
+		b, _ := json.Marshal(openConnectConfig{Gateway: openConnectGateway(v.Gateway, v.Port), User: v.User, ServerCert: v.PeerKey, AuthGroup: v.AuthGroup})
 		m.T, m.OpenConnect = netd.OpenConnectStart, &netd.OpenConnect{Type: v.Type, Config: string(b), Password: sec.Password}
 	default:
 		return nil, apperr.New(apperr.VPNFailed, fmt.Sprintf("Hostbay cannot connect %s profiles system-wide", v.Type)).

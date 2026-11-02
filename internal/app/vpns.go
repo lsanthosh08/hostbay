@@ -32,6 +32,7 @@ type VPN struct {
 	Port          int      `json:"port,omitempty"`
 	User          string   `json:"user,omitempty"`
 	Auth          string   `json:"auth,omitempty"`
+	AuthGroup     string   `json:"authGroup,omitempty"`
 	Address       []string `json:"address,omitempty"`
 	PeerKey       string   `json:"peerKey,omitempty"`
 	Routes        []string `json:"routes,omitempty"`
@@ -135,7 +136,7 @@ func openInBrowser(u string) {
 
 func vpnToUI(v store.VPN) VPN {
 	return VPN{
-		ID: v.ID, Name: v.Name, Type: v.Type, Tier: v.Tier, Gateway: v.Gateway, Port: v.Port, User: v.User, Auth: v.Auth,
+		ID: v.ID, Name: v.Name, Type: v.Type, Tier: v.Tier, Gateway: v.Gateway, Port: v.Port, User: v.User, Auth: v.Auth, AuthGroup: v.AuthGroup,
 		Address: v.Address, PeerKey: v.PeerKey, Routes: v.Routes, DNSServers: v.DNSServers, DNSDomains: v.DNSDomains,
 		MTU: v.MTU, Tags: v.Tags, AutoReconnect: v.AutoReconnect, AutoApply: v.AutoApply, RoutingMode: v.RoutingMode,
 		Client: v.Client, HasSecret: v.Secret != "",
@@ -185,6 +186,7 @@ func (s *VPNService) SaveVPN(profile VPN) (VPN, error) {
 			v.ID = store.NewID()
 		}
 		v.Name, v.Type, v.Tier, v.Gateway, v.Port, v.User, v.Auth = profile.Name, profile.Type, profile.Tier, profile.Gateway, profile.Port, profile.User, profile.Auth
+		v.AuthGroup = profile.AuthGroup
 		v.Address, v.PeerKey, v.Routes, v.DNSServers, v.DNSDomains = profile.Address, profile.PeerKey, profile.Routes, profile.DNSServers, profile.DNSDomains
 		v.MTU, v.Tags, v.AutoReconnect, v.AutoApply, v.RoutingMode, v.Client = profile.MTU, profile.Tags, profile.AutoReconnect, profile.AutoApply, profile.RoutingMode, profile.Client
 		set := func(p *string) bool { return p != nil && *p != "" }
@@ -291,7 +293,7 @@ func checkVPN(v VPN) error {
 	if strings.TrimSpace(v.Name) == "" || bad(v.Name, false) {
 		return errors.New("name the VPN profile")
 	}
-	if err := store.CheckVPN(store.VPN{Type: v.Type, Tier: v.Tier, Gateway: v.Gateway, Port: v.Port, User: v.User, Auth: v.Auth,
+	if err := store.CheckVPN(store.VPN{Type: v.Type, Tier: v.Tier, Gateway: v.Gateway, Port: v.Port, User: v.User, Auth: v.Auth, AuthGroup: v.AuthGroup,
 		Address: v.Address, PeerKey: v.PeerKey, Routes: v.Routes, DNSServers: v.DNSServers, DNSDomains: v.DNSDomains, MTU: v.MTU, Client: v.Client}); err != nil {
 		return err
 	}
