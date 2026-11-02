@@ -50,6 +50,13 @@ func main() {
 	var vpns *app.VPNService
 	var quitting atomic.Bool // ShouldQuit said yes; closing the window goes through
 	var st *store.Store
+	// showMain brings the window back from the menu bar, Dock icon included.
+	showMain := func() {
+		showInDock(true)
+		mainWindow.Show()
+		mainWindow.UnMinimise()
+		mainWindow.Focus()
+	}
 	a := application.New(application.Options{
 		Name:        app.Name,
 		Description: "SSH, RDP and server manager",
@@ -59,9 +66,7 @@ func main() {
 			UniqueID: "dev.hostbay.app",
 			OnSecondInstanceLaunch: func(application.SecondInstanceData) {
 				if mainWindow != nil {
-					mainWindow.Show() // it may be hidden in the menu bar
-					mainWindow.Restore()
-					mainWindow.Focus()
+					showMain() // it may be hidden in the menu bar
 				}
 			},
 		},
@@ -245,11 +250,7 @@ func main() {
 		a.Event.Emit("files-dropped", e.Context().DroppedFiles())
 	})
 	ver.win = mainWindow
-	mcpSvc.Raise = func() {
-		mainWindow.Show()
-		mainWindow.Restore()
-		mainWindow.Focus()
-	}
+	mcpSvc.Raise = showMain
 	// Closing the window hides it while Hostbay keeps running in the menu
 	// bar (KTD10); otherwise it quits through ShouldQuit, which asks first
 	// while tunnels or VPNs are up (R19).
@@ -262,16 +263,13 @@ func main() {
 		case app.CloseHide:
 			e.Cancel()
 			mainWindow.Hide()
+			showInDock(false)
 		case app.CloseQuit:
 			e.Cancel()
 			go a.Quit()
 		}
 	})
-	tray := app.NewTray(vpns, func() {
-		mainWindow.Show()
-		mainWindow.UnMinimise()
-		mainWindow.Focus()
-	}, a.Quit)
+	tray := app.NewTray(vpns, showMain, a.Quit)
 	tray.Attach(a.SystemTray.New().SetIcon(trayIcon))
 	a.Event.On(app.VPNStateEvent, func(e *application.CustomEvent) {
 		if s, ok := e.Data.(app.VPNState); ok {
