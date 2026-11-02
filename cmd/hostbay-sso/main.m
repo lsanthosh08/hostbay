@@ -118,7 +118,7 @@ static void finishWindow(int result) {
 		NSURL *hinted = [NSURL URLWithString:[u.absoluteString stringByAppendingFormat:@"&login_hint=%@", hint]];
 		if (hinted) {
 			handler(WKNavigationActionPolicyCancel);
-			[wv loadRequest:[NSURLRequest requestWithURL:hinted]];
+			dispatch_async(dispatch_get_main_queue(), ^{ [wv loadRequest:[NSURLRequest requestWithURL:hinted]]; });
 			return;
 		}
 	}
@@ -127,6 +127,7 @@ static void finishWindow(int result) {
 
 - (void)webView:(WKWebView *)wv didFinishNavigation:(WKNavigation *)nav {
 	NSString *uri = wv.URL.absoluteString;
+	if (getenv("HOSTBAY_SSO_TRACE")) fprintf(stderr, "loaded %s%s\n", wv.URL.host.UTF8String, wv.URL.path.UTF8String);
 	[wv.configuration.websiteDataStore.httpCookieStore getAllCookies:^(NSArray<NSHTTPCookie *> *cs) {
 		if (windowFinished) return;
 		const char **c = calloc(cs.count * 2 + 1, sizeof(char *));
@@ -141,6 +142,19 @@ static void finishWindow(int result) {
 		if (rc != -EAGAIN) finishWindow(rc); // 0: signed in
 	}];
 }
+
+// A page that fails to load would otherwise leave the window blank.
+static void loadFailed(WKWebView *wv, NSError *e) {
+	// Our own cancelled navigation (the login_hint reload) and a redirect handing over are not failures.
+	if (e.code == NSURLErrorCancelled || ([e.domain isEqualToString:@"WebKitErrorDomain"] && e.code == 102)) return;
+	NSString *msg = [NSString stringWithFormat:@"The sign-in page did not load: %@", e.localizedDescription];
+	fprintf(stderr, "%s\n", msg.UTF8String);
+	NSString *html = [NSString stringWithFormat:@"<body style='font:15px -apple-system;padding:2em'><h3>Sign-in page did not load</h3><p>%@</p><p>Close this window and try again.</p>", msg];
+	[wv loadHTMLString:html baseURL:nil];
+}
+- (void)webView:(WKWebView *)wv didFailProvisionalNavigation:(WKNavigation *)nav withError:(NSError *)e { loadFailed(wv, e); }
+- (void)webView:(WKWebView *)wv didFailNavigation:(WKNavigation *)nav withError:(NSError *)e { loadFailed(wv, e); }
+- (void)webViewWebContentProcessDidTerminate:(WKWebView *)wv { fprintf(stderr, "web content process ended\n"); [wv reload]; }
 
 - (void)windowWillClose:(NSNotification *)n {
 	finishWindow(-ECANCELED);
