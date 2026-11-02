@@ -72,7 +72,8 @@ type vpnFilter struct {
 }
 
 type vpnRef struct {
-	ProfileID string `json:"profileId" jsonschema:"a VPN profile's id, from list_vpns or list_connections"`
+	ProfileID string `json:"profileId,omitempty" jsonschema:"a VPN profile's id, from list_vpns or list_connections; give this or tag"`
+	Tag       string `json:"tag,omitempty" jsonschema:"the one profile with this tag; when several have it the error names them"`
 }
 
 type vpnConnect struct {
@@ -137,9 +138,9 @@ func (s *Server) vpnStatus(_ context.Context, req *sdk.CallToolRequest, in vpnRe
 	if err != nil {
 		return nil, VPNView{}, err
 	}
-	v, err := vpnByID(d, in.ProfileID)
+	v, err := pickVPN(d, in.ProfileID, in.Tag)
 	if err != nil {
-		return nil, VPNView{}, err
+		return nil, VPNView{}, clientErr(err)
 	}
 	return nil, s.vpnView(v, p), nil
 }
@@ -210,9 +211,9 @@ func (s *Server) disconnectVPN(ctx context.Context, req *sdk.CallToolRequest, in
 	if err != nil {
 		return nil, VPNView{}, err
 	}
-	v, err := vpnByID(d, in.ProfileID)
+	v, err := pickVPN(d, in.ProfileID, in.Tag)
 	if err != nil {
-		return nil, VPNView{}, err
+		return nil, VPNView{}, clientErr(err)
 	}
 	switch by := s.VPNs.State(v.ID).By; {
 	case by == "":
@@ -220,7 +221,7 @@ func (s *Server) disconnectVPN(ctx context.Context, req *sdk.CallToolRequest, in
 	case by != p:
 		return nil, VPNView{}, fmt.Errorf("VPN %s was connected by the user or another client, so only they can disconnect it", v.Name)
 	}
-	if err := s.gateVPN(ctx, p, client, ToolDisconnectVPN, v, ""); err != nil {
+	if err := s.gateVPN(ctx, p, client, ToolDisconnectVPN, v, in.Tag); err != nil {
 		return nil, VPNView{}, clientErr(err)
 	}
 	if err := s.VPNs.Disconnect(v.ID, p); err != nil {

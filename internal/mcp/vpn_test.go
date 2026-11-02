@@ -304,6 +304,22 @@ func TestListVPNs(t *testing.T) {
 	}
 }
 
+// vpn_status finds a profile by its one tag, as connect_vpn does, and a tag
+// several share is an error naming them.
+func TestVPNStatusByTag(t *testing.T) {
+	r := newRig(t)
+	addVPNs(t, r)
+	cs := r.session(t, mcptest.V20260728)
+	_, text := call(t, cs, "vpn_status", map[string]any{"tag": "gamma"})
+	if !strings.Contains(text, `"id":"whole"`) {
+		t.Fatalf("vpn_status by tag = %s", text)
+	}
+	_, text = call(t, cs, "vpn_status", map[string]any{"tag": "atlas"})
+	if !strings.Contains(text, "atlas-a") || !strings.Contains(text, "atlas-b") {
+		t.Fatalf("ambiguous tag = %s", text)
+	}
+}
+
 // list_connections gives each host's tags and the profile it is reached
 // through as exactly {id, name, state}: never a SOCKS port.
 func TestListConnectionsTagsAndVPN(t *testing.T) {
