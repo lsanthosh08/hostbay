@@ -23,7 +23,7 @@ var ovpnKept = map[string]bool{
 	"comp-lzo": true, "compress": true, "allow-compression": true, "auth-nocache": true, "auth-retry": true, "reneg-sec": true,
 	"verb": true, "mute": true, "mute-replay-warnings": true, "mssfix": true, "fragment": true, "explicit-exit-notify": true,
 	"keepalive": true, "ping": true, "ping-restart": true, "pull": true, "pull-filter": true, "route-nopull": true, "route-metric": true,
-	"block-outside-dns": true, "sndbuf": true, "rcvbuf": true, "topology": true,
+	"block-outside-dns": true, "sndbuf": true, "rcvbuf": true, "topology": true, "peer-fingerprint": true,
 }
 
 // ovpnBlocks are the certificate and key material kept, inline or read

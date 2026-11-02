@@ -58,7 +58,7 @@ var directives = map[string]bool{
 	"comp-lzo": true, "compress": true, "allow-compression": true, "auth-nocache": true, "auth-retry": true, "reneg-sec": true,
 	"verb": true, "mute": true, "mute-replay-warnings": true, "mssfix": true, "fragment": true, "explicit-exit-notify": true,
 	"keepalive": true, "ping": true, "ping-restart": true, "pull": true, "pull-filter": true, "route-nopull": true, "route-metric": true,
-	"block-outside-dns": true, "sndbuf": true, "rcvbuf": true, "topology": true,
+	"block-outside-dns": true, "sndbuf": true, "rcvbuf": true, "topology": true, "peer-fingerprint": true,
 }
 
 // blocks are the inline certificate and key blocks a profile may carry; a
@@ -120,6 +120,11 @@ func Build(p Profile, m Management) (string, error) {
 			return "", fmt.Errorf("the private key: %w", err)
 		}
 		w("<key>\n%s\n</key>", strings.TrimSpace(p.Key))
+	}
+	// Without one of these OpenVPN stops at its options, and the run ends
+	// before it opens the management socket with nothing to say why.
+	if out := b.String(); !strings.Contains(out, "\n<ca>\n") && !strings.Contains(out, "\npeer-fingerprint ") {
+		return "", errors.New("the profile has no CA certificate or peer fingerprint, so OpenVPN cannot check the server; import the .ovpn file from your server")
 	}
 	return b.String(), nil
 }
