@@ -11,6 +11,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"hostbay/internal/netd"
+	"hostbay/internal/store"
 	"hostbay/internal/vpn/detect"
 	"hostbay/internal/vpn/routing"
 	"hostbay/internal/vpn/vpntest"
@@ -273,5 +274,54 @@ func TestAppScopedGatewayIsPinnedWithoutAutoApply(t *testing.T) {
 	rs, _ := e.f.Routes()
 	if !slices.ContainsFunc(rs, func(r netd.SysRoute) bool { return r.Dst.String() == "203.0.113.7/32" && r.Iface == "en0" }) {
 		t.Fatalf("gateway not pinned: %v", rs)
+	}
+}
+
+// A system-wide WireGuard connecting behind a full tunnel gets its peer
+// pinned to the local network too, or its own packets would enter the
+// other tunnel.
+func TestSystemWideWireGuardEndpointIsPinnedBehindAFullTunnel(t *testing.T) {
+	e := newRoutingEnv(t)
+	sase := e.sase
+	sase.AutoApply, sase.RoutingMode = false, routing.Full
+	if _, err := e.vpn.svc.SaveVPN(sase); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.resolve = func(context.Context, string) ([]netip.Addr, error) {
+		return []netip.Addr{netip.MustParseAddr("203.0.113.7")}, nil
+	}
+	ft := &fakeTunnels{}
+	e.nd.dial = func(context.Context) (netdClient, error) {
+		e.f.reopen()
+		return tunnelHelper{e.f, ft}, nil
+	}
+	ft.reply = func(m netd.Msg) (netd.Msg, error) {
+		go ft.event(netd.Msg{Tunnel: m.Tunnel, State: netd.TunnelUp, Iface: "utun6", Address: []string{"10.30.0.2/32"}})
+		return netd.Msg{Iface: "utun6"}, nil
+	}
+	e.start(t)
+	e.settle(t, 0)
+	if _, err := e.svc.Apply(context.Background(), "", ""); err != nil || !e.has("0.0.0.0/1", "utun4") {
+		t.Fatalf("full tunnel: %v", err)
+	}
+	v := e.vpn.save(t, false)
+	key := testWGKey
+	v.Tier, v.PrivateKey, v.Routes, v.AutoApply = store.VPNTierSystem, &key, []string{"10.30.0.0/16"}, true
+	if _, err := e.vpn.svc.SaveVPN(v); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.vpn.svc.ConnectVPN(context.Background(), v.ID); err != nil {
+		t.Fatal(err)
+	}
+	pinned := func() bool {
+		rs, _ := e.f.Routes()
+		return slices.ContainsFunc(rs, func(r netd.SysRoute) bool { return r.Dst.String() == "203.0.113.7/32" && r.Iface == "en0" })
+	}
+	for i := 0; i < 100 && !pinned(); i++ {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !pinned() {
+		rs, _ := e.f.Routes()
+		t.Fatalf("peer not pinned: %v", rs)
 	}
 }

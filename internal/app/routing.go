@@ -308,10 +308,16 @@ func (s *RoutingService) plan(ctx context.Context, id, mode string) (routing.Pla
 		if st.Status != VPNConnected || v == nil {
 			continue
 		}
-		switch {
-		case vpnTier(*v) == store.VPNTierSystem && st.Iface != "":
+		if vpnTier(*v) == store.VPNTierSystem && st.Iface != "" {
 			in.Labels = append(in.Labels, detect.Labeled{Tunnel: detect.Tunnel{Iface: st.Iface}, Profile: v.ID})
-		case vpnTier(*v) == store.VPNTierApp && v.Gateway != "" && v.Type != proto.TypeTailscale:
+		}
+		// An app-scoped profile's gateway, and a system-wide WireGuard peer, are
+		// reached through the physical network; behind another full tunnel their
+		// packets would loop into it. (OpenVPN keeps its own server off the
+		// tunnel with a route of its own.)
+		app := vpnTier(*v) == store.VPNTierApp && v.Type != proto.TypeTailscale
+		wg := vpnTier(*v) == store.VPNTierSystem && v.Type == proto.TypeWireGuard
+		if (app || wg) && v.Gateway != "" {
 			as, _ := s.resolve(ctx, v.Gateway)
 			for _, a := range as {
 				in.Endpoints = append(in.Endpoints, routing.Endpoint{Profile: v.ID, Name: v.Name, Addr: a.Unmap()})
