@@ -153,6 +153,24 @@ func TestSaveVPNMergesNewSecretsWithSavedOnes(t *testing.T) {
 	}
 }
 
+// Editing the address or the user keeps the saved secrets; they used to be
+// stranded behind the old binding, the imported OpenVPN files with them.
+func TestEditingTheGatewayOrUserKeepsTheSavedSecrets(t *testing.T) {
+	e := newVPNEnv(t, vpntest.OK)
+	v := e.save(t, false)
+	v.Gateway, v.User = "198.51.100.9:51820", "other"
+	v.PrivateKey = nil
+	if _, err := e.svc.SaveVPN(v); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.svc.ConnectVPN(context.Background(), v.ID); err != nil {
+		t.Fatalf("saved key lost after editing the gateway: %v", err)
+	}
+	if got := e.fake.Starts(t)[0].Secrets; got["privateKey"] != testWGKey {
+		t.Fatalf("helper got secrets %v", got)
+	}
+}
+
 func TestChangingThePeerKeyDropsTheSavedSecrets(t *testing.T) {
 	e := newVPNEnv(t, vpntest.OK)
 	v := e.save(t, false)

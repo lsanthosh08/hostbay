@@ -176,11 +176,15 @@ func (s *VPNService) SaveVPN(profile VPN) (VPN, error) {
 		return VPN{}, err
 	}
 	var out store.VPN
-	moved := false // another tailnet, whose node this is not
+	moved := false    // another tailnet, whose node this is not
+	var oldAAD []byte // what the saved secret was sealed to, before this edit
+	carry := false    // the edit leaves what binds the secret alone but the address and user
 	err := s.st.Edit(func(d *store.Data) error {
 		v := store.VPN{Meta: store.Meta{ID: profile.ID}}
 		if e := d.VPN(profile.ID); profile.ID != "" && e != nil {
 			v = *e
+			oldAAD = v.SecretAAD()
+			carry = e.Type == profile.Type && e.Tier == profile.Tier && e.PeerKey == profile.PeerKey
 			moved = e.Type != profile.Type || e.Gateway != profile.Gateway
 		} else if v.ID == "" {
 			v.ID = store.NewID()
@@ -190,11 +194,20 @@ func (s *VPNService) SaveVPN(profile VPN) (VPN, error) {
 		v.Address, v.PeerKey, v.Routes, v.DNSServers, v.DNSDomains = profile.Address, profile.PeerKey, profile.Routes, profile.DNSServers, profile.DNSDomains
 		v.MTU, v.Tags, v.AutoReconnect, v.AutoApply, v.RoutingMode, v.Client = profile.MTU, profile.Tags, profile.AutoReconnect, profile.AutoApply, profile.RoutingMode, profile.Client
 		set := func(p *string) bool { return p != nil && *p != "" }
-		if set(profile.Password) || set(profile.PrivateKey) || set(profile.PresharedKey) || set(profile.AuthKey) {
+		if set(profile.Password) || set(profile.PrivateKey) || set(profile.PresharedKey) || set(profile.AuthKey) ||
+			(carry && v.Secret != "" && string(oldAAD) != string(v.SecretAAD())) {
 			var sec store.VPNSecrets
 			if v.Secret != "" {
-				// Ones that no longer open (moved gateway, say) are dropped.
-				if b, err := s.vault.Open(v.Secret, v.SecretAAD()); err == nil {
+				// Pointing the profile at another address or user is the user's own
+				// edit, so its saved secrets, the imported OpenVPN files among them
+				// (the form cannot enter those again), move to the new binding. A
+				// change of type, tier or server key still leaves them unopenable
+				// (R4), as one that arrives by sync does.
+				open := v.SecretAAD()
+				if carry {
+					open = oldAAD
+				}
+				if b, err := s.vault.Open(v.Secret, open); err == nil {
 					json.Unmarshal(b, &sec)
 				}
 			}
