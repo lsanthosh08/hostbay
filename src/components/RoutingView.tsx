@@ -9,6 +9,7 @@ import { Dialog } from "../ui/Dialog";
 import { Field } from "../ui/Field";
 import { SegmentedControl } from "../ui/SegmentedControl";
 import { Select } from "../ui/Select";
+import { usePrompt } from "../ui/prompt";
 import { useAsyncToast } from "../ui/toast";
 import { TagEditor } from "./TagEditor";
 import { reloadVpns, useVpns } from "../state/vpns";
@@ -64,6 +65,9 @@ export type RoutingPanelProps = {
   profile: string;
   mode: Mode;
   plan: RoutePlan | null;
+  /** Why the plan could not be read, with onRetry. */
+  planError?: string;
+  onRetry?: () => void;
   report: RoutingReport | null;
   state: RoutingState;
   local: string[];
@@ -98,6 +102,7 @@ export function RoutingPanel(p: RoutingPanelProps) {
           )}
         </div>
       )}
+      {vpns.length === 0 && <p className="text-sm text-muted max-w-xl">{t("routing.noProfiles")}</p>}
       {vpns.length > 0 && (
         <div className="flex flex-wrap items-end gap-3">
           <Field label={t("routing.profile")}>
@@ -121,6 +126,18 @@ export function RoutingPanel(p: RoutingPanelProps) {
         <TagEditor tags={p.local} placeholder="1.2.3.4" onChange={p.onLocal} />
       </Field>
 
+      {p.planError && (
+        <div className="flex items-center gap-3 text-sm max-w-xl">
+          <p className="flex-1 text-danger" role="alert">
+            {t("routing.planFailed", { error: p.planError })}
+          </p>
+          {p.onRetry && (
+            <Button size="sm" onClick={p.onRetry}>
+              {t("vpn.retry")}
+            </Button>
+          )}
+        </div>
+      )}
       {p.plan && (
         <>
           <h4 className="text-sm font-medium">{t("routing.planned")}</h4>
@@ -178,8 +195,8 @@ export function RoutingPanel(p: RoutingPanelProps) {
       )}
 
       <div className="flex items-center gap-2">
-        <Button variant="primary" onClick={p.onApply} disabled={p.busy || blocked !== undefined} title={blocked}>
-          {t("routing.apply")}
+        <Button variant="primary" onClick={p.onApply} disabled={p.busy || blocked !== undefined} title={blocked} aria-busy={p.busy || undefined}>
+          {p.busy ? t("routing.applying") : t("routing.apply")}
         </Button>
         <Button onClick={p.onReset} disabled={p.busy || blocked !== undefined} title={blocked}>
           {t("routing.reset")}
@@ -223,9 +240,15 @@ function NarrowDialog({ g, onClose, onSave }: { g: GreedyRoute; onClose: () => v
       title={t("routing.narrowTitle", { dst: g.dst })}
       onClose={onClose}
       footer={
-        <Button variant="primary" disabled={keep.length === 0} onClick={() => onSave(keep)}>
-          {t("routing.narrow")}
-        </Button>
+        <>
+          {keep.length === 0 && <span className="mr-auto text-xs text-muted">{t("routing.keepOne")}</span>}
+          <Button variant="ghost" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+          <Button variant="primary" disabled={keep.length === 0} onClick={() => onSave(keep)}>
+            {t("routing.narrow")}
+          </Button>
+        </>
       }
     >
       <p className="text-sm text-muted mb-3">{t("routing.narrowHint", { dst: g.dst, iface: g.iface })}</p>
@@ -237,9 +260,15 @@ function NarrowDialog({ g, onClose, onSave }: { g: GreedyRoute; onClose: () => v
 }
 
 /** Hands a response to `set` only if no newer request began since: a slow older one is stale. */
-export function latestOnly(seq: { current: number }, req: Promise<RoutePlan>, set: (p: RoutePlan | null) => void) {
+export function latestOnly(seq: { current: number }, req: Promise<RoutePlan>, set: (p: RoutePlan | null) => void, fail?: (e: unknown) => void) {
   const mine = ++seq.current;
-  req.then((p) => mine === seq.current && set(p)).catch(() => mine === seq.current && set(null));
+  req
+    .then((p) => mine === seq.current && set(p))
+    .catch((e) => {
+      if (mine !== seq.current) return;
+      set(null);
+      fail?.(e);
+    });
 }
 
 /** System routes in Settings, beside the VPN profiles. */
@@ -257,22 +286,26 @@ export function RoutingView() {
   });
   const [local, setLocal] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [planError, setPlanError] = useState("");
+  const { confirm } = usePrompt();
   const [narrowing, setNarrowing] = useState<GreedyRoute | null>(null);
 
   const first = routed(vpns)[0];
   const id = profile || first?.id || "";
   const previewSeq = useRef(0);
   const preview = useCallback(() => {
-    latestOnly(previewSeq, api.previewRoutes(id, id ? mode : ""), setPlan);
+    setPlanError("");
+    latestOnly(previewSeq, api.previewRoutes(id, id ? mode : ""), setPlan, (e) => setPlanError(api.errorInfo(e).message));
   }, [id, mode]);
   const previewRef = useRef(preview);
   previewRef.current = preview;
 
   useEffect(() => {
+    // An unknown helper is not a ready one: Apply stays off and says why.
     api
       .helperStatus()
       .then(setHelper)
-      .catch(() => {});
+      .catch((e) => setHelper({ state: "unavailable", reason: api.errorInfo(e).message } as HelperStatus));
     api
       .routingState()
       .then(setState)
@@ -313,6 +346,8 @@ export function RoutingView() {
         profile={id}
         mode={mode}
         plan={plan}
+        planError={planError}
+        onRetry={preview}
         report={report}
         state={state}
         local={local}
@@ -326,7 +361,11 @@ export function RoutingView() {
             reloadVpns();
           })
         }
-        onReset={() => act(() => api.resetRoutes(), t("routing.resetDone")).then((r) => r && setReport(r))}
+        onReset={async () => {
+          // Reset removes every route Hostbay added, under any live session.
+          if (await confirm(t("routing.resetConfirm"), { confirmLabel: t("routing.reset") }))
+            act(() => api.resetRoutes(), t("routing.resetDone")).then((r) => r && setReport(r));
+        }}
         onInstall={() => act(() => api.installHelper()).then(() => api.helperStatus().then(setHelper))}
         onNarrow={setNarrowing}
         onPin={(p, iface) => act(() => api.pinInterface(p, iface))}
