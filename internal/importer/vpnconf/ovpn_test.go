@@ -95,6 +95,23 @@ func TestOVPNRedirectGatewayIsFullTunnelAndOutsideFilesAreNotRead(t *testing.T) 
 	}
 }
 
+// A profile with no inline CA cannot connect (Build refuses it), so the
+// review says so now; one with its CA does not carry the note.
+func TestOVPNWithoutACAWarnsAtImport(t *testing.T) {
+	st, v, _ := importertest.Store(t)
+	rep := importertest.Import(t, st, v, parse(t, "full.ovpn"))
+	warned := func(name string) bool {
+		return slices.ContainsFunc(importertest.Ignored(rep, name), func(s string) bool { return strings.HasPrefix(s, "no CA certificate") })
+	}
+	if !warned("full") {
+		t.Errorf("no warning for a profile whose CA file was outside the folder: %q", importertest.Ignored(rep, "full"))
+	}
+	rep = importertest.Import(t, st, v, parse(t, "office.ovpn"))
+	if warned("office") {
+		t.Errorf("warned about a profile with its CA: %q", importertest.Ignored(rep, "office"))
+	}
+}
+
 func askPassword(rep importer.Report, name string) bool {
 	for _, p := range rep.VPNs {
 		if p.Name == name {
