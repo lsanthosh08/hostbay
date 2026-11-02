@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import * as api from "../../api";
 import type { Vpn } from "../../api";
 import { reloadVpns, useVpns } from "../../state/vpns";
@@ -28,6 +28,8 @@ import {
   pickAuth,
   tierFor,
   typeLabel,
+  validCidr,
+  validIp,
   validateVpn,
   vpnAsksSecretAgain,
   type VpnAuth,
@@ -57,7 +59,7 @@ export function Vpns() {
     const text = users.length
       ? t("vpnForm.deleteConfirmHosts", { name: v.name, hosts: users.map((h) => `• ${h.alias}`).join("\n") })
       : t("vpnForm.deleteConfirm", { name: v.name });
-    if (!(await confirm(text))) return;
+    if (!(await confirm(text, { confirmLabel: t("vpnForm.deleteButton") }))) return;
     await run(() => api.deleteVpn(v.id), t("vpnForm.deleted"));
     reloadVpns();
   };
@@ -195,9 +197,18 @@ function TunnelHubBanner() {
  *  and the import review. */
 export function RouteEditor({ v, set, err }: { v: Vpn; set: (patch: Partial<Vpn>) => void; err: (f: VpnField) => string | undefined }) {
   const full = isFullTunnel(v.routes);
+  // The networks typed before switching to Full tunnel, so switching back restores them.
+  const split = useRef<string[]>([]);
   const list = (label: string, field: "routes" | "dnsServers" | "dnsDomains", placeholder: string, hint?: ReactNode) => (
     <Field label={label} hint={hint} error={err(field)}>
-      <TagEditor tags={v[field] ?? []} placeholder={placeholder} invalid={!!err(field)} onChange={(x) => set({ [field]: x })} />
+      <TagEditor
+        tags={v[field] ?? []}
+        placeholder={placeholder}
+        invalid={!!err(field)}
+        separators={/[\s,]+/}
+        bad={field === "routes" ? (x) => !validCidr(x) : field === "dnsServers" ? (x) => !validIp(x) : undefined}
+        onChange={(x) => set({ [field]: x })}
+      />
     </Field>
   );
   return (
@@ -211,14 +222,16 @@ export function RouteEditor({ v, set, err }: { v: Vpn; set: (patch: Partial<Vpn>
         ]}
         // The mode is saved with the routes: the routing engine applies "split" by
         // removing the vendor's own default routes, which routes alone never did.
-        onChange={(m) =>
+        onChange={(m) => {
+          if (m === "full" && !full) split.current = v.routes ?? [];
+          if (m === "split" && full) split.current = split.current.length ? split.current : (v.routes ?? []).filter((r) => !FULL_TUNNEL.includes(r));
           set({
-            routes: m === "full" ? [...FULL_TUNNEL] : (v.routes ?? []).filter((r) => !FULL_TUNNEL.includes(r)),
+            routes: m === "full" ? [...FULL_TUNNEL] : split.current,
             routingMode: m,
             // An external client installs its routes itself, so Hostbay has to put them right as it connects.
             ...(v.tier === "external" && v.autoApply === undefined ? { autoApply: true } : {}),
-          })
-        }
+          });
+        }}
       />
       {full ? <p className="text-xs text-muted">{t("vpnForm.fullHint")}</p> : list(t("vpnForm.routes"), "routes", "10.0.0.0/8", t("vpnForm.routesHint"))}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -234,6 +247,8 @@ export function RouteEditor({ v, set, err }: { v: Vpn; set: (patch: Partial<Vpn>
 export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: () => void; onSaved: () => void }) {
   const run = useAsyncToast();
   const { push } = useToast();
+  const { confirm } = usePrompt();
+  const { hosts } = useHosts();
   const [start] = useState<Vpn>(() => ({ ...initial, ...noSecrets }));
   const [v, setV] = useState(start);
   const set = (patch: Partial<Vpn>) => setV((x) => ({ ...x, ...patch }));
@@ -279,10 +294,28 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
     set({ clientPath: path, client: !client || client.toLowerCase() === v.name.trim().toLowerCase() ? name : client });
   };
 
+  // Closing with edits asks first, whether by Cancel, the X or Escape.
+  const close = async () => {
+    if (dirty && !(await confirm(t("vpnForm.discard"), { confirmLabel: t("vpnForm.discardButton") }))) return;
+    onClose();
+  };
+  const remove = async () => {
+    const users = hosts.filter((h) => h.vpnId === v.id);
+    const text = users.length
+      ? t("vpnForm.deleteConfirmHosts", { name: v.name, hosts: users.map((h) => `• ${h.alias}`).join("\n") })
+      : t("vpnForm.deleteConfirm", { name: v.name });
+    if (!(await confirm(text, { confirmLabel: t("vpnForm.deleteButton") }))) return;
+    if ((await run(() => api.deleteVpn(v.id), t("vpnForm.deleted"))) !== undefined) onSaved();
+  };
+
   const save = async () => {
     if (ovpnNew) return; // Enter in the name field submits too; the button is only disabled
     setTried(true);
-    if (Object.keys(errors).length) return;
+    if (Object.keys(errors).length) {
+      // The form scrolls and Save sits below it: take the user to the first error.
+      setTimeout(() => document.querySelector<HTMLElement>("#vpn-form [aria-invalid='true']")?.focus(), 0);
+      return;
+    }
     setBusy(true);
     const ok = await run(() => api.saveVpn({ ...v, name: v.name.trim(), gateway: v.gateway?.trim(), auth }), t("vpnForm.saved"));
     setBusy(false);
@@ -311,12 +344,16 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
   return (
     <Dialog
       title={v.id ? t("vpnForm.editTitle", { name: initial.name }) : t("vpnForm.newTitle")}
-      onClose={onClose}
-      dismissible={!dirty}
+      onClose={close}
       size="lg"
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          {v.id && (
+            <Button variant="danger" className="mr-auto" type="button" onClick={remove}>
+              {t("vpnForm.deleteButton")}
+            </Button>
+          )}
+          <Button variant="ghost" onClick={close}>
             {t("common.cancel")}
           </Button>
           <Button variant="primary" type="submit" form="vpn-form" disabled={busy || ovpnNew}>
@@ -405,7 +442,7 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
               <Input className="w-full" spellCheck={false} value={v.client ?? ""} onChange={(e) => set({ client: e.target.value })} />
             </Field>
             {list(t("vpnForm.address"), "address", "10.255.0.0/16", t("vpnForm.addressExternalHint"))}
-            <Field label={t("vpnForm.clientPath")} hint={t("vpnForm.clientPathHint")}>
+            <Field label={t("vpnForm.clientPath")} hint={t("vpnForm.clientPathHint")} error={err("clientPath")}>
               <div className="flex gap-2">
                 <Input className="w-full" spellCheck={false} value={v.clientPath ?? ""} onChange={(e) => set({ clientPath: e.target.value })} />
                 <Button type="button" className="shrink-0 whitespace-nowrap" onClick={chooseApp}>
@@ -448,7 +485,9 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
                 type="button"
                 className="w-fit"
                 size="sm"
-                onClick={() => run(() => api.signInAgainVpn(initial.id), t("vpnForm.signedOut"))}
+                onClick={async () => {
+                  if (await confirm(t("vpnForm.signInAgainConfirm"))) run(() => api.signInAgainVpn(initial.id), t("vpnForm.signedOut"));
+                }}
               >
                 {t("vpnForm.signInAgain")}
               </Button>

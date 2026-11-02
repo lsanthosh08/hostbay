@@ -111,3 +111,14 @@ describe("tags", () => {
     expect(filterVpns(list, "", "").length).toBe(3);
   });
 });
+
+describe("client program path", () => {
+  const ext = (clientPath?: string) => ({ id: "x", name: "Harmony", type: "perimeter81", tier: "external" as const, clientPath, tags: [] });
+  it("accepts an absolute path and none, refuses a relative or odd one", () => {
+    expect(validateVpn(ext()).clientPath).toBeUndefined();
+    expect(validateVpn(ext("/Applications/Check Point SASE.app")).clientPath).toBeUndefined();
+    expect(validateVpn(ext("C:\\Program Files\\App\\app.exe")).clientPath).toBeUndefined();
+    expect(validateVpn(ext("Check Point SASE")).clientPath).toBe("vpnForm.error.clientPath");
+    expect(validateVpn(ext("/Applications/x\n.app")).clientPath).toBe("vpnForm.error.clientPath");
+  });
+});

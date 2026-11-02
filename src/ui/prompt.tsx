@@ -14,13 +14,14 @@ type PromptReq = {
   defaultValue: string;
   password?: boolean;
   focusConfirm?: boolean;
+  confirmLabel?: string;
   resolve: (v: string | null) => void;
 };
 
 type Ctx = {
   prompt: (title: string, defaultValue?: string, password?: boolean) => Promise<string | null>;
   // Cancel has focus unless focusConfirm, so Enter never confirms a delete.
-  confirm: (title: string, opts?: { focusConfirm?: boolean }) => Promise<boolean>;
+  confirm: (title: string, opts?: { focusConfirm?: boolean; confirmLabel?: string }) => Promise<boolean>;
 };
 
 const PromptCtx = createContext<Ctx>({
@@ -42,13 +43,14 @@ export function PromptProvider({ children }: { children: ReactNode }) {
     []
   );
   const confirm = useCallback(
-    (title: string, opts?: { focusConfirm?: boolean }) =>
+    (title: string, opts?: { focusConfirm?: boolean; confirmLabel?: string }) =>
       new Promise<boolean>((resolve) => {
         setReq({
           kind: "confirm",
           title,
           defaultValue: "",
           focusConfirm: opts?.focusConfirm,
+          confirmLabel: opts?.confirmLabel,
           resolve: (v) => resolve(v !== null),
         });
       }),
@@ -93,7 +95,7 @@ export function PromptProvider({ children }: { children: ReactNode }) {
                 {t("common.cancel")}
               </Button>
               <Button variant="primary" type="submit" autoFocus={req.focusConfirm}>
-                {req.kind === "confirm" ? t("common.confirm") : t("common.ok")}
+                {req.kind === "confirm" ? (req.confirmLabel ?? t("common.confirm")) : t("common.ok")}
               </Button>
             </div>
           </form>

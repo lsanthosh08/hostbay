@@ -1,4 +1,4 @@
-import { createContext, useContext, useId, type InputHTMLAttributes, type ReactNode } from "react";
+import { createContext, useContext, useId, type InputHTMLAttributes, type ReactNode, type Ref } from "react";
 
 export const controlCls =
   "rounded-control border border-control bg-field text-fg text-sm placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-focus disabled:opacity-50";
@@ -15,7 +15,7 @@ export function useFieldControl(props: { id?: string; "aria-label"?: string; "ar
   return { id: f.id, "aria-describedby": f.describedBy };
 }
 
-export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
+export function Input(props: InputHTMLAttributes<HTMLInputElement> & { ref?: Ref<HTMLInputElement> }) {
   return <input {...useFieldControl(props)} {...props} className={`h-9 px-3 ${controlCls} ${props.className || ""}`} />;
 }
 
@@ -44,7 +44,7 @@ export function Field({
       </label>
       <FieldCtx.Provider value={{ id, describedBy: note ? noteId : undefined }}>{children}</FieldCtx.Provider>
       {note && (
-        <p id={noteId} className={`mt-1 text-xs ${error ? "text-danger" : "text-muted"}`}>
+        <p id={noteId} role={error ? "alert" : undefined} className={`mt-1 text-xs ${error ? "text-danger" : "text-muted"}`}>
           {note}
         </p>
       )}
