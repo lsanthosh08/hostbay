@@ -23,6 +23,15 @@ func TestValidateRefusesBadRequests(t *testing.T) {
 		"mtu 9001":            {T: SetMTU, V: Version, Iface: "utun3", MTU: 9001},
 		"mtu shell iface":     {T: SetMTU, V: Version, Iface: "utun3 && reboot", MTU: 1400},
 		"unknown":             {T: "exec", V: Version},
+		"proxy https":         {T: SetProxy, V: Version, URL: "https://127.0.0.1:8080/hostbay-pac/abcdefghijklmnop/1.pac"},
+		"proxy remote host":   {T: SetProxy, V: Version, URL: "http://10.0.0.1:8080/hostbay-pac/abcdefghijklmnop/1.pac"},
+		"proxy localhost":     {T: SetProxy, V: Version, URL: "http://localhost:8080/hostbay-pac/abcdefghijklmnop/1.pac"},
+		"proxy no port":       {T: SetProxy, V: Version, URL: "http://127.0.0.1/hostbay-pac/abcdefghijklmnop/1.pac"},
+		"proxy port 0":        {T: SetProxy, V: Version, URL: "http://127.0.0.1:0/hostbay-pac/abcdefghijklmnop/1.pac"},
+		"proxy quote":         {T: SetProxy, V: Version, URL: `http://127.0.0.1:8080/hostbay-pac/abc"defghijklmnop/1.pac`},
+		"proxy other path":    {T: SetProxy, V: Version, URL: "http://127.0.0.1:8080/other.pac"},
+		"proxy query":         {T: SetProxy, V: Version, URL: "http://127.0.0.1:8080/hostbay-pac/abcdefghijklmnop/1.pac?v=2"},
+		"proxy none":          {T: SetProxy, V: Version},
 	}
 	for name, m := range bad {
 		if err := validate(m); err == nil || err.Code != CodeInvalid {
@@ -38,6 +47,8 @@ func TestValidateRefusesBadRequests(t *testing.T) {
 		"delete":          {T: Delete, V: Version, Route: &Route{Dst: "0.0.0.0/1", Iface: "utun5"}},
 		"delete gateway":  {T: Delete, V: Version, Route: &Route{Dst: "203.0.113.7/32", Gateway: true}},
 		"mtu":             {T: SetMTU, V: Version, Iface: "utun3", MTU: 1400},
+		"proxy":           {T: SetProxy, V: Version, URL: "http://127.0.0.1:8080/hostbay-pac/abcdefghijklmnop/12.pac"},
+		"proxy clear":     {T: ClearProxy, V: Version},
 	}
 	for name, m := range good {
 		if err := validate(m); err != nil {

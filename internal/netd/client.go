@@ -218,6 +218,17 @@ func (c *Client) SetMTU(ctx context.Context, iface string, mtu int) error {
 	return c.call(ctx, Msg{T: SetMTU, Iface: iface, MTU: mtu})
 }
 
+// SetProxy points every enabled network service's automatic proxy at url,
+// Hostbay's PAC, until ClearProxy or this connection's end.
+func (c *Client) SetProxy(ctx context.Context, url string) error {
+	return c.call(ctx, Msg{T: SetProxy, URL: url})
+}
+
+// ClearProxy puts back each service's automatic proxy as it was.
+func (c *Client) ClearProxy(ctx context.Context) error {
+	return c.call(ctx, Msg{T: ClearProxy})
+}
+
 // Change is one step of a route plan: Op is Add or Delete.
 type Change struct {
 	Op    string

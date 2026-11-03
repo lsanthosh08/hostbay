@@ -13,11 +13,20 @@ import (
 const (
 	Added   = "added"   // the helper added this route; the sweep deletes it
 	Deleted = "deleted" // the helper deleted this vendor route; the sweep restores it
+	Proxied = "proxied" // the helper pointed this service at Hostbay's PAC; RestoreProxies puts back Prior
 )
 
 type journalEntry struct {
-	Op    string   `json:"op"`
-	Route SysRoute `json:"route"`
+	Op    string      `json:"op"`
+	Route SysRoute    `json:"route,omitzero"`
+	Proxy *proxyEntry `json:"proxy,omitempty"`
+}
+
+// proxyEntry is a network service's automatic proxy setting before the
+// helper first changed it.
+type proxyEntry struct {
+	Service string     `json:"service"`
+	Prior   ProxyState `json:"prior"`
 }
 
 // Journal records every route change the helper makes, on disk and before
@@ -44,7 +53,16 @@ func OpenJournal(path string) (*Journal, error) {
 }
 
 func (j *Journal) record(op string, r SysRoute) error {
-	j.entries = append(j.entries, journalEntry{op, r})
+	return j.append(journalEntry{Op: op, Route: r})
+}
+
+// recordProxy journals service's setting before the helper first changes it.
+func (j *Journal) recordProxy(service string, prior ProxyState) error {
+	return j.append(journalEntry{Op: Proxied, Proxy: &proxyEntry{service, prior}})
+}
+
+func (j *Journal) append(e journalEntry) error {
+	j.entries = append(j.entries, e)
 	if err := j.save(); err != nil {
 		j.entries = j.entries[:len(j.entries)-1]
 		return err
@@ -56,7 +74,7 @@ func (j *Journal) record(op string, r SysRoute) error {
 // or never happened.
 func (j *Journal) forget(op string, r SysRoute) error {
 	for i := len(j.entries) - 1; i >= 0; i-- {
-		if j.entries[i] == (journalEntry{op, r}) {
+		if e := j.entries[i]; e.Proxy == nil && e.Op == op && e.Route == r {
 			j.entries = slices.Delete(j.entries, i, i+1)
 			return j.save()
 		}
@@ -107,6 +125,10 @@ func Sweep(t Table, j *Journal) error {
 	var errs []error
 	for i := len(j.entries) - 1; i >= 0; i-- {
 		e := j.entries[i]
+		if e.Proxy != nil {
+			kept = append([]journalEntry{e}, kept...) // RestoreProxies' to undo
+			continue
+		}
 		present := slices.Contains(routes, e.Route)
 		var err error
 		switch {
@@ -123,6 +145,43 @@ func Sweep(t Table, j *Journal) error {
 			kept = append([]journalEntry{e}, kept...)
 			errs = append(errs, fmt.Errorf("undoing %s %s: %w", e.Op, e.Route, err))
 		}
+	}
+	j.entries = kept
+	if err := j.save(); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
+}
+
+// proxied reports whether service's prior setting is journaled.
+func (j *Journal) proxied(service string) bool {
+	return slices.ContainsFunc(j.entries, func(e journalEntry) bool { return e.Proxy != nil && e.Proxy.Service == service })
+}
+
+// RestoreProxies puts back each journaled service's prior automatic proxy
+// setting, newest first, while the service still holds a PAC of Hostbay's;
+// one someone else repointed since is theirs and is left alone. Entries
+// that fail stay for the next sweep.
+func (j *Journal) RestoreProxies(p Proxies) error {
+	var kept []journalEntry
+	var errs []error
+	for i := len(j.entries) - 1; i >= 0; i-- {
+		e := j.entries[i]
+		if e.Proxy == nil {
+			kept = append([]journalEntry{e}, kept...)
+			continue
+		}
+		cur, err := p.Get(e.Proxy.Service)
+		if err == nil && cur.On && ownPAC(cur.URL) {
+			err = p.Set(e.Proxy.Service, e.Proxy.Prior)
+		}
+		if err != nil {
+			kept = append([]journalEntry{e}, kept...)
+			errs = append(errs, fmt.Errorf("restoring the proxy of %s: %w", e.Proxy.Service, err))
+		}
+	}
+	if len(kept) == len(j.entries) && len(errs) == 0 {
+		return nil
 	}
 	j.entries = kept
 	if err := j.save(); err != nil {

@@ -49,6 +49,7 @@ func Serve(ctx context.Context) error {
 	}
 	s := &Server{
 		Table:   newTable(),
+		Proxies: newProxies(),
 		Journal: j,
 		Auth:    authFor(cfg),
 	}

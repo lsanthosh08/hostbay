@@ -40,7 +40,7 @@ const (
 
 // The admin prompt says what the helper may do (R30).
 const (
-	installPrompt   = "Hostbay wants to install its network helper. It runs as an administrator and lets only Hostbay add and remove routes through VPN tunnels and the default gateway, set tunnel MTUs, and start and stop the VPNs you connect system-wide."
+	installPrompt   = "Hostbay wants to install its network helper. It runs as an administrator and lets only Hostbay add and remove routes through VPN tunnels and the default gateway, set tunnel MTUs, point this Mac's automatic proxy setting at Hostbay while VPNs with sites to route are connected, and start and stop the VPNs you connect system-wide."
 	uninstallPrompt = "Hostbay wants to remove its network helper."
 )
 
