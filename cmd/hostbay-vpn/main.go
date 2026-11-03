@@ -5,7 +5,7 @@
 // the tunnel up inside its own process and serves an authenticated SOCKS5
 // endpoint on 127.0.0.1 through it (KTD2), reporting each state change. On
 // openBrowser it also serves a SOCKS5 endpoint without a login on
-// 127.0.0.1 for a browser profile (KTD11). It exits when its stdin closes,
+// 127.0.0.1 for the system PAC. It exits when its stdin closes,
 // taking the tunnel and both listeners with it.
 //
 // Secrets arrive only in the start message. Nothing the helper writes, to
