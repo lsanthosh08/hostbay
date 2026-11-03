@@ -443,7 +443,7 @@ export const en = {
   "vpn.newShort": "New",
   "vpn.dropHint": "Tip: drop an .ovpn, WireGuard .conf or other VPN file here to import it.",
   "vpn.browsers": "Browser profiles",
-  "vpn.browsersHint": "Launch a browser profile through an app-scoped VPN. Quit the browser first; WebRTC stays inside the VPN.",
+  "vpn.browsersHint": "Launch a browser profile through an app-scoped VPN. If the browser is already open, Hostbay opens a separate profile of its own beside it (signed out the first time, then kept); WebRTC stays inside the VPN.",
   "vpn.browserMapping": "{browser} · {profile} → {vpn}",
   "vpn.browserLaunch": "Launch {profile} through {vpn}",
   "vpn.browserRemove": "Remove the mapping for {profile}",

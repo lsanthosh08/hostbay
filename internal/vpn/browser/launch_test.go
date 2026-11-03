@@ -107,3 +107,14 @@ func TestCommandProxiesEverythingForAFullTunnelOrUnknownRoutes(t *testing.T) {
 		}
 	}
 }
+
+// A separate profile lives in its own user data folder, so it opens beside a
+// running browser, and takes the same proxy flags.
+func TestCommandSeparateUsesItsOwnUserDataFolder(t *testing.T) {
+	args := CommandSeparate(Browser{Exe: "/b"}, "/data/browsers/chrome-Default", 41081, nil, nil).Args
+	want := []string{"--user-data-dir=/data/browsers/chrome-Default", "--no-first-run", "--no-default-browser-check",
+		"--proxy-server=socks5://127.0.0.1:41081", "--force-webrtc-ip-handling-policy=disable_non_proxied_udp"}
+	if !slices.Equal(args[1:], want) {
+		t.Fatalf("args %q", args)
+	}
+}

@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -155,9 +157,25 @@ func (s *VPNService) LaunchBrowser(ctx context.Context, browserID, profile strin
 	if pi < 0 {
 		return fmt.Errorf("%s has no profile %q", b.Name, m.Profile)
 	}
-	running := fmt.Errorf("%s is already running. Quit it, then launch again, so the profile opens through %s.", b.Name, v.Name)
-	if browser.Running(b) {
-		return running
+	// A running browser would open the profile itself, unproxied, and its lock
+	// covers every profile, so Hostbay opens a profile of its own beside it.
+	separate := func() (string, error) {
+		if !browser.Running(b) {
+			return "", nil
+		}
+		dir := filepath.Join(s.st.Dir(), "browsers", b.ID+"-"+strings.Map(func(r rune) rune {
+			if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' {
+				return r
+			}
+			return '_'
+		}, profiles[pi].Dir))
+		if browser.RunningIn(dir) {
+			return "", fmt.Errorf("The separate %s window Hostbay opened for %s is still open. Close it, then launch again, so it opens through %s.", b.Name, profiles[pi].Name, v.Name)
+		}
+		return dir, nil
+	}
+	if _, err := separate(); err != nil {
+		return err
 	}
 	if _, err := s.ConnectVPN(ctx, v.ID); err != nil {
 		return err
@@ -176,14 +194,22 @@ func (s *VPNService) LaunchBrowser(ctx context.Context, browserID, profile strin
 		return apperr.New(apperr.VPNFailed, "VPN "+v.Name+": "+err.Error()).With("vpnId", v.ID)
 	}
 	// Connecting can wait on a sign-in, long enough to open the browser meanwhile.
-	if browser.Running(b) {
-		return running
+	own, err := separate()
+	if err != nil {
+		return err
 	}
 	// A VPN that carries only some networks gets only those through the proxy.
 	s.mu.Lock()
 	live := s.states[v.ID].Routes
 	s.mu.Unlock()
-	return startBrowser(browser.Command(b, profiles[pi].Dir, port, slices.Concat(v.Routes, live), v.DNSDomains))
+	nets := slices.Concat(v.Routes, live)
+	if own == "" {
+		return startBrowser(browser.Command(b, profiles[pi].Dir, port, nets, v.DNSDomains))
+	}
+	if err := os.MkdirAll(own, 0o700); err != nil {
+		return err
+	}
+	return startBrowser(browser.CommandSeparate(b, own, port, nets, v.DNSDomains))
 }
 
 // saveImportedBrowsers saves an import's browser mappings, as Chrome's,
