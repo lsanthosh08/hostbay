@@ -100,7 +100,9 @@ type VPNService struct {
 	emit   func(name string, data any)
 	// forgotten is told when a profile is deleted, for state kept by id elsewhere.
 	forgotten func(id string)
-	openURL   func(url string) // the default browser, for a browser sign-in
+	// saved is told when a profile is saved, for what is built from its fields.
+	saved   func(id string)
+	openURL func(url string) // the default browser, for a browser sign-in
 	// checkConnect refuses a system-wide connect the routing plan cannot
 	// place (R13); RoutingService sets it.
 	checkConnect func(id string) error
@@ -258,6 +260,9 @@ func (s *VPNService) SaveVPN(profile VPN) (VPN, error) {
 	})
 	v := vpnToUI(out)
 	v.ClientPath, v.Iface = profile.ClientPath, profile.Iface
+	if s.saved != nil {
+		s.saved(out.ID)
+	}
 	return v, err
 }
 

@@ -14,6 +14,7 @@ import * as MCPService from "./mcpservice.js";
 import * as MasterPasswordService from "./masterpasswordservice.js";
 import * as MonitorService from "./monitorservice.js";
 import * as NetdService from "./netdservice.js";
+import * as PACService from "./pacservice.js";
 import * as RdpService from "./rdpservice.js";
 import * as RoutingService from "./routingservice.js";
 import * as SettingsService from "./settingsservice.js";
@@ -43,6 +44,7 @@ export {
     MasterPasswordService,
     MonitorService,
     NetdService,
+    PACService,
     RdpService,
     RoutingService,
     SettingsService,
@@ -101,6 +103,7 @@ export type {
     MCPVPNAllowEntry,
     MCPVPNChoice,
     MonitorStart,
+    PACState,
     PostLoginRule,
     Proxy,
     RoutingReport,

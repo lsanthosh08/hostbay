@@ -222,6 +222,10 @@ func main() {
 	netdSvc := app.NewNetdService()
 	a.RegisterService(application.NewService(netdSvc))
 	a.RegisterService(application.NewService(app.NewRoutingService(st, vpns, netdSvc)))
+	// Browsers reach app-scoped VPNs through the system's automatic proxy,
+	// which this sets through the helper; registered after it, so it stops
+	// first and puts the setting back while the helper still listens.
+	a.RegisterService(application.NewService(app.NewPACService(st, vpns, netdSvc)))
 	a.RegisterService(application.NewService(app.NewTunnelHubService())) // retires TunnelHub (R45)
 	a.RegisterService(application.NewService(app.NewMonitorService(connSvc)))
 	a.RegisterService(application.NewService(app.NewTerminalToolsService(connSvc)))
