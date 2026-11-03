@@ -10,8 +10,8 @@
 // node's keys change, for Hostbay to seal and send back in the next start's
 // secrets. Hostbay may send openBrowser at any time; the helper answers
 // browserPort with the port of a second SOCKS5 listener on 127.0.0.1 that
-// takes no login, for a browser profile (Chromium cannot log in to a SOCKS
-// proxy, KTD11). Later requests get the same port. Closing the helper's
+// takes no login, for the system PAC (browsers cannot log in to a SOCKS
+// proxy). Later requests get the same port. Closing the helper's
 // stdin disconnects the profile and the helper exits, closing both
 // listeners.
 //
