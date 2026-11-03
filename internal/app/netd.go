@@ -33,6 +33,8 @@ type netdClient interface {
 	Add(context.Context, netd.Route) error
 	Delete(context.Context, netd.Route) error
 	SetMTU(ctx context.Context, iface string, mtu int) error
+	SetProxy(ctx context.Context, url string) error
+	ClearProxy(ctx context.Context) error
 	Events() <-chan struct{}
 	Done() <-chan struct{}
 	Close() error

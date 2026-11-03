@@ -12,17 +12,19 @@
 // The helper does only what KTD8 names, each argument validated here and
 // each route kept within bounds it checks itself (server.go): add or delete a
 // route through a tunnel interface or the local default gateway, set a tunnel
-// interface's MTU, and start or stop a system-wide tunnel (U12): OpenVPN
+// interface's MTU, start or stop a system-wide tunnel (U12): OpenVPN
 // from a configuration it writes itself, OpenConnect on a Wintun adapter on
-// Windows, or WireGuard on a real TUN. Every route it adds and every vendor
-// route it deletes is journaled first and swept back when Hostbay
-// disconnects or the helper restarts (journal.go); every tunnel stops then
-// too.
+// Windows, or WireGuard on a real TUN, and point the system's automatic
+// proxy at Hostbay's loopback PAC. Every route it adds, every vendor route
+// it deletes and every proxy setting it changes is journaled first and
+// swept back when Hostbay disconnects or the helper restarts (journal.go);
+// every tunnel stops then too.
 package netd
 
 import (
 	"net/netip"
 	"regexp"
+	"strconv"
 
 	"hostbay/internal/vpn/openvpn"
 )
@@ -30,10 +32,11 @@ import (
 // Version is bumped on any incompatible change to the messages below, or to
 // what the helper accepts in them (3: OpenVPN profiles need a CA or peer
 // fingerprint, and peer-fingerprint is allowed; 4: static-challenge is
-// allowed, for profiles that ask for a one-time code). A helper and a Hostbay that
+// allowed, for profiles that ask for a one-time code; 5: the automatic proxy
+// can be set and cleared). A helper and a Hostbay that
 // disagree refuse each other with CodeVersion, and Hostbay offers to
 // reinstall the helper.
-const Version = 4
+const Version = 5
 
 // Message tags.
 const (
@@ -52,6 +55,11 @@ const (
 	WireGuardStart   = "wireguard-start"   // Hostbay: Tunnel, WireGuard
 	StopTunnel       = "tunnel-stop"       // Hostbay: Tunnel
 	TunnelEvent      = "tunnel"            // helper: Tunnel, State, and Iface and Address when up, Reason when ended
+
+	// The system's automatic proxy: SetProxy points every enabled network
+	// service at URL, Hostbay's PAC; ClearProxy puts back what each had.
+	SetProxy   = "proxy-set"   // Hostbay: URL
+	ClearProxy = "proxy-clear" // Hostbay
 )
 
 // Tunnel event states.
@@ -116,6 +124,7 @@ type Msg struct {
 	Route *Route `json:"route,omitempty"`
 	Iface string `json:"iface,omitempty"`
 	MTU   int    `json:"mtu,omitempty"`
+	URL   string `json:"url,omitempty"` // SetProxy: the PAC
 
 	Tunnel      string           `json:"tunnel,omitempty"`
 	OpenVPN     *openvpn.Profile `json:"openvpn,omitempty"`
@@ -158,6 +167,21 @@ var tunnelHandle = regexp.MustCompile(`^[A-Za-z0-9]{8,32}$`)
 // parser would act on: no leading dash, no quotes, separators or control
 // characters. The helper also requires the interface to exist.
 var ifaceName = regexp.MustCompile(`^[\p{L}\p{N}][\p{L}\p{N} ._()#*-]{0,127}$`)
+
+// pacURL admits only Hostbay's own PAC on loopback: a fixed path with the
+// token Hostbay chose and a version, which the sweep also recognizes as
+// Hostbay's whatever its port or version.
+var pacURL = regexp.MustCompile(`^http://127\.0\.0\.1:([1-9][0-9]{0,4})/hostbay-pac/[A-Za-z0-9_-]{16,64}/[0-9]{1,10}\.pac$`)
+
+// ownPAC reports whether url is a PAC URL Hostbay sets.
+func ownPAC(url string) bool {
+	m := pacURL.FindStringSubmatch(url)
+	if m == nil {
+		return false
+	}
+	port, _ := strconv.Atoi(m[1])
+	return port <= 65535
+}
 
 // parseCIDR parses a destination strictly: canonical form, no host bits, no
 // zone, no IPv4-mapped IPv6.
@@ -210,6 +234,11 @@ func validate(m Msg) *Error {
 				return invalid("The request carries the wrong tunnel settings.")
 			}
 		}
+	case SetProxy:
+		if !ownPAC(m.URL) {
+			return invalid("%q is not Hostbay's proxy configuration address.", m.URL)
+		}
+	case ClearProxy:
 	default:
 		return invalid("Unknown request %q.", m.T)
 	}

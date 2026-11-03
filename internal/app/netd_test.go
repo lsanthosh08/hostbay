@@ -22,7 +22,9 @@ type fakeHelper struct {
 	mtu    map[string]int
 	fail   map[string]bool // Dst: refuse the change
 	added  []netd.SysRoute
-	calls  int // changes sent
+	calls  int      // changes sent
+	proxy  string   // the PAC URL set; "" when cleared
+	proxys []string // every SetProxy and ClearProxy, in order, as the URL or "clear"
 	events chan struct{}
 	done   chan struct{}
 }
@@ -71,6 +73,20 @@ func (f *fakeHelper) SetMTU(_ context.Context, iface string, mtu int) error {
 	return nil
 }
 
+func (f *fakeHelper) SetProxy(_ context.Context, url string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.proxy, f.proxys = url, append(f.proxys, url)
+	return nil
+}
+
+func (f *fakeHelper) ClearProxy(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.proxy, f.proxys = "", append(f.proxys, "clear")
+	return nil
+}
+
 func (f *fakeHelper) Events() <-chan struct{} { return f.events }
 func (f *fakeHelper) Done() <-chan struct{}   { return f.done }
 
@@ -83,6 +99,7 @@ func (f *fakeHelper) Close() error {
 		close(f.done)
 		f.routes = slices.DeleteFunc(f.routes, func(x netd.SysRoute) bool { return slices.Contains(f.added, x) })
 		f.added = nil
+		f.proxy = "" // the helper's sweep
 	}
 	return nil
 }

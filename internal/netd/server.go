@@ -25,6 +25,8 @@ type Server struct {
 	Journal *Journal
 	// Tunnels is nil in a helper that runs none.
 	Tunnels Tunnels
+	// Proxies is nil where the helper cannot set the system proxy.
+	Proxies Proxies
 	// Auth admits or refuses a connection before the helper reads from it.
 	Auth func(net.Conn) error
 
@@ -68,17 +70,25 @@ func (s *Server) Stop() {
 	if s.Tunnels != nil {
 		s.Tunnels.StopAll()
 	}
-	if err := Sweep(s.Table, s.Journal); err != nil {
-		log.Printf("hostbay-netd: sweep: %v", err)
-	}
+	s.sweep()
 }
 
 // Sweep undoes every journaled change.
 func (s *Server) Sweep() {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
+	s.sweep()
+}
+
+// sweep is Sweep with opMu held.
+func (s *Server) sweep() {
 	if err := Sweep(s.Table, s.Journal); err != nil {
 		log.Printf("hostbay-netd: sweep: %v", err)
+	}
+	if s.Proxies != nil {
+		if err := s.Journal.RestoreProxies(s.Proxies); err != nil {
+			log.Printf("hostbay-netd: sweep: %v", err)
+		}
 	}
 }
 
@@ -178,6 +188,8 @@ func (s *Server) do(m Msg, event func(Msg)) (Msg, *Error) {
 			return Msg{}, refused("The helper is stopping.")
 		}
 		return s.Tunnels.Start(m, event)
+	case SetProxy, ClearProxy:
+		return Msg{}, s.proxy(m)
 	}
 	return Msg{}, s.route(m)
 }

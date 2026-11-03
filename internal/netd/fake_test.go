@@ -84,3 +84,44 @@ var (
 	defaultRoute = SysRoute{Dst: netip.MustParsePrefix("0.0.0.0/0"), Iface: "en0", Gateway: lanGateway}
 	lanRoute     = sr("192.168.1.0/24", "en0")
 )
+
+// fakeProxies is the network services' automatic proxy settings in memory;
+// Services lists the enabled ones.
+type fakeProxies struct {
+	mu  sync.Mutex
+	set map[string]ProxyState
+}
+
+func newFakeProxies(set map[string]ProxyState) *fakeProxies { return &fakeProxies{set: set} }
+
+func (f *fakeProxies) Services() ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []string
+	for s := range f.set {
+		out = append(out, s)
+	}
+	slices.Sort(out)
+	return out, nil
+}
+
+func (f *fakeProxies) Get(service string) (ProxyState, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.set[service], nil
+}
+
+func (f *fakeProxies) Set(service string, st ProxyState) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if st.URL == "" {
+		st.URL = f.set[service].URL // turning it off keeps the URL, as networksetup does
+	}
+	f.set[service] = st
+	return nil
+}
+
+func (f *fakeProxies) of(service string) ProxyState {
+	s, _ := f.Get(service)
+	return s
+}
