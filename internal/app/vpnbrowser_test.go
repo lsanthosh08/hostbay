@@ -2,12 +2,12 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -59,9 +59,15 @@ func TestLaunchBrowserGoesThroughTheVPN(t *testing.T) {
 		t.Fatalf("%d launches", len(*launched))
 	}
 	c := (*launched)[0]
-	want := []string{"--profile-directory=Profile 3", "--proxy-server=socks5://127.0.0.1:" + strconv.Itoa(vpntest.BrowserPort), "--force-webrtc-ip-handling-policy=disable_non_proxied_udp"}
-	if c.Path != "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" || !slices.Equal(c.Args[1:], want) {
-		t.Fatalf("launched %q %q", c.Path, c.Args)
+	// The profile carries only 10.9.0.0/24, so only that and corp.example take the
+	// proxy; the rest of the internet goes direct, which the VPN has no path for.
+	enc, ok := strings.CutPrefix(c.Args[2], "--proxy-pac-url=data:application/x-ns-proxy-autoconfig;base64,")
+	pac, _ := base64.StdEncoding.DecodeString(enc)
+	if c.Path != "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" || len(c.Args) != 4 || !ok || c.Args[1] != "--profile-directory=Profile 3" ||
+		c.Args[3] != "--force-webrtc-ip-handling-policy=disable_non_proxied_udp" ||
+		!strings.Contains(string(pac), "SOCKS5 127.0.0.1:"+strconv.Itoa(vpntest.BrowserPort)) ||
+		strings.Count(string(pac), `isInNet(ip, "10.9.0.0", "255.255.255.0")`) != 1 || !strings.Contains(string(pac), ".corp.example") {
+		t.Fatalf("launched %q %q\n%s", c.Path, c.Args, pac)
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()

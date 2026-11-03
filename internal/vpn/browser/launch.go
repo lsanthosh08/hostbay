@@ -9,14 +9,17 @@ package browser
 
 import (
 	"cmp"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"strconv"
+	"strings"
 )
 
 // Browser is one installed browser. Exe and UserData are this computer's
@@ -141,10 +144,68 @@ func Running(b Browser) bool { return locked(b.UserData) }
 // Command launches profile dir of b through the SOCKS5 listener at
 // 127.0.0.1:port. A socks5 proxy also takes the browser's DNS, the WebRTC
 // policy keeps WebRTC's UDP from going around the proxy, and no flag
-// bypasses it.
-func Command(b Browser, dir string, port int) *exec.Cmd {
+// bypasses it. When the VPN carries only some networks (nets, plus the
+// names under domains), a proxy auto-config sends those through the
+// listener and every other address straight out, since the VPN has no path
+// for it; with no networks, or a default route among them, everything goes
+// through the listener.
+func Command(b Browser, dir string, port int, nets, domains []string) *exec.Cmd {
+	proxy := "--proxy-server=socks5://127.0.0.1:" + strconv.Itoa(port)
+	if pac := splitPAC(port, nets, domains); pac != "" {
+		proxy = "--proxy-pac-url=data:application/x-ns-proxy-autoconfig;base64," + base64.StdEncoding.EncodeToString([]byte(pac))
+	}
 	return exec.Command(b.Exe,
 		"--profile-directory="+dir,
-		"--proxy-server=socks5://127.0.0.1:"+strconv.Itoa(port),
+		proxy,
 		"--force-webrtc-ip-handling-policy=disable_non_proxied_udp")
+}
+
+// splitPAC is the proxy auto-config for a VPN that carries only nets and the
+// names under domains, or "" when everything goes through it. An address in
+// nets, a name under domains, a single-label name, and a name this computer
+// cannot resolve (one only the VPN's DNS knows) take the listener alone, with
+// no direct fallback; any other address goes direct. Only well-formed IPv4
+// networks and plain domain names reach the script.
+func splitPAC(port int, nets, domains []string) string {
+	var checks strings.Builder
+	n, seen := 0, map[netip.Prefix]bool{}
+	for _, s := range nets {
+		p, err := netip.ParsePrefix(s)
+		if err != nil || !p.Addr().Is4() {
+			continue
+		}
+		if p.Bits() < 2 {
+			return "" // a default route: everything is the VPN's
+		}
+		if p = p.Masked(); seen[p] {
+			continue
+		}
+		seen[p] = true
+		var mask [4]byte
+		for i := 0; i < p.Bits(); i++ {
+			mask[i/8] |= 0x80 >> (i % 8)
+		}
+		fmt.Fprintf(&checks, "  if (isInNet(ip, %q, %q)) return P;\n", p.Addr(), netip.AddrFrom4(mask))
+		n++
+	}
+	if n == 0 {
+		return ""
+	}
+	var names strings.Builder
+	for _, d := range domains {
+		d = strings.ToLower(strings.Trim(strings.TrimSpace(d), "."))
+		if d != "" && !strings.ContainsFunc(d, func(r rune) bool { return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' || r == '.') }) {
+			fmt.Fprintf(&names, "  if (h === %q || dnsDomainIs(h, %q)) return P;\n", d, "."+d)
+		}
+	}
+	return fmt.Sprintf(`function FindProxyForURL(url, host) {
+  var P = "SOCKS5 127.0.0.1:%d";
+  var h = host.toLowerCase();
+  if (h === "localhost" || h === "127.0.0.1" || h === "[::1]") return "DIRECT";
+  if (isPlainHostName(h)) return P;
+%s  var ip = /^\d+\.\d+\.\d+\.\d+$/.test(h) ? h : dnsResolve(h);
+  if (!ip) return P;
+%s  return "DIRECT";
+}
+`, port, names.String(), checks.String())
 }

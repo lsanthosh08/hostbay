@@ -179,7 +179,11 @@ func (s *VPNService) LaunchBrowser(ctx context.Context, browserID, profile strin
 	if browser.Running(b) {
 		return running
 	}
-	return startBrowser(browser.Command(b, profiles[pi].Dir, port))
+	// A VPN that carries only some networks gets only those through the proxy.
+	s.mu.Lock()
+	live := s.states[v.ID].Routes
+	s.mu.Unlock()
+	return startBrowser(browser.Command(b, profiles[pi].Dir, port, slices.Concat(v.Routes, live), v.DNSDomains))
 }
 
 // saveImportedBrowsers saves an import's browser mappings, as Chrome's,
