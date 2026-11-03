@@ -201,6 +201,15 @@ func (s *RoutingService) loop(ctx context.Context) {
 		case <-s.kicks:
 		case <-wake:
 		case <-refresh.C:
+			// Looked up again on the tick itself: a cache stamped since the
+			// last tick would still count as fresh.
+			s.mu.Lock()
+			n := len(s.domains)
+			s.mu.Unlock()
+			if n == 0 {
+				continue
+			}
+			s.resolveDomains(ctx, true)
 		}
 		select {
 		case <-ctx.Done():
