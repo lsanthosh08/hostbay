@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"slices"
@@ -27,7 +28,7 @@ func TestLaunchCommandPerPlatform(t *testing.T) {
 			if filepath.Base(b.Exe) != want[b.ID] || !strings.HasPrefix(filepath.ToSlash(b.Exe), "/") || b.UserData == "" || b.Name == "" {
 				t.Errorf("%s %s: %+v", goos, b.ID, b)
 			}
-			cmd := Command(b, "Profile 2", 41081)
+			cmd := Command(b, "Profile 2", 41081, nil, nil)
 			if cmd.Path != b.Exe {
 				t.Errorf("%s %s: runs %q, want %q", goos, b.ID, cmd.Path, b.Exe)
 			}
@@ -63,5 +64,46 @@ func TestProfilesReadLocalState(t *testing.T) {
 	}
 	if _, err := Profiles(Browser{UserData: t.TempDir()}); err == nil {
 		t.Fatal("no Local State: no error")
+	}
+}
+
+// A VPN that carries only some networks sends only those through the proxy:
+// the browser gets an auto-config, not a blanket proxy, and the script has no
+// direct fallback for what it proxies (KTD11).
+func TestCommandSplitsTrafficForAVPNThatCarriesOnlySomeNetworks(t *testing.T) {
+	b := Browser{Exe: "/b"}
+	cmd := Command(b, "Default", 41081, []string{"10.212.0.0/16", "172.31.58.0/24", "fd00::/8", "junk"}, []string{"Corp.Example", "bad\"; evil()"})
+	if len(cmd.Args) != 4 || strings.Contains(cmd.Args[2], "--proxy-server") {
+		t.Fatalf("args %q", cmd.Args)
+	}
+	enc, ok := strings.CutPrefix(cmd.Args[2], "--proxy-pac-url=data:application/x-ns-proxy-autoconfig;base64,")
+	if !ok {
+		t.Fatalf("args %q", cmd.Args)
+	}
+	raw, err := base64.StdEncoding.DecodeString(enc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pac := string(raw)
+	for _, want := range []string{`"SOCKS5 127.0.0.1:41081"`, `isInNet(ip, "10.212.0.0", "255.255.0.0")`, `isInNet(ip, "172.31.58.0", "255.255.255.0")`,
+		`dnsDomainIs(h, ".corp.example")`, `return "DIRECT";`} {
+		if !strings.Contains(pac, want) {
+			t.Errorf("auto-config lacks %s:\n%s", want, pac)
+		}
+	}
+	for _, bad := range []string{"fd00", "junk", "evil", "DIRECT;", "; DIRECT"} {
+		if strings.Contains(pac, bad) {
+			t.Errorf("auto-config holds %q:\n%s", bad, pac)
+		}
+	}
+}
+
+// With no networks known, or a default route among them, everything goes
+// through the listener.
+func TestCommandProxiesEverythingForAFullTunnelOrUnknownRoutes(t *testing.T) {
+	for _, nets := range [][]string{nil, {"fd00::/8"}, {"10.0.0.0/8", "0.0.0.0/0"}, {"0.0.0.0/1", "128.0.0.0/1"}} {
+		if args := Command(Browser{Exe: "/b"}, "D", 41081, nets, nil).Args; args[2] != "--proxy-server=socks5://127.0.0.1:41081" {
+			t.Errorf("%v: args %q", nets, args)
+		}
 	}
 }
