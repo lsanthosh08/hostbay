@@ -146,7 +146,7 @@ Today a site reaches an app-scoped VPN from a browser only through a Chrome that
 - KTD7. **Re-resolving runs on a 5-minute ticker in the routing service, and the plan removes stale domain routes.** The planner gains the set of host routes Hostbay added for a profile's domains; one no longer wanted is deleted with a reason naming the domain. Five minutes keeps lookups cheap; CDN-backed sites may miss the VPN briefly. Governs R10.
 - KTD8. **A new `domains` field on the profile, not `DNSDomains`.** `DNSDomains` already feeds WireGuard's `DNS=` line and SSH host matching, and importers fill it with search domains, so reusing it would change what saved data means and make R3 refuse existing profiles. Governs R1, R3.
 - KTD9. **The SOCKS listener port is fetched after each connect.** The app asks the helper for the no-login listener's port when a profile reaches connected, outside the VPN service lock, and rebuilds the PAC. The port changes on every reconnect. Governs R5, R7.
-- KTD10. **Conflicts are refused at save and tie-broken at build.** R3 is checked in `SaveVPN`; because import commit, restore and sync bypass it, the PAC builder and planner also give a domain to the first profile in saved order and report the others as skipped. Governs R3.
+- KTD10. **Conflicts are refused at save and tie-broken at build.** R3 is checked in `SaveVPN` and, since the import review lets the user edit each draft's domains and a refused commit leaves the review open to fix, in import commit too (decided in code review, 2026-11-03); because restore and sync bypass it, the PAC builder and planner also give a domain to the first profile in saved order and report the others as skipped. Governs R3.
 
 ### High-Level Technical Design
 
