@@ -586,6 +586,17 @@ export interface MonitorStart {
 }
 
 /**
+ * PACState is what the PAC routes, per profile ID. It never carries the PAC's
+ * address or a listener port, which stay out of the UI.
+ */
+export interface PACState {
+    "state": string;
+    "reason"?: string;
+    "domains": { [_ in string]?: number } | null;
+    "networks": { [_ in string]?: number } | null;
+}
+
+/**
  * PostLoginRule is a rule as the page sees it: its custom secret is only
  * HasAnswer.
  */
