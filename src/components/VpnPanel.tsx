@@ -201,7 +201,9 @@ export function routeSummary(v: Vpn, pac?: PacState, routing?: RoutingState): st
   const domains = v.domains?.length ?? 0;
   const networks = (v.routes ?? []).filter((r) => !FULL_TUNNEL.includes(r)).length;
   if (!domains && !networks) return undefined;
-  return routing?.profiles[v.id] ? t("vpn.routedThrough", { domains, networks }) : t("vpn.routedAwaiting");
+  const status = routing?.profiles[v.id];
+  if (status === "applied") return t("vpn.routedThrough", { domains, networks });
+  return status ? t("vpn.routedPartly") : t("vpn.routedAwaiting");
 }
 
 /** The VPN list without its data source, so tests can render it. */

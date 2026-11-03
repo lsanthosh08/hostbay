@@ -38,8 +38,10 @@ var (
 	routingDebounce = 300 * time.Millisecond
 	routingCap      = 5 * time.Second
 	// domainRefresh is how often a connected VPN's listed domains are
-	// resolved again; route events read the last answers.
+	// resolved again; route events read the last answers. domainRetry is
+	// how soon a domain that has no answer yet is tried again.
 	domainRefresh = 5 * time.Minute
+	domainRetry   = 30 * time.Second
 )
 
 // RoutingState is what Settings shows about routing.
@@ -140,7 +142,8 @@ func NewRoutingService(st *store.Store, vpns *VPNService, nd *NetdService) *Rout
 	emit := vpns.emit
 	vpns.emit = func(name string, data any) {
 		emit(name, data)
-		if st, ok := data.(VPNState); ok && name == VPNStateEvent && st.Status == VPNConnected {
+		// A disconnect too, so the profile's last routing status goes.
+		if _, ok := data.(VPNState); ok && name == VPNStateEvent {
 			s.kick()
 		}
 	}
@@ -235,7 +238,17 @@ func (s *RoutingService) loop(ctx context.Context) {
 // on (R29), each at most once per routingCap, and every gateway pin; it
 // returns how long until a held-back profile may run.
 func (s *RoutingService) reapply(ctx context.Context) time.Duration {
+	connected := map[string]bool{}
+	for _, st := range s.vpns.VPNStates() {
+		connected[st.ID] = st.Status == VPNConnected
+	}
 	s.mu.Lock()
+	// A status is about this connection's routes; the next one starts over.
+	n := len(s.state.Profiles)
+	maps.DeleteFunc(s.state.Profiles, func(id, _ string) bool { return id != "" && !connected[id] })
+	if len(s.state.Profiles) != n {
+		s.announce()
+	}
 	reset := s.state.Reset
 	s.mu.Unlock()
 	if reset || s.netd.client() == nil {
@@ -479,7 +492,7 @@ func (s *RoutingService) resolveDomains(ctx context.Context, force bool) {
 	s.mu.Lock()
 	old := maps.Clone(s.domains)
 	s.mu.Unlock()
-	next := map[string]domainCache{}
+	next, retry := map[string]domainCache{}, false
 	for _, v := range d.VPNs.Items {
 		if vpnTier(v) == store.VPNTierApp || len(v.Domains) == 0 || !connected[v.ID] {
 			continue
@@ -502,9 +515,16 @@ func (s *RoutingService) resolveDomains(ctx context.Context, force bool) {
 			for _, a := range as {
 				dom.Addrs = append(dom.Addrs, a.Unmap())
 			}
+			if len(dom.Addrs) == 0 {
+				// Nothing routes it until it answers, so ask again soon.
+				c.at, retry = now.Add(domainRetry-domainRefresh), true
+			}
 			c.names = append(c.names, dom)
 		}
 		next[v.ID] = c
+	}
+	if retry {
+		time.AfterFunc(domainRetry, s.kick)
 	}
 	s.mu.Lock()
 	s.domains = next

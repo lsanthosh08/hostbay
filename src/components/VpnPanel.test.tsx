@@ -184,6 +184,8 @@ describe("route summary", () => {
     const v = vpn({ tier: "external", domains: ["corp.example"], routes: ["10.0.0.0/8", "0.0.0.0/0"] });
     expect(routeSummary(v, undefined, { profiles: { v1: "applied" }, reset: false })).toBe("1 sites, 1 networks through this VPN");
     expect(routeSummary(v, undefined, { profiles: {}, reset: false })).toBe(en["vpn.routedAwaiting"]);
+    expect(routeSummary(v, undefined, { profiles: { v1: "partly applied" }, reset: false })).toBe(en["vpn.routedPartly"]);
+    expect(routeSummary(v, undefined, { profiles: { v1: "fighting" }, reset: false })).toBe(en["vpn.routedPartly"]);
   });
   it("shows on a connected profile's row", () => {
     const html = renderToStaticMarkup(
