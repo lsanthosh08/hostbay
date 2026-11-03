@@ -29,6 +29,7 @@ import {
   tierFor,
   typeLabel,
   validCidr,
+  validDomain,
   validIp,
   validateVpn,
   vpnAsksSecretAgain,
@@ -199,14 +200,14 @@ export function RouteEditor({ v, set, err }: { v: Vpn; set: (patch: Partial<Vpn>
   const full = isFullTunnel(v.routes);
   // The networks typed before switching to Full tunnel, so switching back restores them.
   const split = useRef<string[]>([]);
-  const list = (label: string, field: "routes" | "dnsServers" | "dnsDomains", placeholder: string, hint?: ReactNode) => (
+  const list = (label: string, field: "routes" | "dnsServers" | "dnsDomains" | "domains", placeholder: string, hint?: ReactNode) => (
     <Field label={label} hint={hint} error={err(field)}>
       <TagEditor
         tags={v[field] ?? []}
         placeholder={placeholder}
         invalid={!!err(field)}
         separators={/[\s,]+/}
-        bad={field === "routes" ? (x) => !validCidr(x) : field === "dnsServers" ? (x) => !validIp(x) : undefined}
+        bad={field === "routes" ? (x) => !validCidr(x) : field === "dnsServers" ? (x) => !validIp(x) : field === "domains" ? (x) => !validDomain(x) : undefined}
         onChange={(x) => set({ [field]: x })}
       />
     </Field>
@@ -234,6 +235,7 @@ export function RouteEditor({ v, set, err }: { v: Vpn; set: (patch: Partial<Vpn>
         }}
       />
       {full ? <p className="text-xs text-muted">{t("vpnForm.fullHint")}</p> : list(t("vpnForm.routes"), "routes", "10.0.0.0/8", t("vpnForm.routesHint"))}
+      {list(t("vpnForm.domains"), "domains", "corp.example", t("vpnForm.domainsHint"))}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {list(t("vpnForm.dnsServers"), "dnsServers", "10.0.0.53")}
         {list(t("vpnForm.dnsDomains"), "dnsDomains", "corp.example")}

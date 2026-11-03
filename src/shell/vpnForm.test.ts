@@ -65,6 +65,11 @@ describe("VPN form", () => {
     expect(validateVpn(vpn({ routes: FULL_TUNNEL, dnsServers: ["10.0.0.53", "fd00::53"], dnsDomains: ["corp.example"] }))).toEqual({});
   });
 
+  it("takes plain domain names and refuses wildcards, URLs and spaces", () => {
+    expect(validateVpn(vpn({ domains: ["corp.example", "Wiki.Corp.Example."] }))).toEqual({});
+    for (const d of ["*.corp.example", "http://x", "a b", '"x"', "a_b.example"]) expect(validateVpn(vpn({ domains: [d] })).domains, d).toBe("vpnForm.error.domain");
+  });
+
   it("asks an external profile for neither gateway nor keys, which its own app holds", () => {
     for (const type of ["sslvpn", "anyconnect", "openvpn", "wireguard"])
       expect(validateVpn({ id: "", name: "Edge", type, tier: "external", tags: [] }), type).toEqual({});

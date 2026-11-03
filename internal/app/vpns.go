@@ -39,6 +39,7 @@ type VPN struct {
 	Routes        []string `json:"routes,omitempty"`
 	DNSServers    []string `json:"dnsServers,omitempty"`
 	DNSDomains    []string `json:"dnsDomains,omitempty"`
+	Domains       []string `json:"domains,omitempty"`
 	MTU           int      `json:"mtu,omitempty"`
 	Tags          []string `json:"tags,omitempty"`
 	AutoReconnect bool     `json:"autoReconnect,omitempty"`
@@ -144,7 +145,7 @@ func vpnToUI(v store.VPN) VPN {
 	return VPN{
 		ID: v.ID, Name: v.Name, Type: v.Type, Tier: v.Tier, Gateway: v.Gateway, Port: v.Port, User: v.User, Auth: v.Auth, AuthGroup: v.AuthGroup,
 		Address: v.Address, PeerKey: v.PeerKey, Routes: v.Routes, DNSServers: v.DNSServers, DNSDomains: v.DNSDomains,
-		MTU: v.MTU, Tags: v.Tags, AutoReconnect: v.AutoReconnect, AutoApply: v.AutoApply, RoutingMode: v.RoutingMode,
+		Domains: v.Domains, MTU: v.MTU, Tags: v.Tags, AutoReconnect: v.AutoReconnect, AutoApply: v.AutoApply, RoutingMode: v.RoutingMode,
 		Client: v.Client, HasSecret: v.Secret != "",
 	}
 }
@@ -178,6 +179,7 @@ func withLocal(v VPN, l store.Local) VPN {
 // open and must be entered again. A connected profile picks up the change
 // the next time it connects.
 func (s *VPNService) SaveVPN(profile VPN) (VPN, error) {
+	profile.Domains = cleanDomains(profile.Domains)
 	if err := checkVPN(profile); err != nil {
 		return VPN{}, err
 	}
@@ -198,6 +200,15 @@ func (s *VPNService) SaveVPN(profile VPN) (VPN, error) {
 		v.Name, v.Type, v.Tier, v.Gateway, v.Port, v.User, v.Auth = profile.Name, profile.Type, profile.Tier, profile.Gateway, profile.Port, profile.User, profile.Auth
 		v.AuthGroup = profile.AuthGroup
 		v.Address, v.PeerKey, v.Routes, v.DNSServers, v.DNSDomains = profile.Address, profile.PeerKey, profile.Routes, profile.DNSServers, profile.DNSDomains
+		// A domain in two profiles would go through whichever comes first.
+		for _, o := range d.VPNs.Items {
+			for _, n := range profile.Domains {
+				if o.ID != v.ID && slices.ContainsFunc(o.Domains, func(m string) bool { return store.DomainsOverlap(n, m) }) {
+					return fmt.Errorf("%s is already routed through %s; keep each domain in one profile", n, o.Name)
+				}
+			}
+		}
+		v.Domains = profile.Domains
 		v.MTU, v.Tags, v.AutoReconnect, v.AutoApply, v.RoutingMode, v.Client = profile.MTU, profile.Tags, profile.AutoReconnect, profile.AutoApply, profile.RoutingMode, profile.Client
 		set := func(p *string) bool { return p != nil && *p != "" }
 		if set(profile.Password) || set(profile.PrivateKey) || set(profile.PresharedKey) || set(profile.AuthKey) ||
@@ -312,6 +323,19 @@ func (s *VPNService) SignInAgainVPN(id string) error {
 
 // checkVPN is store.CheckVPN plus the profile's name and routing mode, and
 // this computer's own fields: its interface and client program.
+// cleanDomains puts each domain the form saves in CleanDomain's form,
+// leaving one it refuses for checkVPN to name.
+func cleanDomains(ds []string) []string {
+	out := make([]string, 0, len(ds))
+	for _, d := range ds {
+		if c, ok := store.CleanDomain(d); ok {
+			d = c
+		}
+		out = append(out, d)
+	}
+	return out
+}
+
 func checkVPN(v VPN) error {
 	bad := store.BadVPNText
 	if strings.TrimSpace(v.Name) == "" || bad(v.Name, false) {
@@ -327,7 +351,7 @@ func checkVPN(v VPN) error {
 		}
 	}
 	if err := store.CheckVPN(store.VPN{Type: v.Type, Tier: v.Tier, Gateway: v.Gateway, Port: v.Port, User: v.User, Auth: v.Auth, AuthGroup: v.AuthGroup,
-		Address: v.Address, PeerKey: v.PeerKey, Routes: v.Routes, DNSServers: v.DNSServers, DNSDomains: v.DNSDomains, MTU: v.MTU, Client: v.Client}); err != nil {
+		Address: v.Address, PeerKey: v.PeerKey, Routes: v.Routes, DNSServers: v.DNSServers, DNSDomains: v.DNSDomains, Domains: v.Domains, MTU: v.MTU, Client: v.Client}); err != nil {
 		return err
 	}
 	switch {

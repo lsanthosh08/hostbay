@@ -546,8 +546,9 @@ export interface MCPToken {
 
 /**
  * MCPVPNAllow is Settings > MCP's VPN entries, and the profiles one can
- * name: app-scoped ones, since a system-wide profile always asks (KTD6) and
- * an external one connects in its own app, so a card never gates it.
+ * name: app-scoped ones, and external ones whose app Hostbay drives, since a
+ * system-wide profile always asks (KTD6) and any other external one connects
+ * in its own app, so a card never gates it.
  */
 export interface MCPVPNAllow {
     "entries": MCPVPNAllowEntry[] | null;
@@ -899,6 +900,7 @@ export interface VPN {
     "routes"?: string[] | null;
     "dnsServers"?: string[] | null;
     "dnsDomains"?: string[] | null;
+    "domains"?: string[] | null;
     "mtu"?: number;
     "tags"?: string[] | null;
     "autoReconnect"?: boolean;

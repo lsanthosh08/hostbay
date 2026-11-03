@@ -34,7 +34,12 @@ type VPN struct {
 	Routes     []string `json:"routes,omitempty"`     // CIDRs sent through the VPN
 	DNSServers []string `json:"dnsServers,omitempty"` // resolvers inside the VPN
 	DNSDomains []string `json:"dnsDomains,omitempty"` // names resolved through DNSServers
-	MTU        int      `json:"mtu,omitempty"`        // 0 is DefaultVPNMTU
+	// Domains are the sites, each with its subdomains, whose traffic goes
+	// through this VPN: through its SOCKS listener in the system PAC when it
+	// is app-scoped, else as host routes to their addresses. Each is held in
+	// CleanDomain's form, and no two profiles' overlap.
+	Domains []string `json:"domains,omitempty"`
+	MTU     int      `json:"mtu,omitempty"` // 0 is DefaultVPNMTU
 	// Tags are free text, matched without regard to case and shared with
 	// host tags (R6).
 	Tags          []string `json:"tags,omitempty"`
@@ -90,7 +95,40 @@ func CheckVPN(v VPN) error {
 			return fmt.Errorf("DNS domain %q is not a domain name", n)
 		}
 	}
+	for _, n := range v.Domains {
+		// Domains are written into a PAC script, so only the plain form passes.
+		if c, ok := CleanDomain(n); !ok || c != n {
+			return fmt.Errorf("%q is not a domain name such as corp.example", n)
+		}
+	}
 	return nil
+}
+
+// CleanDomain is s as a profile's Domains hold it: trimmed, lowercased and
+// without a trailing dot. It reports false for anything but a plain DNS
+// name of letters, digits and hyphens.
+func CleanDomain(s string) (string, bool) {
+	s = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(s)), ".")
+	if s == "" || len(s) > 253 {
+		return "", false
+	}
+	for _, l := range strings.Split(s, ".") {
+		if l == "" || len(l) > 63 || l[0] == '-' || l[len(l)-1] == '-' {
+			return "", false
+		}
+		for _, r := range l {
+			if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' {
+				return "", false
+			}
+		}
+	}
+	return s, true
+}
+
+// DomainsOverlap reports whether a and b, both in CleanDomain's form, are
+// the same domain or one is inside the other.
+func DomainsOverlap(a, b string) bool {
+	return a == b || strings.HasSuffix(a, "."+b) || strings.HasSuffix(b, "."+a)
 }
 
 // VPNSecrets is what a VPN's Secret holds once opened: sync carries one
