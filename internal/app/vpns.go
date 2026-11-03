@@ -202,13 +202,8 @@ func (s *VPNService) SaveVPN(profile VPN) (VPN, error) {
 		v.Name, v.Type, v.Tier, v.Gateway, v.Port, v.User, v.Auth = profile.Name, profile.Type, profile.Tier, profile.Gateway, profile.Port, profile.User, profile.Auth
 		v.AuthGroup = profile.AuthGroup
 		v.Address, v.PeerKey, v.Routes, v.DNSServers, v.DNSDomains = profile.Address, profile.PeerKey, profile.Routes, profile.DNSServers, profile.DNSDomains
-		// A domain in two profiles would go through whichever comes first.
-		for _, o := range d.VPNs.Items {
-			for _, n := range profile.Domains {
-				if o.ID != v.ID && slices.ContainsFunc(o.Domains, func(m string) bool { return store.DomainsOverlap(n, m) }) {
-					return fmt.Errorf("%s is already routed through %s; keep each domain in one profile", n, o.Name)
-				}
-			}
+		if err := domainConflict(d.VPNs.Items, v.ID, profile.Domains); err != nil {
+			return err
 		}
 		v.Domains = profile.Domains
 		v.MTU, v.Tags, v.AutoReconnect, v.AutoApply, v.RoutingMode, v.Client = profile.MTU, profile.Tags, profile.AutoReconnect, profile.AutoApply, profile.RoutingMode, profile.Client
@@ -334,6 +329,23 @@ func (s *VPNService) SignInAgainVPN(id string) error {
 		delete(l.VPNNodeStates, id)
 		return nil
 	})
+}
+
+// domainConflict refuses a domain another profile in items already lists,
+// or one inside it: a domain in two profiles would go through whichever
+// comes first.
+func domainConflict(items []store.VPN, id string, domains []string) error {
+	for _, o := range items {
+		if o.ID == id {
+			continue
+		}
+		for _, n := range domains {
+			if slices.ContainsFunc(o.Domains, func(m string) bool { return store.DomainsOverlap(n, m) }) {
+				return fmt.Errorf("%s is already routed through %s; keep each domain in one profile", n, o.Name)
+			}
+		}
+	}
+	return nil
 }
 
 // cleanDomains puts each domain the form saves in CleanDomain's form,

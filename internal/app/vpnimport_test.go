@@ -95,6 +95,27 @@ func TestVPNImportCommitChecksEdits(t *testing.T) {
 	}
 }
 
+// An imported profile may not list a domain a saved profile already
+// routes, as the profile form refuses it.
+func TestVPNImportKeepsEachDomainInOneProfile(t *testing.T) {
+	s, _, _ := newHostService(t, fakeVerifier(secrets.Passed))
+	for i, d := range []string{"corp.example", "wiki.corp.example"} {
+		pre, err := s.PreviewVPNImport(ovpnFixture)
+		if err != nil {
+			t.Fatal(err)
+		}
+		keep := pre.Drafts[0].Profile
+		keep.Domains = []string{d}
+		_, err = s.CommitVPNImport(pre.Token, []VPN{keep})
+		if i == 0 && err != nil {
+			t.Fatal(err)
+		}
+		if i == 1 && (err == nil || !strings.Contains(err.Error(), "already routed")) {
+			t.Fatalf("an overlapping domain was imported: %v", err)
+		}
+	}
+}
+
 // A previewed file holds its secrets in memory until it is committed, so a
 // closed review forgets them, and one nobody closed expires.
 func TestVPNImportIsForgottenWhenCancelledOrExpired(t *testing.T) {
