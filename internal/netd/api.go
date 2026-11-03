@@ -12,7 +12,7 @@
 // The helper does only what KTD8 names, each argument validated here and
 // each route kept within bounds it checks itself (server.go): add or delete a
 // route through a tunnel interface or the local default gateway, set a tunnel
-// interface's MTU, start or stop a system-wide tunnel (U12): OpenVPN
+// interface's MTU, start or stop a system-wide tunnel: OpenVPN
 // from a configuration it writes itself, OpenConnect on a Wintun adapter on
 // Windows, or WireGuard on a real TUN, and point the system's automatic
 // proxy at Hostbay's loopback PAC. Every route it adds, every vendor route

@@ -266,7 +266,7 @@ func (s *VPNService) SaveVPN(profile VPN) (VPN, error) {
 	return v, err
 }
 
-// BrowserProfilesFolder is where Hostbay once kept the browser profiles it
+// BrowserProfilesFolder is where Hostbay kept the browser profiles it
 // opened through a VPN beside a running browser, or "" when there is none.
 // The folder keeps their sign-ins, so Hostbay leaves it for the user to remove.
 func (s *VPNService) BrowserProfilesFolder() string {
@@ -336,8 +336,6 @@ func (s *VPNService) SignInAgainVPN(id string) error {
 	})
 }
 
-// checkVPN is store.CheckVPN plus the profile's name and routing mode, and
-// this computer's own fields: its interface and client program.
 // cleanDomains puts each domain the form saves in CleanDomain's form,
 // leaving one it refuses for checkVPN to name.
 func cleanDomains(ds []string) []string {
@@ -351,6 +349,8 @@ func cleanDomains(ds []string) []string {
 	return out
 }
 
+// checkVPN is store.CheckVPN plus the profile's name and routing mode, and
+// this computer's own fields: its interface and client program.
 func checkVPN(v VPN) error {
 	bad := store.BadVPNText
 	if strings.TrimSpace(v.Name) == "" || bad(v.Name, false) {

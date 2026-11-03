@@ -87,7 +87,7 @@ export type RoutingPanelProps = {
   onInstall: () => void;
   onNarrow: (g: GreedyRoute) => void;
   onPin: (profile: string, iface: string) => void;
-  /** Whether browsers reach app-scoped VPNs through Hostbay's system proxy. */
+  /** How browsers reach app-scoped VPNs: through Hostbay's system proxy, or why not. */
   pac?: PacState;
 };
 

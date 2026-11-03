@@ -270,6 +270,7 @@ func (s *PACService) rebuild(ctx context.Context) {
 	s.mu.Unlock()
 
 	next := PACState{State: PACOff, Domains: res.Domains, Networks: res.Networks}
+	var applyErr error
 	if url != set {
 		c := s.netd.client()
 		switch {
@@ -278,16 +279,16 @@ func (s *PACService) rebuild(ctx context.Context) {
 				next.State = PACHelper
 			}
 		case url == "":
-			err = c.ClearProxy(ctx)
+			applyErr = c.ClearProxy(ctx)
 		default:
-			err = c.SetProxy(ctx, url)
+			applyErr = c.SetProxy(ctx, url)
 		}
-		if c != nil && err == nil {
+		if c != nil && applyErr == nil {
 			set = url
 		}
 	}
-	if err != nil {
-		next.State, next.Reason = PACFailed, err.Error()
+	if applyErr != nil {
+		next.State, next.Reason = PACFailed, applyErr.Error()
 	} else if url != "" && url == set {
 		next.State = PACSet
 	}

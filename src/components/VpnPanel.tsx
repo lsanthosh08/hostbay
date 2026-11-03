@@ -8,7 +8,7 @@ import { vpnCertPrompt, type VpnCert } from "../connect/vpnCert";
 import { t } from "../i18n";
 import { PanelHeader } from "../shell/SidePanel";
 import { VpnForm, NEW_VPN } from "../shell/settings/Vpns";
-import { filterVpns, tagCounts, typeLabel } from "../shell/vpnForm";
+import { FULL_TUNNEL, filterVpns, tagCounts, typeLabel } from "../shell/vpnForm";
 import { useHosts } from "../state/hosts";
 import { useSessions } from "../state/sessions";
 import { isVpnActive, reloadVpns, useVpns, vpnCancelled, vpnStatusText, type VpnStates } from "../state/vpns";
@@ -183,9 +183,6 @@ export function VpnSignIn({ id, state }: { id: string; state: VpnState }) {
 /** Whether Hostbay connects this external profile itself: Harmony SASE's app has a command line. */
 const driven = (v: Vpn) => v.type === "perimeter81" && !!v.clientPath && isMac();
 
-/** The VPN list without its data source, so tests can render it. */
-const DEFAULT_ROUTES = ["0.0.0.0/0", "::/0"];
-
 /** What a connected profile routes for the rest of this computer: its sites
  *  and networks while they are in effect, else why they are not; undefined
  *  when it routes nothing. App-scoped profiles reach browsers through the
@@ -202,11 +199,12 @@ export function routeSummary(v: Vpn, pac?: PacState, routing?: RoutingState): st
     return undefined;
   }
   const domains = v.domains?.length ?? 0;
-  const networks = (v.routes ?? []).filter((r) => !DEFAULT_ROUTES.includes(r)).length;
+  const networks = (v.routes ?? []).filter((r) => !FULL_TUNNEL.includes(r)).length;
   if (!domains && !networks) return undefined;
   return routing?.profiles[v.id] ? t("vpn.routedThrough", { domains, networks }) : t("vpn.routedAwaiting");
 }
 
+/** The VPN list without its data source, so tests can render it. */
 export function VpnPanelView(p: {
   vpns: Vpn[];
   states: VpnStates;
@@ -410,7 +408,7 @@ export function VpnPanelView(p: {
   );
 }
 
-/** Where the browser profiles Hostbay once opened through a VPN still sit,
+/** Where the browser profiles Hostbay opened through a VPN still sit,
  *  with their sign-ins, for the user to remove; nothing when there are none. */
 export function BrowserFolderNotice({ path }: { path: string }) {
   if (!path) return null;

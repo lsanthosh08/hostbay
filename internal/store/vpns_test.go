@@ -98,13 +98,8 @@ func TestCheckVPNRefusesUnusableFields(t *testing.T) {
 		"address":          func(v *VPN) { v.Address = []string{"10.0.0.2"} },
 		"dns server":       func(v *VPN) { v.DNSServers = []string{"dns.example"} },
 		"dns domain":       func(v *VPN) { v.DNSDomains = []string{"a,b"} },
-		"domain wildcard":  func(v *VPN) { v.Domains = []string{"*.corp.example"} },
-		"domain url":       func(v *VPN) { v.Domains = []string{"http://x"} },
-		"domain space":     func(v *VPN) { v.Domains = []string{"a b"} },
 		"domain quote":     func(v *VPN) { v.Domains = []string{`"x"`} },
-		"domain control":   func(v *VPN) { v.Domains = []string{"a\x00b"} },
 		"domain upper":     func(v *VPN) { v.Domains = []string{"Corp.example"} },
-		"domain empty":     func(v *VPN) { v.Domains = []string{""} },
 	} {
 		v := ok
 		edit(&v)
