@@ -911,7 +911,7 @@ export type Vpn = {
   mtu?: number; // 0 is 1280
   tags?: string[] | null;
   autoReconnect?: boolean;
-  autoApply?: boolean;
+  autoApply?: boolean | null;
   routingMode?: string;
   client?: string; // external: the installed client's name, as the OS shows it
   clientPath?: string; // external, this computer only: the client program Open client runs

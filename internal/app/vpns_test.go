@@ -736,3 +736,6 @@ func TestMCPClientDrivesAnExternalSASEProfileAndOwnsIt(t *testing.T) {
 		t.Fatal("still owned after disconnecting")
 	}
 }
+
+// flag is a chosen auto-apply setting; nil is the one never chosen.
+func flag(b bool) *bool { return &b }

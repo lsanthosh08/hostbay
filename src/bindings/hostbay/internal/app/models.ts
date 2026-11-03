@@ -902,7 +902,7 @@ export interface VPN {
     "mtu"?: number;
     "tags"?: string[] | null;
     "autoReconnect"?: boolean;
-    "autoApply"?: boolean;
+    "autoApply"?: boolean | null;
     "routingMode"?: string;
     "client"?: string;
 

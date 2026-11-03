@@ -218,8 +218,8 @@ func (s *RoutingService) reapply(ctx context.Context) time.Duration {
 	}
 	auto, anyAuto := map[string]bool{}, false
 	for _, v := range d.VPNs.Items {
-		auto[v.ID] = v.AutoApply
-		anyAuto = anyAuto || v.AutoApply
+		auto[v.ID] = v.AutoApplies()
+		anyAuto = anyAuto || auto[v.ID]
 	}
 	s.applying.Lock()
 	defer s.applying.Unlock()

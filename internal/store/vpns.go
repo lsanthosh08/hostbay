@@ -39,9 +39,10 @@ type VPN struct {
 	// host tags (R6).
 	Tags          []string `json:"tags,omitempty"`
 	AutoReconnect bool     `json:"autoReconnect,omitempty"`
-	AutoApply     bool     `json:"autoApply,omitempty"`   // apply the routes on connect
-	RoutingMode   string   `json:"routingMode,omitempty"` // how the routes are applied; "" is per destination
-	Client        string   `json:"client,omitempty"`      // external: the installed client the profile names (R3)
+	// AutoApply is nil until the user chooses; AutoApplies says what nil means.
+	AutoApply   *bool  `json:"autoApply,omitempty"`   // apply the routes on connect
+	RoutingMode string `json:"routingMode,omitempty"` // how the routes are applied; "" is per destination
+	Client      string `json:"client,omitempty"`      // external: the installed client the profile names (R3)
 
 	// Secret is every profile secret as one VPNSecrets JSON object, sealed
 	// ("enc:v1:...").
@@ -168,4 +169,14 @@ func (d *Data) PurgeVPN(id string) error {
 		return errors.New("VPN profile not found")
 	}
 	return nil
+}
+
+// AutoApplies reports whether the profile's routes apply as it connects. A
+// profile that never chose follows its tier: an external client installs its
+// own routes, often a full tunnel, and only Hostbay's plan can undo them.
+func (v VPN) AutoApplies() bool {
+	if v.AutoApply != nil {
+		return *v.AutoApply
+	}
+	return v.Tier == VPNTierExternal
 }
