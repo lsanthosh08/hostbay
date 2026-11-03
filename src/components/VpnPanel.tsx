@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Browser } from "@wailsio/runtime";
 import { isMac } from "../platform";
 import * as api from "../api";
-import type { DetectedVpn, Host, Vpn, VpnState } from "../api";
+import type { DetectedVpn, Host, PacState, RoutingState, Vpn, VpnState } from "../api";
 import { useConnect } from "../connect/useConnect";
 import { vpnCertPrompt, type VpnCert } from "../connect/vpnCert";
 import { t } from "../i18n";
@@ -184,6 +184,29 @@ export function VpnSignIn({ id, state }: { id: string; state: VpnState }) {
 const driven = (v: Vpn) => v.type === "perimeter81" && !!v.clientPath && isMac();
 
 /** The VPN list without its data source, so tests can render it. */
+const DEFAULT_ROUTES = ["0.0.0.0/0", "::/0"];
+
+/** What a connected profile routes for the rest of this computer: its sites
+ *  and networks while they are in effect, else why they are not; undefined
+ *  when it routes nothing. App-scoped profiles reach browsers through the
+ *  system PAC, the others through system routes. */
+export function routeSummary(v: Vpn, pac?: PacState, routing?: RoutingState): string | undefined {
+  if (v.tier === "app") {
+    const domains = pac?.domains?.[v.id] ?? 0;
+    const networks = pac?.networks?.[v.id] ?? 0;
+    if (!pac || (!domains && !networks)) return undefined;
+    if (pac.state === "set") return t("vpn.routedThrough", { domains, networks });
+    if (pac.state === "helper") return t("vpn.routedNeedsHelper");
+    if (pac.state === "overridden") return t("vpn.routedOverridden");
+    if (pac.state === "failed") return t("vpn.routedFailed", { reason: pac.reason ?? "" });
+    return undefined;
+  }
+  const domains = v.domains?.length ?? 0;
+  const networks = (v.routes ?? []).filter((r) => !DEFAULT_ROUTES.includes(r)).length;
+  if (!domains && !networks) return undefined;
+  return routing?.profiles[v.id] ? t("vpn.routedThrough", { domains, networks }) : t("vpn.routedAwaiting");
+}
+
 export function VpnPanelView(p: {
   vpns: Vpn[];
   states: VpnStates;
@@ -213,6 +236,9 @@ export function VpnPanelView(p: {
   onClientDisconnect?: (id: string) => void;
   /** Profiles being connected or disconnected this way right now. */
   busy?: string[];
+  /** What the system PAC and system routes carry, for each connected profile's summary. */
+  pac?: PacState;
+  routing?: RoutingState;
 }) {
   const counts = tagCounts(p.hosts, p.vpns);
   // Chips for the tags profiles carry; each counts hosts and profiles.
@@ -299,6 +325,7 @@ export function VpnPanelView(p: {
           const active = isVpnActive(s);
           const external = v.tier === "external";
           const users = p.using[v.id] ?? [];
+          const routedNow = s?.status === "connected" ? routeSummary(v, p.pac, p.routing) : undefined;
           return (
             <li key={v.id} className="group px-2 py-1 rounded text-sm hover:bg-hover" aria-busy={p.busy?.includes(v.id) || undefined}>
               <div className="flex items-center gap-2">
@@ -335,6 +362,7 @@ export function VpnPanelView(p: {
                   {!!s.routes?.length && <span className="truncate" title={s.routes.join(", ")}>{t("vpn.routes", { routes: s.routes.join(", ") })}</span>}
                   {!!s.since && <span>{t("vpn.uptime", { time: uptime(s.since, p.now) })}</span>}
                   {users.length > 0 && <span className="truncate">{t("vpn.usedBy", { hosts: users.join(", ") })}</span>}
+                  {routedNow && <span className="break-words">{routedNow}</span>}
                 </div>
               )}
               {s?.status === "signing_in" && (
@@ -382,8 +410,6 @@ export function VpnPanelView(p: {
   );
 }
 
-/** Saved VPN profiles with their live state: filter, connect, disconnect,
- *  and open the editor (R7, R8, R9, R11). */
 /** Where the browser profiles Hostbay once opened through a VPN still sit,
  *  with their sign-ins, for the user to remove; nothing when there are none. */
 export function BrowserFolderNotice({ path }: { path: string }) {
@@ -391,6 +417,8 @@ export function BrowserFolderNotice({ path }: { path: string }) {
   return <p className="px-2 py-2 text-xs text-muted allow-select break-words">{t("vpn.browsersLeftover", { path })}</p>;
 }
 
+/** Saved VPN profiles with their live state: filter, connect, disconnect,
+ *  and open the editor (R7, R8, R9, R11). */
 export function VpnPanel() {
   const { vpns, states } = useVpns();
   const { hosts } = useHosts();
@@ -408,8 +436,14 @@ export function VpnPanel() {
   const [now, setNow] = useState(() => Date.now());
   const [announce, setAnnounce] = useState("");
   const [browserFolder, setBrowserFolder] = useState("");
+  const [pac, setPac] = useState<PacState>();
+  const [routing, setRouting] = useState<RoutingState>();
   useEffect(() => {
     api.browserProfilesFolder().then(setBrowserFolder, () => {});
+    api.pacState().then(setPac, () => {});
+    api.routingState().then(setRouting, () => {});
+    const offs = [api.onPacState(setPac), api.onRoutingState(setRouting)];
+    return () => offs.forEach((off) => off.then((f) => f()));
   }, []);
 
   useEffect(() => {
@@ -493,6 +527,8 @@ export function VpnPanel() {
         busy={busy}
         onClientConnect={(id) => drive(id, api.connectVpnClient)}
         onClientDisconnect={(id) => drive(id, api.disconnectVpnClient)}
+        pac={pac}
+        routing={routing}
       />
       <BrowserFolderNotice path={browserFolder} />
       {importing.length > 0 && (

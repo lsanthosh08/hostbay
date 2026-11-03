@@ -19,7 +19,7 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as $models from "./models.js";
 
 /**
- * State is what the PAC routes now.
+ * State is what the PAC routes now, and whether the system applies it.
  */
 export function State(): $CancellablePromise<$models.PACState> {
     return $Call.ByID(1749633355);
