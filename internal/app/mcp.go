@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
@@ -76,9 +77,16 @@ func NewMCPService(st *store.Store, conns *ConnService, creds *HostCredentials, 
 	return s
 }
 
-// raise shows the window and an OS notification when a new MCP request
-// joins the tray, since a client's user may be in another app, and withdraws
-// the notification of one that left it. Each request counts once, so an
+// raiseAfter is how long a request may wait on its notification before the
+// window comes forward after all; a request expires after 110 seconds.
+var raiseAfter = 30 * time.Second
+
+// raise posts an OS notification when a new MCP request joins the tray,
+// since a client's user may be in another app, and withdraws the
+// notification of one that left it. A notification with Allow and Deny
+// answers the request where the user is, so the window stays back; it comes
+// forward at once for a request a notification cannot answer or show, and
+// after raiseAfter for one still waiting. Each request counts once, so an
 // answer arriving with a new request cannot hide the new one.
 func (s *MCPService) raise(l []agentexec.Pending) {
 	now := map[string]agentexec.Pending{}
@@ -111,18 +119,40 @@ func (s *MCPService) raise(l []agentexec.Pending) {
 	}
 	notice := s.notice
 	s.mu.Unlock()
-	if len(fresh) > 0 && s.Raise != nil {
-		s.Raise()
-	}
-	if notice == nil {
-		return
-	}
 	for _, id := range gone {
-		notice.Clear(id)
+		if notice != nil {
+			notice.Clear(id)
+		}
 	}
 	for _, n := range fresh {
+		id := n.p.ID
+		if notice == nil || !n.actions {
+			s.raiseWindow()
+			if notice != nil {
+				title, body, _ := noticeText(n.p)
+				_ = notice.Send(id, title, body, false, func() {})
+			}
+			continue
+		}
+		// The window comes forward if the notification cannot be shown, or if the
+		// request is still waiting after raiseAfter, but not if it was answered.
+		late := func() {
+			s.mu.Lock()
+			waiting := s.seen[id]
+			s.mu.Unlock()
+			if waiting {
+				s.raiseWindow()
+			}
+		}
+		time.AfterFunc(raiseAfter, late)
 		title, body, _ := noticeText(n.p)
-		_ = notice.Send(n.p.ID, title, body, n.actions)
+		_ = notice.Send(id, title, body, true, late)
+	}
+}
+
+func (s *MCPService) raiseWindow() {
+	if s.Raise != nil {
+		s.Raise()
 	}
 }
 
@@ -137,9 +167,7 @@ func (s *MCPService) noticeAnswered(id, action string) {
 		_ = s.answer(id, action == noticeAllow) // already answered in the window: nothing to do
 		return
 	}
-	if s.Raise != nil {
-		s.Raise()
-	}
+	s.raiseWindow()
 }
 
 // ServiceStartup starts the server when it was left on, and clears an

@@ -24,9 +24,10 @@ const (
 
 const noticeCategory = "mcp-approval"
 
-// noticeSender shows and withdraws OS notifications.
+// noticeSender shows and withdraws OS notifications. Send calls undelivered,
+// off the caller's goroutine, if the notification could not be shown.
 type noticeSender interface {
-	Send(id, title, body string, actions bool) error
+	Send(id, title, body string, actions bool, undelivered func()) error
 	Clear(id string)
 }
 
@@ -82,8 +83,8 @@ type osNotices struct {
 
 // LinkNotices shows each MCP request that waits as an OS notification with
 // Allow and Deny, so a user in another app can answer without switching to
-// Hostbay. Where notifications are not available the window still comes
-// forward and the card is there as before.
+// Hostbay. Where a notification cannot be shown the window comes forward and
+// the card is there as before.
 func LinkNotices(m *MCPService, ns *notifications.NotificationService) {
 	o := &osNotices{ns: ns, on: m.noticeAnswered, sent: map[string]bool{}, todo: map[string]bool{}}
 	m.mu.Lock()
@@ -101,7 +102,7 @@ func (o *osNotices) setup() bool {
 		err := o.ns.RegisterNotificationCategory(notifications.NotificationCategory{
 			ID: noticeCategory,
 			Actions: []notifications.NotificationAction{
-				{ID: noticeAllow, Title: "Allow"},
+				{ID: noticeAllow, Title: "Allow once"},
 				{ID: noticeDeny, Title: "Deny", Destructive: true},
 			},
 		})
@@ -126,7 +127,7 @@ func (o *osNotices) setup() bool {
 // Send posts the notification off the caller's goroutine: the first one
 // asks macOS for permission and waits for the answer, and the request it is
 // for is waiting on its caller.
-func (o *osNotices) Send(id, title, body string, actions bool) error {
+func (o *osNotices) Send(id, title, body string, actions bool, undelivered func()) error {
 	o.mu.Lock()
 	o.todo[id] = false
 	o.mu.Unlock()
@@ -137,7 +138,11 @@ func (o *osNotices) Send(id, title, body string, actions bool) error {
 		withdrawn := o.todo[id]
 		delete(o.todo, id)
 		o.mu.Unlock()
-		if withdrawn || !o.setup() {
+		if withdrawn {
+			return
+		}
+		if !o.setup() {
+			undelivered()
 			return
 		}
 		opts := notifications.NotificationOptions{ID: id, Title: title, Body: body, InterruptionLevel: notifications.InterruptionLevelTimeSensitive}
@@ -146,11 +151,13 @@ func (o *osNotices) Send(id, title, body string, actions bool) error {
 			opts.CategoryID = noticeCategory
 			send = o.ns.SendNotificationWithActions
 		}
-		if send(opts) == nil {
-			o.mu.Lock()
-			o.sent[id] = true
-			o.mu.Unlock()
+		if send(opts) != nil {
+			undelivered()
+			return
 		}
+		o.mu.Lock()
+		o.sent[id] = true
+		o.mu.Unlock()
 	}()
 	return nil
 }
