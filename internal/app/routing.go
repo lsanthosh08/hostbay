@@ -37,6 +37,9 @@ var (
 	// profile, so Hostbay does not fight a vendor agent (KTD9).
 	routingDebounce = 300 * time.Millisecond
 	routingCap      = 5 * time.Second
+	// domainRefresh is how often a connected VPN's listed domains are
+	// resolved again; route events read the last answers.
+	domainRefresh = 5 * time.Minute
 )
 
 // RoutingState is what Settings shows about routing.
@@ -90,6 +93,15 @@ type RoutingService struct {
 	added  []routing.Change     // routes this helper connection added, which Reset removes
 	last   map[string]time.Time // profile: its last automatic re-apply
 	fights map[string]int       // profile: re-applies in a row, each soon after the last
+	// domains is each connected system-wide or external profile's listed
+	// domains as last resolved.
+	domains map[string]domainCache
+}
+
+type domainCache struct {
+	at    time.Time
+	list  string // the profile's domains when resolved, so an edit resolves again
+	names []routing.Domain
 }
 
 // NewRoutingService links routing to the helper connection and to VPN
@@ -99,6 +111,7 @@ func NewRoutingService(st *store.Store, vpns *VPNService, nd *NetdService) *Rout
 	s := &RoutingService{
 		st: st, vpns: vpns, netd: nd, table: netd.SystemTable(), mtuOf: interfaceMTU, resolve: resolveGateway, emit: emitEvent, now: time.Now,
 		kicks: make(chan struct{}, 1), state: RoutingState{Profiles: map[string]string{}}, last: map[string]time.Time{}, fights: map[string]int{},
+		domains: map[string]domainCache{},
 	}
 	nd.onConnect = func() {
 		s.mu.Lock()
@@ -179,12 +192,15 @@ func (s *RoutingService) kick() {
 // back by the cap may run.
 func (s *RoutingService) loop(ctx context.Context) {
 	var wake <-chan time.Time
+	refresh := time.NewTicker(domainRefresh)
+	defer refresh.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-s.kicks:
 		case <-wake:
+		case <-refresh.C:
 		}
 		select {
 		case <-ctx.Done():
@@ -212,6 +228,7 @@ func (s *RoutingService) reapply(ctx context.Context) time.Duration {
 	if reset || s.netd.client() == nil {
 		return 0
 	}
+	s.resolveDomains(ctx, false)
 	d, err := s.st.Data()
 	if err != nil {
 		return 0
@@ -299,6 +316,14 @@ func (s *RoutingService) plan(ctx context.Context, id, mode string) (routing.Pla
 		return routing.Plan{}, fmt.Errorf("listing interfaces: %w", err)
 	}
 	in := routing.Input{Labels: labels, Local: l.RoutingLocal, Routes: routes, Tunnels: map[string]bool{}, MTUs: map[string]int{}}
+	s.mu.Lock()
+	for _, c := range s.added {
+		if c.Domain != "" {
+			in.Added = append(in.Added, c)
+		}
+	}
+	domains := maps.Clone(s.domains)
+	s.mu.Unlock()
 	for _, i := range ifaces {
 		if i.Tunnel {
 			in.Tunnels[i.Name], in.MTUs[i.Name] = true, s.mtuOf(i.Name)
@@ -308,6 +333,13 @@ func (s *RoutingService) plan(ctx context.Context, id, mode string) (routing.Pla
 		p := profileFor(v, l)
 		if v.ID == id {
 			p.Mode = mode
+		}
+		if c, ok := domains[v.ID]; ok {
+			p.Domains = c.names
+		} else {
+			for _, n := range v.Domains {
+				p.Domains = append(p.Domains, routing.Domain{Name: n})
+			}
 		}
 		in.Profiles = append(in.Profiles, p)
 	}
@@ -366,6 +398,10 @@ func (s *RoutingService) execute(ctx context.Context, changes []routing.Change, 
 			s.mu.Lock()
 			s.added = append(s.added, ch)
 			s.mu.Unlock()
+		} else if ch.Domain != "" {
+			s.mu.Lock()
+			s.added = slices.DeleteFunc(s.added, func(a routing.Change) bool { return a.Dst == ch.Dst && a.Iface == ch.Iface })
+			s.mu.Unlock()
 		}
 		rep.Results = append(rep.Results, r)
 	}
@@ -409,7 +445,57 @@ func (s *RoutingService) State() RoutingState {
 // Preview is the plan Apply would run (R26), with profile id in mode when
 // id is set.
 func (s *RoutingService) Preview(ctx context.Context, id, mode string) (routing.Plan, error) {
+	s.resolveDomains(ctx, false)
 	return s.plan(ctx, id, mode)
+}
+
+// resolveDomains looks up the listed domains of each connected system-wide
+// or external profile, each profile at most once per domainRefresh unless
+// force is set or its list changed. A failed lookup keeps the addresses it
+// had, so a DNS hiccup does not pull a site off its VPN. It runs outside
+// the apply lock, so a slow answer never holds up Apply or Reset.
+func (s *RoutingService) resolveDomains(ctx context.Context, force bool) {
+	d, err := s.st.Data()
+	if err != nil {
+		return
+	}
+	connected := map[string]bool{}
+	for _, st := range s.vpns.VPNStates() {
+		connected[st.ID] = st.Status == VPNConnected
+	}
+	s.mu.Lock()
+	old := maps.Clone(s.domains)
+	s.mu.Unlock()
+	next := map[string]domainCache{}
+	for _, v := range d.VPNs.Items {
+		if vpnTier(v) == store.VPNTierApp || len(v.Domains) == 0 || !connected[v.ID] {
+			continue
+		}
+		list, now := strings.Join(v.Domains, " "), s.now()
+		if c, ok := old[v.ID]; ok && !force && c.list == list && now.Sub(c.at) < domainRefresh {
+			next[v.ID] = c
+			continue
+		}
+		c := domainCache{at: now, list: list}
+		for _, n := range v.Domains {
+			dom := routing.Domain{Name: n}
+			as, err := s.resolve(ctx, n)
+			if err != nil {
+				dom.Err = err.Error()
+				if i := slices.IndexFunc(old[v.ID].names, func(o routing.Domain) bool { return o.Name == n }); i >= 0 {
+					dom.Addrs = old[v.ID].names[i].Addrs
+				}
+			}
+			for _, a := range as {
+				dom.Addrs = append(dom.Addrs, a.Unmap())
+			}
+			c.names = append(c.names, dom)
+		}
+		next[v.ID] = c
+	}
+	s.mu.Lock()
+	s.domains = next
+	s.mu.Unlock()
 }
 
 // Apply saves profile id's mode when id is set, then applies the whole
@@ -418,6 +504,7 @@ func (s *RoutingService) Apply(ctx context.Context, id, mode string) (RoutingRep
 	if s.netd.client() == nil {
 		return RoutingReport{}, errors.New("the network helper is not connected")
 	}
+	s.resolveDomains(ctx, false)
 	s.applying.Lock()
 	defer s.applying.Unlock()
 	plan, err := s.plan(ctx, id, mode)

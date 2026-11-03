@@ -243,3 +243,85 @@ func TestMTUIsSetOnUsedTunnels(t *testing.T) {
 		t.Fatalf("plan %q %+v", got, p.Changes)
 	}
 }
+
+// A listed domain's addresses become host routes on its VPN's tunnel, named
+// for the domain; addresses that are not routable, or a VPN's own gateway,
+// are skipped.
+func TestDomainsBecomeHostRoutes(t *testing.T) {
+	addrs := func(s ...string) []netip.Addr {
+		var out []netip.Addr
+		for _, a := range s {
+			out = append(out, netip.MustParseAddr(a))
+		}
+		return out
+	}
+	in := input(harmony(func(p *Profile) {
+		p.Domains = []Domain{
+			{Name: "portal.example", Addrs: addrs("203.0.113.10", "2001:db8::1")},
+			{Name: "sink.example", Addrs: addrs("0.0.0.0", "127.0.0.1", "169.254.1.1")},
+			{Name: "gw.example", Addrs: addrs("198.51.100.7")},
+		}
+	}))
+	in.Endpoints = []Endpoint{{Profile: "office", Name: "Office", Addr: netip.MustParseAddr("198.51.100.7")}}
+	p := Build(in)
+	var adds []Change
+	for _, c := range p.Changes {
+		if c.Op == netd.Add && c.Kind == KindAdd {
+			adds = append(adds, c)
+		}
+	}
+	if len(adds) != 1 || adds[0].Dst != "203.0.113.10/32" || adds[0].Iface != "utun4" || adds[0].Domain != "portal.example" || !strings.Contains(adds[0].Reason, "portal.example") {
+		t.Fatalf("adds %+v", adds)
+	}
+	skipped := map[string]bool{}
+	for _, s := range p.Skipped {
+		skipped[s.Dst] = true
+	}
+	for _, d := range []string{"0.0.0.0/32", "127.0.0.1/32", "169.254.1.1/32", "198.51.100.7/32"} {
+		if !skipped[d] {
+			t.Errorf("%s not skipped: %+v", d, p.Skipped)
+		}
+	}
+}
+
+// A domain route Hostbay added whose address the domain no longer returns
+// is deleted, and the new address added.
+func TestADomainThatMovesMovesItsRoute(t *testing.T) {
+	in := input(harmony(func(p *Profile) {
+		p.Domains = []Domain{{Name: "portal.example", Addrs: []netip.Addr{netip.MustParseAddr("203.0.113.20")}}}
+	}))
+	in.Routes = append(in.Routes, route("203.0.113.10/32", "utun4"))
+	in.Added = []Change{{Kind: KindAdd, Op: netd.Add, Dst: "203.0.113.10/32", Iface: "utun4", Profile: "harmony", Domain: "portal.example"}}
+	p := Build(in)
+	var got []string
+	for _, c := range p.Changes {
+		got = append(got, c.Op+" "+c.Dst)
+	}
+	if !slices.Equal(got, []string{"delete 203.0.113.10/32", "add 203.0.113.20/32"}) {
+		t.Fatalf("changes %q", got)
+	}
+	if !strings.Contains(p.Changes[0].Reason, "portal.example") {
+		t.Fatalf("reason %q", p.Changes[0].Reason)
+	}
+}
+
+// A domain that could not be resolved keeps the routes it had and says why;
+// a disconnected profile's domains are skipped as not connected.
+func TestUnresolvedAndDisconnectedDomainsAreSkipped(t *testing.T) {
+	in := input(harmony(func(p *Profile) {
+		p.Domains = []Domain{{Name: "portal.example", Addrs: []netip.Addr{netip.MustParseAddr("203.0.113.10")}, Err: "no such host"}}
+	}), Profile{ID: "off", Name: "Office", Tier: "system", Domains: []Domain{{Name: "office.example"}}})
+	in.Routes = append(in.Routes, route("203.0.113.10/32", "utun4"))
+	in.Added = []Change{{Kind: KindAdd, Op: netd.Add, Dst: "203.0.113.10/32", Iface: "utun4", Profile: "harmony", Domain: "portal.example"}}
+	p := Build(in)
+	if len(p.Changes) != 0 {
+		t.Fatalf("changes %+v", p.Changes)
+	}
+	reasons := map[string]string{}
+	for _, s := range p.Skipped {
+		reasons[s.Dst] = s.Reason
+	}
+	if !strings.Contains(reasons["portal.example"], "no such host") || !strings.Contains(reasons["office.example"], "not connected") {
+		t.Fatalf("skipped %+v", p.Skipped)
+	}
+}

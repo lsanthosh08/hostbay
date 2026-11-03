@@ -134,6 +134,11 @@ export interface ChangeResult {
      * the profile it is for; "" for the local network or no profile
      */
     "profile"?: string;
+
+    /**
+     * the site whose address this host route carries
+     */
+    "domain"?: string;
     "reason": string;
     "error"?: string;
 }
