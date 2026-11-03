@@ -11,6 +11,7 @@ package pac
 import (
 	"cmp"
 	"fmt"
+	"net"
 	"net/netip"
 	"slices"
 	"strings"
@@ -106,11 +107,8 @@ func Build(ps []Profile) Result {
 	if len(nets) > 0 {
 		w.WriteString("  if (/^\\d+\\.\\d+\\.\\d+\\.\\d+$/.test(h)) {\n")
 		for _, n := range nets {
-			var mask [4]byte
-			for i := range n.net.Bits() {
-				mask[i/8] |= 0x80 >> (i % 8)
-			}
-			fmt.Fprintf(&w, "    if (isInNet(h, %q, %q)) return \"SOCKS5 127.0.0.1:%d\";\n", n.net.Addr(), netip.AddrFrom4(mask), n.port)
+			mask := net.IP(net.CIDRMask(n.net.Bits(), 32))
+			fmt.Fprintf(&w, "    if (isInNet(h, %q, %q)) return \"SOCKS5 127.0.0.1:%d\";\n", n.net.Addr(), mask, n.port)
 		}
 		w.WriteString("  }\n")
 	}

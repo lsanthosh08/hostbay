@@ -972,7 +972,7 @@ export const launchVpnClient = (id: string) => VPNService.LaunchVPNClient(id);
 export const connectVpnClient = (id: string) => VPNService.ConnectVPNClient(id);
 export const disconnectVpnClient = (id: string) => VPNService.DisconnectVPNClient(id);
 
-/** The folder of browser profiles Hostbay once opened through a VPN, kept for their sign-ins; "" when there is none. */
+/** The folder of browser profiles Hostbay opened through a VPN, kept for their sign-ins; "" when there is none. */
 export const browserProfilesFolder = () => VPNService.BrowserProfilesFolder();
 // Go asks for the VPN panel when a profile waits on a one-time code or a
 // browser sign-in, or a connect from the tray failed.

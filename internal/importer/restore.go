@@ -70,9 +70,9 @@ type VPNImport struct {
 // Result is one parsed export: a bundle to restore with plaintext passwords
 // that Restore seals, and what the parser could not map.
 type Result struct {
-	Bundle   backup.Bundle
-	Skipped  []Skipped
-	Notes    []string
+	Bundle  backup.Bundle
+	Skipped []Skipped
+	Notes   []string
 	VPNs    []VPNImport // one per Bundle.VPNs entry
 }
 
