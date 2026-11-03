@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as api from "../api";
-import type { GreedyRoute, HelperStatus, RouteChange, RoutePlan, RoutingReport, RoutingState, Vpn } from "../api";
+import type { GreedyRoute, HelperStatus, PacState, RouteChange, RoutePlan, RoutingReport, RoutingState, Vpn } from "../api";
 import { t, type MessageKey } from "../i18n";
 import { Group, Row } from "../shell/settings/Group";
 import { isFullTunnel } from "../shell/vpnForm";
@@ -32,6 +32,13 @@ const HELPER: Partial<Record<api.HelperState, MessageKey>> = {
   repair: "routing.helper.repair",
   stopped: "routing.helper.stopped",
   reinstall: "routing.helper.reinstall",
+};
+const PAC: Record<api.PacStatus, MessageKey> = {
+  off: "routing.pac.off",
+  set: "routing.pac.set",
+  helper: "routing.pac.helper",
+  failed: "routing.pac.failed",
+  overridden: "routing.pac.overridden",
 };
 const INSTALL: Partial<Record<api.HelperState, MessageKey>> = {
   missing: "routing.install",
@@ -80,6 +87,8 @@ export type RoutingPanelProps = {
   onInstall: () => void;
   onNarrow: (g: GreedyRoute) => void;
   onPin: (profile: string, iface: string) => void;
+  /** Whether browsers reach app-scoped VPNs through Hostbay's system proxy. */
+  pac?: PacState;
 };
 
 /** The routing engine's page (U11): mode, planned changes with their
@@ -101,6 +110,11 @@ export function RoutingPanel(p: RoutingPanelProps) {
             </Button>
           )}
         </div>
+      )}
+      {p.pac && (
+        <p className={"text-sm max-w-xl " + (p.pac.state === "overridden" || p.pac.state === "failed" ? "text-warning" : "text-muted")}>
+          {t(PAC[p.pac.state], { reason: p.pac.reason ?? "" })}
+        </p>
       )}
       {vpns.length === 0 && <p className="text-sm text-muted max-w-xl">{t("routing.noProfiles")}</p>}
       {vpns.length > 0 && (
@@ -280,6 +294,7 @@ export function RoutingView() {
   const [mode, setMode] = useState<Mode>("");
   const [plan, setPlan] = useState<RoutePlan | null>(null);
   const [report, setReport] = useState<RoutingReport | null>(null);
+  const [pac, setPac] = useState<PacState>();
   const [state, setState] = useState<RoutingState>({
     profiles: {},
     reset: false,
@@ -314,10 +329,14 @@ export function RoutingView() {
       .localRoutes()
       .then(setLocal)
       .catch(() => {});
+    api
+      .pacState()
+      .then(setPac)
+      .catch(() => {});
     reloadVpns();
-    const off = api.onRoutingState(setState);
+    const offs = [api.onRoutingState(setState), api.onPacState(setPac)];
     return () => {
-      off.then((f) => f());
+      offs.forEach((off) => off.then((f) => f()));
     };
   }, []);
   useEffect(preview, [preview]);
@@ -369,6 +388,7 @@ export function RoutingView() {
         onInstall={() => act(() => api.installHelper()).then(() => api.helperStatus().then(setHelper))}
         onNarrow={setNarrowing}
         onPin={(p, iface) => act(() => api.pinInterface(p, iface))}
+        pac={pac}
       />
       {narrowing && (
         <NarrowDialog

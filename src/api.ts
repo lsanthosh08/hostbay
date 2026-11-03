@@ -29,6 +29,7 @@ import {
   VPNService,
   NetdService,
   RoutingService,
+  PACService,
   TunnelHubService,
 } from "./bindings/hostbay/internal/app";
 
@@ -1006,6 +1007,15 @@ export const setLocalRoutes = (dsts: string[]) => RoutingService.SetLocalRoutes(
 export const pinInterface = (id: string, iface: string) => RoutingService.PinInterface(id, iface);
 export const routingState = () => RoutingService.State() as Promise<RoutingState>;
 export const onRoutingState = (cb: (s: RoutingState) => void) => on<RoutingState>("routing-state", cb);
+
+// ---- Browsers through app-scoped VPNs: the system proxy auto-config ----
+// off: nothing to route; set: macOS uses Hostbay's PAC; helper: it needs the
+// network helper; failed: the helper refused (reason); overridden: another
+// proxy configuration wins. domains and networks count per profile ID.
+export type PacStatus = "off" | "set" | "helper" | "failed" | "overridden";
+export type PacState = { state: PacStatus; reason?: string; domains: Record<string, number> | null; networks: Record<string, number> | null };
+export const pacState = () => PACService.State() as Promise<PacState>;
+export const onPacState = (cb: (s: PacState) => void) => on<PacState>("pac-state", cb);
 
 // ---- TunnelHub retirement (R45): its helper and agent, the config to import ----
 export type TunnelHubItem = { kind: "daemon" | "helper" | "socket" | "agent"; path: string; admin: boolean };

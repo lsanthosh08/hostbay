@@ -30,10 +30,10 @@ type VPNDraft struct {
 // VPNImportPreview is what a VPN configuration file holds, before anything
 // is saved. Token names the parsed file for CommitVPNImport.
 type VPNImportPreview struct {
-	Token    string                    `json:"token"`
-	Drafts   []VPNDraft                `json:"drafts"`
-	Skipped  []importer.Skipped        `json:"skipped"`
-	Notes    []string                  `json:"notes"`
+	Token   string             `json:"token"`
+	Drafts  []VPNDraft         `json:"drafts"`
+	Skipped []importer.Skipped `json:"skipped"`
+	Notes   []string           `json:"notes"`
 }
 
 // vpnImports holds each previewed file, secrets included, until it is

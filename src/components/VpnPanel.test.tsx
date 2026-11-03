@@ -1,10 +1,11 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+import type * as api from "../api";
 import type { DetectedVpn, Host, Vpn, VpnState } from "../api";
 import { en } from "../i18n/en";
 import { vpnCertPrompt } from "../connect/vpnCert";
-import { BrowserFolderNotice, VpnCertBody, VpnPanelView } from "./VpnPanel";
+import { BrowserFolderNotice, routeSummary, VpnCertBody, VpnPanelView } from "./VpnPanel";
 import { vpnCancelled } from "../state/vpns";
 
 vi.mock("../platform", () => ({ isMac: () => true }));
@@ -167,5 +168,30 @@ describe("browser profiles folder", () => {
     expect(renderToStaticMarkup(createElement(BrowserFolderNotice, { path: "/Users/me/Library/Application Support/Hostbay/browsers" }))).toContain(
       "/Users/me/Library/Application Support/Hostbay/browsers"
     );
+  });
+});
+
+describe("route summary", () => {
+  const pac = (state: api.PacStatus) => ({ state, domains: { v1: 2 }, networks: { v1: 3 } });
+  it("counts an app-scoped profile's sites and networks while the system proxy carries them", () => {
+    expect(routeSummary(vpn(), pac("set"))).toBe("2 sites, 3 networks through this VPN");
+  });
+  it("says why they are not routed instead of counting them", () => {
+    expect(routeSummary(vpn(), pac("helper"))).toBe(en["vpn.routedNeedsHelper"]);
+    expect(routeSummary(vpn(), pac("overridden"))).toBe(en["vpn.routedOverridden"]);
+  });
+  it("counts a system-wide profile's sites once its routes apply, and says when they wait", () => {
+    const v = vpn({ tier: "external", domains: ["corp.example"], routes: ["10.0.0.0/8", "0.0.0.0/0"] });
+    expect(routeSummary(v, undefined, { profiles: { v1: "applied" }, reset: false })).toBe("1 sites, 1 networks through this VPN");
+    expect(routeSummary(v, undefined, { profiles: {}, reset: false })).toBe(en["vpn.routedAwaiting"]);
+  });
+  it("shows on a connected profile's row", () => {
+    const html = renderToStaticMarkup(
+      createElement(VpnPanelView, {
+        vpns: [vpn()], states: { v1: { id: "v1", status: "connected" } }, hosts: [], using: {}, now: 0, tag: "", text: "", announce: "",
+        onTag: noop, onText: noop, onNew: noop, onImport: noop, onEdit: noop, onConnect: noop, onDisconnect: noop, pac: pac("set"),
+      })
+    );
+    expect(html).toContain("2 sites, 3 networks through this VPN");
   });
 });

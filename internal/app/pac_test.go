@@ -34,6 +34,12 @@ func newPACEnv(t *testing.T) *pacEnv {
 		return e.f, nil
 	}
 	e.svc = NewPACService(e.vpn.svc.st, e.vpn.svc, e.nd)
+	// macOS applies whatever the helper set.
+	e.svc.effective = func() (string, bool, error) {
+		e.f.mu.Lock()
+		defer e.f.mu.Unlock()
+		return e.f.proxy, e.f.proxy != "", nil
+	}
 	e.svc.ServiceStartup(context.Background(), application.ServiceOptions{})
 	e.nd.ServiceStartup(context.Background(), application.ServiceOptions{})
 	t.Cleanup(func() {
@@ -201,5 +207,22 @@ func TestPACFollowsANewListenerPort(t *testing.T) {
 	second := e.proxyIs(t, true)
 	if _, _, body := get(t, second, nil); first == second || !strings.Contains(body, "127.0.0.1:41002") {
 		t.Fatalf("%q then %q:\n%s", first, second, body)
+	}
+}
+
+// Another proxy configuration that wins over Hostbay's is reported, without
+// naming either address.
+func TestPACReportsAnOverridingProxy(t *testing.T) {
+	e := newPACEnv(t)
+	v := e.vpn.save(t, false)
+	e.vpn.svc.ConnectVPN(context.Background(), v.ID)
+	url := e.proxyIs(t, true)
+	e.svc.effective = func() (string, bool, error) { return url, true, nil }
+	if st := e.svc.State(); st.State != PACSet {
+		t.Fatalf("state %+v", st)
+	}
+	e.svc.effective = func() (string, bool, error) { return "http://proxy.corp.example/proxy.pac", true, nil }
+	if st := e.svc.State(); st.State != PACOverridden {
+		t.Fatalf("state %+v", st)
 	}
 }

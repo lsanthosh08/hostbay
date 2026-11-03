@@ -29,6 +29,9 @@ const (
 	PACSet    = "set"    // the system's automatic proxy is Hostbay's PAC
 	PACHelper = "helper" // there is something to route, but the network helper is not connected
 	PACFailed = "failed" // the helper refused the change; Reason says why
+	// PACOverridden: Hostbay's PAC is set, but the configuration macOS
+	// applies is another one, such as a VPN client's or a managed profile's.
+	PACOverridden = "overridden"
 )
 
 // PACStateEvent carries the PACState whenever it changes.
@@ -58,7 +61,9 @@ type PACService struct {
 	// port asks a connected profile's helper for its no-login SOCKS
 	// listener; tests replace it.
 	port func(ctx context.Context, id string) (int, error)
-	emit func(name string, data any)
+	// effective is the automatic proxy macOS applies now; tests replace it.
+	effective func() (url string, on bool, err error)
+	emit      func(name string, data any)
 
 	kicks  chan struct{}
 	token  string
@@ -83,7 +88,7 @@ type pacPort struct {
 // NewPACService links the PAC to VPN states, profile edits and the helper
 // connection.
 func NewPACService(st *store.Store, vpns *VPNService, nd *NetdService) *PACService {
-	s := &PACService{st: st, vpns: vpns, netd: nd, port: vpns.browserPort, emit: emitEvent,
+	s := &PACService{st: st, vpns: vpns, netd: nd, port: vpns.browserPort, effective: effectiveAutoProxy, emit: emitEvent,
 		kicks: make(chan struct{}, 1), ports: map[string]pacPort{}, state: PACState{State: PACOff, Domains: map[string]int{}, Networks: map[string]int{}}}
 	// The helper sweeps the setting when its connection ends, so a new
 	// connection needs it set again.
@@ -321,12 +326,19 @@ func pacStateEqual(a, b PACState) bool {
 	return a.State == b.State && a.Reason == b.Reason && maps.Equal(a.Domains, b.Domains) && maps.Equal(a.Networks, b.Networks)
 }
 
-// State is what the PAC routes now.
+// State is what the PAC routes now, and whether the system applies it.
 func (s *PACService) State() PACState {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	st := s.state
+	st, set := s.state, s.set
 	st.Domains, st.Networks = maps.Clone(st.Domains), maps.Clone(st.Networks)
+	s.mu.Unlock()
+	if st.State == PACSet {
+		// Only the primary service's settings apply, so another app's or a
+		// managed profile's configuration can win.
+		if url, on, err := s.effective(); err == nil && (!on || url != set) {
+			st.State = PACOverridden
+		}
+	}
 	return st
 }
 
