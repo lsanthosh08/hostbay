@@ -2,7 +2,9 @@ package app
 
 import (
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"hostbay/internal/agentexec"
 )
@@ -11,10 +13,16 @@ type fakeNotice struct {
 	sent    []string
 	actions map[string]bool
 	cleared []string
+	// undelivered is each Send's report that the notification could not be shown.
+	undelivered map[string]func()
 }
 
-func (f *fakeNotice) Send(id, _, _ string, actions bool) error {
+func (f *fakeNotice) Send(id, _, _ string, actions bool, undelivered func()) error {
 	f.sent = append(f.sent, id)
+	if f.undelivered == nil {
+		f.undelivered = map[string]func(){}
+	}
+	f.undelivered[id] = undelivered
 	if f.actions == nil {
 		f.actions = map[string]bool{}
 	}
@@ -45,23 +53,55 @@ func mcpPending(id, cmd string) agentexec.Pending {
 	return agentexec.Pending{ID: id, Principal: "mcp:t1", Client: "Claude", Host: "web1", Tool: "run_command", Bytes: cmd}
 }
 
-// Each new MCP request raises the window and notifies once; one that
-// leaves the tray withdraws its notification; the agent's own do nothing.
-func TestMCPRaiseAndNotifyEachRequestOnce(t *testing.T) {
+// Each new MCP request notifies once and leaves the window where it is; one
+// that leaves the tray withdraws its notification; the agent's own do nothing.
+func TestMCPNotifiesEachRequestOnceWithoutRaisingTheWindow(t *testing.T) {
 	r := newNoticeRig()
 	a, b := mcpPending("a", "systemctl restart nginx"), mcpPending("b", "reboot")
 	r.m.raise([]agentexec.Pending{a, {ID: "x", Principal: "conv1", Tool: "run_command"}})
 	r.m.raise([]agentexec.Pending{a})
-	if r.raised != 1 || len(r.n.sent) != 1 {
+	if r.raised != 0 || len(r.n.sent) != 1 {
 		t.Fatalf("raised %d, sent %v", r.raised, r.n.sent)
 	}
 	r.m.raise([]agentexec.Pending{b}) // a answered as b arrived
-	if r.raised != 2 || len(r.n.sent) != 2 || len(r.n.cleared) != 1 || r.n.cleared[0] != "a" {
+	if r.raised != 0 || len(r.n.sent) != 2 || len(r.n.cleared) != 1 || r.n.cleared[0] != "a" {
 		t.Fatalf("raised %d, sent %v, cleared %v", r.raised, r.n.sent, r.n.cleared)
 	}
 	r.m.raise(nil)
-	if len(r.n.cleared) != 2 || r.raised != 2 {
+	if len(r.n.cleared) != 2 || r.raised != 0 {
 		t.Fatalf("raised %d, cleared %v", r.raised, r.n.cleared)
+	}
+}
+
+// The window comes forward when the notification cannot answer the request
+// (too long to show whole) or cannot be shown, and when a request is still
+// waiting after raiseAfter, but not for one answered in the meantime.
+func TestMCPRaisesTheWindowOnlyWhenTheNotificationFallsShort(t *testing.T) {
+	old := raiseAfter
+	raiseAfter = 40 * time.Millisecond
+	t.Cleanup(func() { raiseAfter = old })
+	r := newNoticeRig()
+	var mu sync.Mutex
+	r.m.Raise = func() { mu.Lock(); r.raised++; mu.Unlock() }
+	count := func() int { mu.Lock(); defer mu.Unlock(); return r.raised }
+
+	r.m.raise([]agentexec.Pending{mcpPending("long", "echo "+strings.Repeat("x", 300))})
+	if count() != 1 {
+		t.Fatalf("a request the notification cannot answer did not raise the window: %d", count())
+	}
+	short, undone, quiet := mcpPending("short", "uname"), mcpPending("undone", "uptime"), mcpPending("quiet", "df")
+	r.m.raise([]agentexec.Pending{short, undone, quiet})
+	if count() != 1 {
+		t.Fatalf("raised at once: %d", count())
+	}
+	r.n.undelivered["undone"]() // no permission to notify
+	if count() != 2 {
+		t.Fatalf("an undelivered notification did not raise the window: %d", count())
+	}
+	r.m.raise([]agentexec.Pending{short, undone}) // quiet answered from its notification
+	time.Sleep(150 * time.Millisecond)
+	if got := count(); got != 4 { // short and undone still wait; quiet does not
+		t.Fatalf("raised %d times, want 4", got)
 	}
 }
 
