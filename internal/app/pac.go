@@ -11,6 +11,7 @@ import (
 	"maps"
 	"net"
 	"net/http"
+	"net/netip"
 	"slices"
 	"strconv"
 	"strings"
@@ -21,6 +22,7 @@ import (
 
 	"hostbay/internal/store"
 	"hostbay/internal/vpn/pac"
+	"hostbay/internal/vpn/routing"
 )
 
 // PAC states, as Settings and the VPN panel show them.
@@ -37,8 +39,13 @@ const (
 // PACStateEvent carries the PACState whenever it changes.
 const PACStateEvent = "pac-state"
 
-// pacDebounce gathers a burst of VPN state changes into one rebuild.
-var pacDebounce = 200 * time.Millisecond
+var (
+	// pacDebounce gathers a burst of VPN state changes into one rebuild.
+	pacDebounce = 200 * time.Millisecond
+	// pacRetry is how soon a rebuild runs again after a listener or the
+	// helper failed, with nothing else changing.
+	pacRetry = 5 * time.Second
+)
 
 // PACState is what the PAC routes, per profile ID. It never carries the PAC's
 // address or a listener port, which stay out of the UI.
@@ -63,7 +70,10 @@ type PACService struct {
 	port func(ctx context.Context, id string) (int, error)
 	// effective is the automatic proxy macOS applies now; tests replace it.
 	effective func() (url string, on bool, err error)
-	emit      func(name string, data any)
+	// local is this computer's own networks, which stay direct; tests
+	// replace it.
+	local func() []netip.Prefix
+	emit  func(name string, data any)
 
 	kicks  chan struct{}
 	token  string
@@ -76,8 +86,10 @@ type PACService struct {
 	script  string
 	version int
 	set     string             // the URL the helper last set; "" when none is
+	conn    int                // counts helper connects and disconnects, each of which unsets set
 	ports   map[string]pacPort // profile ID: its listener while connected since
 	state   PACState
+	sent    PACState // the state last emitted, as State shows it
 }
 
 type pacPort struct {
@@ -88,19 +100,29 @@ type pacPort struct {
 // NewPACService links the PAC to VPN states, profile edits and the helper
 // connection.
 func NewPACService(st *store.Store, vpns *VPNService, nd *NetdService) *PACService {
-	s := &PACService{st: st, vpns: vpns, netd: nd, port: vpns.browserPort, effective: effectiveAutoProxy, emit: emitEvent,
+	s := &PACService{st: st, vpns: vpns, netd: nd, port: vpns.browserPort, effective: effectiveAutoProxy, local: localNetworks(st), emit: emitEvent,
 		kicks: make(chan struct{}, 1), ports: map[string]pacPort{}, state: PACState{State: PACOff, Domains: map[string]int{}, Networks: map[string]int{}}}
 	// The helper sweeps the setting when its connection ends, so a new
-	// connection needs it set again.
-	connect := nd.onConnect
+	// connection needs it set again, and until then nothing is set.
+	unset := func() {
+		s.mu.Lock()
+		s.set = ""
+		s.conn++
+		s.mu.Unlock()
+		s.kick()
+	}
+	connect, disconnect := nd.onConnect, nd.onDisconnect
 	nd.onConnect = func() {
 		if connect != nil {
 			connect()
 		}
-		s.mu.Lock()
-		s.set = ""
-		s.mu.Unlock()
-		s.kick()
+		unset()
+	}
+	nd.onDisconnect = func() {
+		if disconnect != nil {
+			disconnect()
+		}
+		unset()
 	}
 	// VPNService emits with its lock held, so this only signals.
 	emit := vpns.emit
@@ -227,6 +249,7 @@ func (s *PACService) loop(ctx context.Context) {
 
 // rebuild writes the PAC from the connected app-scoped profiles and points
 // the system at it, or clears the setting when nothing is left to route.
+// Without the helper it opens no listener: nothing could reach it.
 func (s *PACService) rebuild(ctx context.Context) {
 	d, err := s.st.Data()
 	if err != nil {
@@ -236,6 +259,8 @@ func (s *PACService) rebuild(ctx context.Context) {
 	for _, st := range s.vpns.VPNStates() {
 		states[st.ID] = st
 	}
+	c := s.netd.client()
+	retry := false
 	var profiles []pac.Profile
 	live := map[string]bool{}
 	for _, v := range d.VPNs.Items { // saved order breaks ties
@@ -248,57 +273,74 @@ func (s *PACService) rebuild(ctx context.Context) {
 			continue
 		}
 		live[v.ID] = true
-		port, err := s.listener(ctx, v.ID, st.Since)
-		if err != nil {
-			continue // its sites go direct until it reconnects
+		port := 0 // counted only, until the helper is back
+		if c != nil {
+			if port, err = s.listener(ctx, v.ID, st.Since); err != nil {
+				retry = true
+				continue // its sites go direct until its listener answers
+			}
 		}
 		profiles = append(profiles, pac.Profile{ID: v.ID, Name: v.Name, Port: port, Domains: v.Domains, Networks: nets})
 	}
-	res := pac.Build(profiles)
+	res := pac.Build(profiles, s.local()...)
 
 	s.mu.Lock()
 	maps.DeleteFunc(s.ports, func(id string, _ pacPort) bool { return !live[id] })
-	if res.Script != s.script {
+	// Without the helper the script stays as it was, so a quick reconnect
+	// sets the same address again.
+	if c != nil && res.Script != s.script {
 		s.script = res.Script
 		s.version++
 	}
 	url := ""
-	if s.script != "" {
+	if c != nil && s.script != "" {
 		url = fmt.Sprintf("http://127.0.0.1:%d/hostbay-pac/%s/%d.pac", s.addr, s.token, s.version)
 	}
-	set := s.set
+	set, conn := s.set, s.conn
 	s.mu.Unlock()
 
 	next := PACState{State: PACOff, Domains: res.Domains, Networks: res.Networks}
 	var applyErr error
-	if url != set {
-		c := s.netd.client()
-		switch {
-		case c == nil:
-			if url != "" {
-				next.State = PACHelper
-			}
-		case url == "":
-			applyErr = c.ClearProxy(ctx)
-		default:
-			applyErr = c.SetProxy(ctx, url)
+	switch {
+	case c == nil:
+		if len(profiles) > 0 {
+			next.State = PACHelper
 		}
-		if c != nil && applyErr == nil {
+	case url != set:
+		actx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		if url == "" {
+			applyErr = c.ClearProxy(actx)
+		} else {
+			applyErr = c.SetProxy(actx, url)
+		}
+		cancel()
+		if applyErr == nil {
 			set = url
 		}
 	}
 	if applyErr != nil {
-		next.State, next.Reason = PACFailed, applyErr.Error()
+		next.State, next.Reason, retry = PACFailed, applyErr.Error(), true
 	} else if url != "" && url == set {
 		next.State = PACSet
 	}
 	s.mu.Lock()
-	s.set = set
-	changed := !pacStateEqual(s.state, next)
+	if s.conn == conn {
+		s.set = set
+	} else {
+		retry = true // the helper connected or left meanwhile
+	}
 	s.state = next
 	s.mu.Unlock()
+	if retry {
+		time.AfterFunc(pacRetry, s.kick)
+	}
+	shown := s.State()
+	s.mu.Lock()
+	changed := !pacStateEqual(s.sent, shown)
+	s.sent = shown
+	s.mu.Unlock()
 	if changed {
-		s.emit(PACStateEvent, next)
+		s.emit(PACStateEvent, shown)
 	}
 }
 
@@ -341,6 +383,37 @@ func (s *PACService) State() PACState {
 		}
 	}
 	return st
+}
+
+// localNetworks is the IPv4 networks of this computer's interfaces other
+// than tunnels, and the destinations the user sends to the local network.
+func localNetworks(st *store.Store) func() []netip.Prefix {
+	return func() []netip.Prefix {
+		var out []netip.Prefix
+		if l, err := st.Local(); err == nil {
+			for _, d := range l.RoutingLocal {
+				if p, err := routing.ParseDst(d); err == nil {
+					out = append(out, p)
+				}
+			}
+		}
+		ifs, _ := net.Interfaces()
+		for _, i := range ifs {
+			if i.Flags&net.FlagUp == 0 || i.Flags&(net.FlagLoopback|net.FlagPointToPoint) != 0 {
+				continue
+			}
+			addrs, _ := i.Addrs()
+			for _, a := range addrs {
+				if n, ok := a.(*net.IPNet); ok {
+					ones, _ := n.Mask.Size()
+					if ip, ok := netip.AddrFromSlice(n.IP.To4()); ok && n.IP.To4() != nil {
+						out = append(out, netip.PrefixFrom(ip, ones).Masked())
+					}
+				}
+			}
+		}
+		return out
+	}
 }
 
 // browserPort is profile id's no-login SOCKS listener, asked of its helper

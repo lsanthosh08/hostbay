@@ -2,6 +2,7 @@ package netd
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 )
@@ -123,5 +124,47 @@ func TestProxyUnsupportedWithoutProxies(t *testing.T) {
 	enc.Encode(Msg{T: SetProxy, V: Version, ID: 1, URL: pacV1})
 	if m := readMsg(t, in); m.Code != CodeUnsupported {
 		t.Errorf("reply = %+v, want %s", m, CodeUnsupported)
+	}
+}
+
+// A service still pointing at Hostbay's PAC from a run whose sweep never
+// came was off before that run, and is switched off when this one ends.
+func TestProxyLeftoverFromAnEarlierRunIsSwitchedOff(t *testing.T) {
+	p := newFakeProxies(map[string]ProxyState{"Wi-Fi": {URL: pacV1, On: true}})
+	s := proxySession(t, p)
+	if err := s.client.SetProxy(context.Background(), pacV2); err != nil {
+		t.Fatal(err)
+	}
+	s.disconnect(t)
+	if got := p.of("Wi-Fi"); got.On {
+		t.Errorf("Wi-Fi = %+v", got)
+	}
+}
+
+// A refused change is reported, and a restore that fails keeps what it
+// owes for the next one.
+func TestProxyFailuresAreReportedAndRestoredLater(t *testing.T) {
+	ctx := context.Background()
+	p := newFakeProxies(map[string]ProxyState{"Wi-Fi": {URL: corporate, On: true}})
+	s := proxySession(t, p)
+	p.fail = errors.New("networksetup: exit status 4")
+	var e *Error
+	if err := s.client.SetProxy(ctx, pacV1); !errors.As(err, &e) || e.Code != CodeFailed {
+		t.Fatalf("SetProxy = %v", err)
+	}
+	p.fail = nil
+	if err := s.client.SetProxy(ctx, pacV1); err != nil {
+		t.Fatal(err)
+	}
+	p.fail = errors.New("networksetup: exit status 4")
+	if err := s.client.ClearProxy(ctx); err == nil {
+		t.Fatal("a failed restore was reported as done")
+	}
+	p.fail = nil
+	if err := s.client.ClearProxy(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := p.of("Wi-Fi"); got != (ProxyState{URL: corporate, On: true}) {
+		t.Fatalf("Wi-Fi = %+v", got)
 	}
 }

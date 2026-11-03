@@ -113,7 +113,11 @@ func NewRoutingService(st *store.Store, vpns *VPNService, nd *NetdService) *Rout
 		kicks: make(chan struct{}, 1), state: RoutingState{Profiles: map[string]string{}}, last: map[string]time.Time{}, fights: map[string]int{},
 		domains: map[string]domainCache{},
 	}
+	connect := nd.onConnect
 	nd.onConnect = func() {
+		if connect != nil {
+			connect()
+		}
 		s.mu.Lock()
 		s.added = nil // the helper swept the last connection's routes
 		s.mu.Unlock()

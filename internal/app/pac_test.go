@@ -2,16 +2,21 @@ package app
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
+	"net/netip"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
+	"hostbay/internal/netd"
 	"hostbay/internal/vpn/vpntest"
 )
 
@@ -20,20 +25,26 @@ type pacEnv struct {
 	nd  *NetdService
 	svc *PACService
 	f   *fakeHelper
+	// down makes the helper unreachable until it is cleared.
+	down atomic.Bool
 }
 
 // newPACEnv is the office profile, app-scoped through the fake VPN helper,
 // with the network helper connected.
 func newPACEnv(t *testing.T) *pacEnv {
 	t.Helper()
-	pacDebounce, netdRetryMin = 10*time.Millisecond, 20*time.Millisecond
+	pacDebounce, pacRetry, netdRetryMin = 10*time.Millisecond, 50*time.Millisecond, 20*time.Millisecond
 	e := &pacEnv{vpn: newVPNEnv(t, vpntest.OK), f: newFakeHelper()}
 	e.nd = NewNetdService()
 	e.nd.dial = func(context.Context) (netdClient, error) {
+		if e.down.Load() {
+			return nil, errors.New("the helper is not installed")
+		}
 		e.f.reopen()
 		return e.f, nil
 	}
 	e.svc = NewPACService(e.vpn.svc.st, e.vpn.svc, e.nd)
+	e.svc.local = func() []netip.Prefix { return nil }
 	// macOS applies whatever the helper set.
 	e.svc.effective = func() (string, bool, error) {
 		e.f.mu.Lock()
@@ -224,5 +235,106 @@ func TestPACReportsAnOverridingProxy(t *testing.T) {
 	e.svc.effective = func() (string, bool, error) { return "http://proxy.corp.example/proxy.pac", true, nil }
 	if st := e.svc.State(); st.State != PACOverridden {
 		t.Fatalf("state %+v", st)
+	}
+}
+
+// stateIs waits until State reports want.
+func (e *pacEnv) stateIs(t *testing.T, want string) PACState {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		st := e.svc.State()
+		if st.State == want {
+			return st
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("state %+v, want %s", st, want)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// Without the helper the PAC says what it would route and asks for the
+// helper, opening no listener nothing could reach; once the helper is
+// there the PAC is set.
+func TestPACWaitsForTheHelper(t *testing.T) {
+	e := newPACEnv(t)
+	e.down.Store(true)
+	e.f.Close()
+	asked := atomic.Int32{}
+	e.svc.port = func(ctx context.Context, id string) (int, error) {
+		asked.Add(1)
+		return e.vpn.svc.browserPort(ctx, id)
+	}
+	v := e.vpn.save(t, false)
+	e.vpn.svc.ConnectVPN(context.Background(), v.ID)
+	if st := e.stateIs(t, PACHelper); st.Networks[v.ID] == 0 {
+		t.Fatalf("state %+v", st)
+	}
+	if asked.Load() != 0 {
+		t.Fatal("a listener was opened without the helper")
+	}
+	e.down.Store(false)
+	e.proxyIs(t, true)
+	e.stateIs(t, PACSet)
+}
+
+// Losing the helper while the PAC is set is reported as needing the helper,
+// not as set or overridden.
+func TestPACNoticesTheHelperGoing(t *testing.T) {
+	e := newPACEnv(t)
+	v := e.vpn.save(t, false)
+	e.vpn.svc.ConnectVPN(context.Background(), v.ID)
+	e.proxyIs(t, true)
+	e.down.Store(true)
+	e.f.Close()
+	e.stateIs(t, PACHelper)
+}
+
+// A change the helper refuses is reported with its reason and tried again
+// without anything else changing.
+func TestPACReportsARefusedChangeAndRetries(t *testing.T) {
+	e := newPACEnv(t)
+	e.f.mu.Lock()
+	e.f.proxyErr = &netd.Error{Code: netd.CodeFailed, Reason: "networksetup: exit status 4"}
+	e.f.mu.Unlock()
+	v := e.vpn.save(t, false)
+	e.vpn.svc.ConnectVPN(context.Background(), v.ID)
+	if st := e.stateIs(t, PACFailed); !strings.Contains(st.Reason, "exit status 4") {
+		t.Fatalf("state %+v", st)
+	}
+	e.f.mu.Lock()
+	e.f.proxyErr = nil
+	e.f.mu.Unlock()
+	e.proxyIs(t, true)
+	e.stateIs(t, PACSet)
+}
+
+// The state event carries an override, as State does.
+func TestPACEventsReportAnOverride(t *testing.T) {
+	e := newPACEnv(t)
+	var mu sync.Mutex
+	var last PACState
+	e.svc.emit = func(name string, data any) {
+		mu.Lock()
+		defer mu.Unlock()
+		last = data.(PACState)
+	}
+	e.svc.effective = func() (string, bool, error) { return "http://proxy.corp.example/proxy.pac", true, nil }
+	v := e.vpn.save(t, false)
+	e.vpn.svc.ConnectVPN(context.Background(), v.ID)
+	e.proxyIs(t, true)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		mu.Lock()
+		st := last.State
+		mu.Unlock()
+		if st == PACOverridden {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("last event %q", st)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
