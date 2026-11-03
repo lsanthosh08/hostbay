@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -418,5 +419,71 @@ func TestDomainRoutesFollowTheirAddresses(t *testing.T) {
 	e.settle(t, 4)
 	if e.has("203.0.113.10/32", "utun4") || !e.has("203.0.113.20/32", "utun4") {
 		t.Fatal("the route did not follow the domain")
+	}
+}
+
+// The refresh tick looks domains up again by itself, and a domain with no
+// answer yet is tried again before the next refresh.
+func TestDomainsAreLookedUpAgainOnTheirOwn(t *testing.T) {
+	refresh, retry := domainRefresh, domainRetry
+	domainRefresh, domainRetry = 400*time.Millisecond, 100*time.Millisecond
+	t.Cleanup(func() { domainRefresh, domainRetry = refresh, retry })
+	e := newRoutingEnv(t)
+	sase := e.sase
+	sase.Domains = []string{"portal.example"}
+	if _, err := e.vpn.svc.SaveVPN(sase); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	answer := ""
+	e.svc.resolve = func(context.Context, string) ([]netip.Addr, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if answer == "" {
+			return nil, errors.New("no such host")
+		}
+		return []netip.Addr{netip.MustParseAddr(answer)}, nil
+	}
+	e.start(t)
+	e.settle(t, 1)
+	mu.Lock()
+	answer = "203.0.113.10"
+	mu.Unlock()
+	waitFor(t, func() bool { return e.has("203.0.113.10/32", "utun4") })
+	mu.Lock()
+	answer = "203.0.113.20"
+	mu.Unlock()
+	waitFor(t, func() bool { return e.has("203.0.113.20/32", "utun4") && !e.has("203.0.113.10/32", "utun4") })
+}
+
+// Without listed domains the tick looks nothing up.
+func TestNoDomainsNoLookups(t *testing.T) {
+	refresh := domainRefresh
+	domainRefresh = 50 * time.Millisecond
+	t.Cleanup(func() { domainRefresh = refresh })
+	e := newRoutingEnv(t)
+	var lookups atomic.Int32
+	resolve := e.svc.resolve
+	e.svc.resolve = func(ctx context.Context, host string) ([]netip.Addr, error) {
+		lookups.Add(1)
+		return resolve(ctx, host)
+	}
+	e.start(t)
+	e.settle(t, 1)
+	n := lookups.Load()
+	time.Sleep(300 * time.Millisecond)
+	if lookups.Load() != n {
+		t.Fatalf("%d lookups on ticks with no domains", lookups.Load()-n)
+	}
+}
+
+func waitFor(t *testing.T, ok func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !ok() {
+		if time.Now().After(deadline) {
+			t.Fatal("timed out")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

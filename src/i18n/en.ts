@@ -447,6 +447,7 @@ export const en = {
   "vpn.routedOverridden": "Sites go direct: another proxy configuration overrides Hostbay's",
   "vpn.routedFailed": "Sites are not routed: {reason}",
   "vpn.routedAwaiting": "Sites and networks are not routed yet: apply routes in Settings › VPNs",
+  "vpn.routedPartly": "Some sites and networks are not routed: see Settings › VPNs",
   "vpn.browsersLeftover": "Hostbay no longer opens browser profiles through a VPN: list a site on its VPN profile and every browser sends it through that VPN. The separate browser profiles it opened before are still in {path}, with their sign-ins; delete the folder when you no longer need them.",
   "vpnImport.review": "Import {name} ({n} of {count})",
   "vpnImport.cancel": "Cancel import",
