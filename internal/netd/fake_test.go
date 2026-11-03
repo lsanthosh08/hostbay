@@ -88,8 +88,9 @@ var (
 // fakeProxies is the network services' automatic proxy settings in memory;
 // Services lists the enabled ones.
 type fakeProxies struct {
-	mu  sync.Mutex
-	set map[string]ProxyState
+	mu   sync.Mutex
+	set  map[string]ProxyState
+	fail error // refuse every Set
 }
 
 func newFakeProxies(set map[string]ProxyState) *fakeProxies { return &fakeProxies{set: set} }
@@ -114,6 +115,9 @@ func (f *fakeProxies) Get(service string) (ProxyState, error) {
 func (f *fakeProxies) Set(service string, st ProxyState) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.fail != nil {
+		return f.fail
+	}
 	if st.URL == "" {
 		st.URL = f.set[service].URL // turning it off keeps the URL, as networksetup does
 	}

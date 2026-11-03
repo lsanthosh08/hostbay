@@ -60,9 +60,11 @@ type NetdService struct {
 	uninstall func() error
 
 	// Set before startup: onConnect runs on every (re)connect, so the
-	// routing engine re-applies; onEvent on every route table change.
-	onConnect func()
-	onEvent   func()
+	// routing engine re-applies; onDisconnect when a connection ends;
+	// onEvent on every route table change.
+	onConnect    func()
+	onDisconnect func()
+	onEvent      func()
 
 	installing sync.Mutex
 	mu         sync.Mutex
@@ -208,6 +210,9 @@ func (s *NetdService) keep(ctx context.Context) {
 			s.mu.Lock()
 			s.c = nil
 			s.mu.Unlock()
+			if s.onDisconnect != nil {
+				s.onDisconnect()
+			}
 		}
 		select {
 		case <-ctx.Done():

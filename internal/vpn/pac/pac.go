@@ -48,8 +48,10 @@ type rule struct {
 }
 
 // Build writes the script for ps. An entry two profiles both list goes to
-// the first; any other overlap goes to the most specific entry.
-func Build(ps []Profile) Result {
+// the first; any other overlap goes to the most specific entry. Each local
+// network that overlaps a profile's networks goes direct unless a more
+// specific network is listed, as the route table would send it.
+func Build(ps []Profile, local ...netip.Prefix) Result {
 	r := Result{Domains: map[string]int{}, Networks: map[string]int{}, Skipped: []Skip{}}
 	var domains, nets []rule
 	owner := map[string]string{} // domain or network: its profile's name
@@ -93,6 +95,14 @@ func Build(ps []Profile) Result {
 	if len(domains)+len(nets) == 0 {
 		return r
 	}
+	// Ahead of the VPNs' networks, so a local network wins a tie.
+	var direct []rule
+	for _, l := range local {
+		if l = l.Masked(); l.Addr().Is4() && slices.ContainsFunc(nets, func(n rule) bool { return n.net.Overlaps(l) }) {
+			direct = append(direct, rule{net: l})
+		}
+	}
+	nets = append(direct, nets...)
 	// Most specific first, so the first match is the one that wins.
 	slices.SortStableFunc(domains, func(a, b rule) int { return cmp.Compare(len(b.domain), len(a.domain)) })
 	slices.SortStableFunc(nets, func(a, b rule) int { return cmp.Compare(b.net.Bits(), a.net.Bits()) })
@@ -108,6 +118,10 @@ func Build(ps []Profile) Result {
 		w.WriteString("  if (/^\\d+\\.\\d+\\.\\d+\\.\\d+$/.test(h)) {\n")
 		for _, n := range nets {
 			mask := net.IP(net.CIDRMask(n.net.Bits(), 32))
+			if n.port == 0 {
+				fmt.Fprintf(&w, "    if (isInNet(h, %q, %q)) return \"DIRECT\";\n", n.net.Addr(), mask)
+				continue
+			}
 			fmt.Fprintf(&w, "    if (isInNet(h, %q, %q)) return \"SOCKS5 127.0.0.1:%d\";\n", n.net.Addr(), mask, n.port)
 		}
 		w.WriteString("  }\n")

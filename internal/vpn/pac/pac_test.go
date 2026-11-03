@@ -2,6 +2,7 @@ package pac
 
 import (
 	"encoding/json"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -125,4 +126,19 @@ func TestBuildWritesOnlySafeEntries(t *testing.T) {
 		t.Fatalf("counts %v %v, skipped %+v", r.Domains, r.Networks, r.Skipped)
 	}
 	expect(t, find(t, r.Script, "10.1.9.9"), map[string]string{"10.1.9.9": "SOCKS5 127.0.0.1:1080"})
+}
+
+// A pushed network wider than the LAN leaves the LAN's own addresses
+// direct, and a network listed inside the LAN still goes to its VPN.
+func TestBuildLeavesOverlappedLocalNetworksDirect(t *testing.T) {
+	wide := Profile{ID: "w", Name: "Wide", Port: 3080, Networks: []string{"192.168.0.0/16", "192.168.1.128/25"}}
+	r := Build([]Profile{wide}, netip.MustParsePrefix("192.168.1.0/24"), netip.MustParsePrefix("172.16.5.0/24"))
+	if strings.Contains(r.Script, "172.16.5.0") || r.Networks["w"] != 2 {
+		t.Fatalf("networks %v\n%s", r.Networks, r.Script)
+	}
+	expect(t, find(t, r.Script, "192.168.1.7", "192.168.1.200", "192.168.9.9"), map[string]string{
+		"192.168.1.7":   "DIRECT",
+		"192.168.1.200": "SOCKS5 127.0.0.1:3080",
+		"192.168.9.9":   "SOCKS5 127.0.0.1:3080",
+	})
 }

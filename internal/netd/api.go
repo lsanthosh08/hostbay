@@ -173,7 +173,8 @@ var ifaceName = regexp.MustCompile(`^[\p{L}\p{N}][\p{L}\p{N} ._()#*-]{0,127}$`)
 // Hostbay's whatever its port or version.
 var pacURL = regexp.MustCompile(`^http://127\.0\.0\.1:([1-9][0-9]{0,4})/hostbay-pac/[A-Za-z0-9_-]{16,64}/[0-9]{1,10}\.pac$`)
 
-// ownPAC reports whether url is a PAC URL Hostbay sets.
+// ownPAC reports whether url is a PAC URL Hostbay sets; the app checks the
+// URLs it builds against it as IsPACURL.
 func ownPAC(url string) bool {
 	m := pacURL.FindStringSubmatch(url)
 	if m == nil {
@@ -182,6 +183,9 @@ func ownPAC(url string) bool {
 	port, _ := strconv.Atoi(m[1])
 	return port <= 65535
 }
+
+// IsPACURL reports whether SetProxy accepts url.
+func IsPACURL(url string) bool { return ownPAC(url) }
 
 // parseCIDR parses a destination strictly: canonical form, no host bits, no
 // zone, no IPv4-mapped IPv6.

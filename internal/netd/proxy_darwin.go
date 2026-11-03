@@ -1,10 +1,12 @@
 package netd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // darwinProxies sets each network service's automatic proxy with
@@ -15,8 +17,12 @@ type darwinProxies struct {
 
 func newProxies() Proxies { return darwinProxies{run: networksetup} }
 
+// networksetup runs under a deadline: the helper holds its operation lock
+// meanwhile, so a hung call would stall every route change.
 func networksetup(args ...string) (string, error) {
-	out, err := exec.Command("/usr/sbin/networksetup", args...).CombinedOutput()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "/usr/sbin/networksetup", args...).CombinedOutput()
 	if err != nil {
 		if msg := strings.TrimSpace(string(out)); msg != "" {
 			return "", errors.New(msg)
