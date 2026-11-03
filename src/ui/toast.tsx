@@ -4,6 +4,7 @@ import { Button } from "./Button";
 import { IconButton } from "./IconButton";
 import { CloseIcon, ErrorIcon, InfoIcon, SuccessIcon } from "./icons";
 import { layer } from "./layers";
+import { notices } from "./notices";
 
 type Kind = "info" | "error" | "success";
 type Action = { label: string; onClick: () => void };
@@ -29,6 +30,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     (kind, msg, opts) => {
       const id = Date.now() + Math.floor(Math.random() * 1000);
       setToasts((t) => [...t, { id, kind, msg, action: opts?.action }]);
+      notices.add({ id: `toast:${id}`, kind, msg });
       if (kind !== "error") setTimeout(() => dismiss(id), 5000);
     },
     [dismiss]

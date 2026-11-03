@@ -15,8 +15,6 @@ export const zhTW: Partial<Record<MessageKey, string>> = {
   "action.nextTab": "下一個標籤",
   "action.prevTab": "上一個標籤",
   "sidebar.recent": "最近",
-  "window.minimize": "最小化",
-  "window.maximize": "最大化",
   "tabs.newConnection": "新增連線",
   "sync.error": "同步失敗",
   "sync.secret.password": "密碼",
