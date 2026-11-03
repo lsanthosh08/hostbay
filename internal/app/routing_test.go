@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -374,5 +375,48 @@ func TestExternalSplitProfileAppliesOnConnectWhenAutoApplyWasNeverChosen(t *test
 	e.settle(t, 3)
 	if !e.has("10.1.0.0/16", "utun4") || e.has("0.0.0.0/1", "utun4") || e.has("128.0.0.0/1", "utun4") {
 		t.Fatal("the split routes were not applied, or the vendor's full tunnel stayed")
+	}
+}
+
+// A domain listed on Harmony SASE is routed to its tunnel as a host route,
+// moved when the domain moves at the next re-resolve, and not resolved
+// again on a route event in between.
+func TestDomainRoutesFollowTheirAddresses(t *testing.T) {
+	e := newRoutingEnv(t)
+	sase := e.sase
+	sase.Domains = []string{"portal.example"}
+	if _, err := e.vpn.svc.SaveVPN(sase); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	answer, lookups := "203.0.113.10", 0
+	e.svc.resolve = func(_ context.Context, host string) ([]netip.Addr, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if host == "portal.example" {
+			lookups++
+			return []netip.Addr{netip.MustParseAddr(answer), netip.MustParseAddr("2001:db8::1")}, nil
+		}
+		return nil, errors.New("no such host")
+	}
+	e.start(t)
+	e.settle(t, 2)
+	if !e.has("10.1.0.0/16", "utun4") || !e.has("203.0.113.10/32", "utun4") {
+		t.Fatal("the domain's address was not routed")
+	}
+	e.nd.onEvent()
+	e.settle(t, 2)
+	mu.Lock()
+	n := lookups
+	answer = "203.0.113.20"
+	mu.Unlock()
+	if n != 1 {
+		t.Fatalf("%d lookups before the re-resolve, want 1", n)
+	}
+	e.svc.resolveDomains(context.Background(), true)
+	e.svc.kick()
+	e.settle(t, 4)
+	if e.has("203.0.113.10/32", "utun4") || !e.has("203.0.113.20/32", "utun4") {
+		t.Fatal("the route did not follow the domain")
 	}
 }

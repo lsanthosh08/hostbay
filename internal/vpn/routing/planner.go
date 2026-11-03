@@ -12,6 +12,7 @@ import (
 	"maps"
 	"net/netip"
 	"slices"
+	"strings"
 
 	"hostbay/internal/netd"
 	"hostbay/internal/store"
@@ -53,6 +54,17 @@ type Profile struct {
 	// Narrow is the user's keep list for each greedy route on this VPN's
 	// tunnel, re-applied whenever the vendor pushes the route again.
 	Narrow map[string][]string
+	// Domains are the sites whose addresses go through this VPN as host
+	// routes, as last resolved.
+	Domains []Domain
+}
+
+// Domain is a listed site and the addresses it last resolved to. Err is
+// why the last lookup failed; Addrs then holds what it returned before.
+type Domain struct {
+	Name  string
+	Addrs []netip.Addr
+	Err   string
 }
 
 // Endpoint is a connected app-scoped profile's gateway, which a full or
@@ -71,6 +83,9 @@ type Input struct {
 	Tunnels   map[string]bool // interface name: is a tunnel
 	MTUs      map[string]int  // interface name: its MTU now
 	Endpoints []Endpoint
+	// Added is the domain routes Hostbay added: one the plan no longer wants
+	// is deleted, since the domain moved off its address.
+	Added []Change
 }
 
 // Change is one step of a plan.
@@ -82,6 +97,7 @@ type Change struct {
 	Gateway bool   `json:"gateway,omitempty"` // through the local default gateway
 	MTU     int    `json:"mtu,omitempty"`
 	Profile string `json:"profile,omitempty"` // the profile it is for; "" for the local network or no profile
+	Domain  string `json:"domain,omitempty"`  // the site whose address this host route carries
 	Reason  string `json:"reason"`
 }
 
@@ -121,6 +137,7 @@ type want struct {
 	gateway bool
 	kind    string
 	profile string
+	domain  string
 	reason  string
 }
 
@@ -164,8 +181,12 @@ func Build(in Input) Plan {
 			for _, n := range nets {
 				skip(n.String(), pr.ID, reason)
 			}
+			for _, d := range pr.Domains {
+				skip(d.Name, pr.ID, reason)
+			}
 			continue
 		}
+		wants = append(wants, domainWants(pr, iface, in.Endpoints, skip)...)
 		owner[iface] = pr
 		switch mode {
 		case Full:
@@ -211,6 +232,16 @@ func Build(in Input) Plan {
 		wants = append(wants, want{dst: n, gateway: true, kind: KindAdd, reason: fmt.Sprintf("%s through the local network", n)})
 	}
 	wants = dedupe(wants, skip)
+
+	// Domain routes Hostbay added that no domain wants any more.
+	for _, a := range in.Added {
+		if a.Domain == "" || slices.ContainsFunc(wants, func(w want) bool { return w.dst.String() == a.Dst && w.iface == a.Iface }) ||
+			!slices.ContainsFunc(in.Routes, func(r netd.SysRoute) bool { return r.Dst.String() == a.Dst && r.Iface == a.Iface }) {
+			continue
+		}
+		dels = append(dels, Change{Kind: KindDelete, Op: netd.Delete, Dst: a.Dst, Iface: a.Iface, Profile: a.Profile, Domain: a.Domain,
+			Reason: fmt.Sprintf("%s no longer resolves to %s", a.Domain, strings.TrimSuffix(a.Dst, "/32"))})
+	}
 
 	// Greedy vendor routes on a per-destination or split VPN's tunnel.
 	for _, r := range in.Routes {
@@ -265,7 +296,7 @@ func Build(in Input) Plan {
 					Reason: fmt.Sprintf("%s moves off %s", r.Dst, r.Iface)})
 			}
 		}
-		adds = append(adds, Change{Kind: w.kind, Op: netd.Add, Dst: w.dst.String(), Iface: w.iface, Gateway: w.gateway, Profile: w.profile, Reason: w.reason})
+		adds = append(adds, Change{Kind: w.kind, Op: netd.Add, Dst: w.dst.String(), Iface: w.iface, Gateway: w.gateway, Profile: w.profile, Domain: w.domain, Reason: w.reason})
 	}
 
 	// Pin each app-scoped gateway the table would send into a tunnel once
@@ -309,6 +340,36 @@ func Build(in Input) Plan {
 		p.Changes = []Change{}
 	}
 	return p
+}
+
+// domainWants is a host route on iface for each address pr's domains
+// resolved to. Only global unicast IPv4 addresses qualify: whoever answers
+// DNS for a domain must not route loopback, link-local or an unspecified
+// address, nor a VPN's own gateway, into a tunnel.
+func domainWants(pr Profile, iface string, endpoints []Endpoint, skip func(dst, profile, reason string)) []want {
+	var out []want
+	for _, d := range pr.Domains {
+		if d.Err != "" {
+			skip(d.Name, pr.ID, fmt.Sprintf("%s could not be resolved: %s", d.Name, d.Err))
+		}
+		for _, a := range d.Addrs {
+			a = a.Unmap()
+			if !a.Is4() {
+				continue
+			}
+			host := netip.PrefixFrom(a, 32)
+			switch {
+			case !a.IsGlobalUnicast() || a.IsLoopback():
+				skip(host.String(), pr.ID, fmt.Sprintf("%s resolved to %s, which is not routable", d.Name, a))
+			case slices.ContainsFunc(endpoints, func(e Endpoint) bool { return e.Addr == a }):
+				skip(host.String(), pr.ID, fmt.Sprintf("%s resolved to a VPN gateway, %s", d.Name, a))
+			default:
+				out = append(out, want{dst: host, iface: iface, kind: KindAdd, profile: pr.ID, domain: d.Name,
+					reason: fmt.Sprintf("%s (%s) through %s", a, d.Name, pr.Name)})
+			}
+		}
+	}
+	return out
 }
 
 // dedupe drops repeated targets and skips every claim on a destination two
