@@ -139,8 +139,8 @@ Today a site reaches an app-scoped VPN from a browser only through a Chrome that
 
 - KTD1. **The app serves the PAC; the helper only points macOS at it.** A small loopback HTTP server in the app serves the PAC on a random port and an unguessable path, behind the same Host/Origin guard the MCP server uses, so a web page cannot read the domain list or ports. The helper validates that any URL it sets is `http://127.0.0.1:<port>/<path>`. Governs R5.
 - KTD2. **The PAC does no DNS.** It matches listed domains by exact name or dot-suffix, matches networks only when the host is an IPv4 literal, and returns exactly `SOCKS5 127.0.0.1:<port>` for a match and `DIRECT` otherwise, in plain ES5. A blocking `dnsResolve` per request would slow every page load, and a `SOCKS` (v4) or `; DIRECT` fallback would leak matched traffic. Governs R2, R6.
-- KTD3. **Every PAC change gets a new URL.** Browsers do not re-fetch a PAC at an unchanged URL, so each content change bumps a version in the URL and the helper sets the new URL, which browsers and macOS notice as a setting change. Governs R7.
-- KTD4. **The helper journals each service's prior proxy state and restores it on sweep.** Before the first change it records, per enabled network service, the prior automatic-proxy URL and state. Sweep restores a service only if it still holds Hostbay's URL, so the user's own or a corporate PAC comes back and a newer change by someone else is left alone. The sweep already runs at helper start, on connection end and at stop, which gives R8's crash recovery. Governs R5, R8.
+- KTD3. **Every PAC change gets a new URL.** Browsers do not re-fetch a PAC at an unchanged URL, so each content change bumps a version in the URL path (`/hostbay-pac/<token>/<N>.pac`, never a query string, which the helper's URL check refuses) and the helper sets the new URL, which browsers and macOS notice as a setting change. Governs R7.
+- KTD4. **The helper journals each service's prior proxy state and restores it on sweep.** Before the first change it records, per enabled network service, the prior automatic-proxy URL and state. Sweep restores a service only if it still holds a URL of Hostbay's form (loopback with the `/hostbay-pac/` path, any port or version, since a crash can strand an older version), so the user's own or a corporate PAC comes back and a newer change by someone else is left alone. The sweep already runs at helper start, on connection end and at stop, which gives R8's crash recovery. Governs R5, R8.
 - KTD5. **The helper protocol version goes up.** Older helpers reject an unknown operation as invalid, which Hostbay would misread, so the version bump makes the app ask for the helper reinstall first. The install prompt text names the proxy setting. Governs R5.
 - KTD6. **Domain host routes are a routing-plan input, not a separate mechanism.** The routing service resolves each listed domain of a connected system-wide or external profile to IPv4 addresses and passes them to the planner as host routes on that profile, so preview, auto-apply, conflict skips and reset behave as they do for networks. Governs R9.
 - KTD7. **Re-resolving runs on a 5-minute ticker in the routing service, and the plan removes stale domain routes.** The planner gains the set of host routes Hostbay added for a profile's domains; one no longer wanted is deleted with a reason naming the domain. Five minutes keeps lookups cheap; CDN-backed sites may miss the VPN briefly. Governs R10.
@@ -163,7 +163,7 @@ sequenceDiagram
   P->>H: BrowserPort (on connect)
   H-->>P: port
   P->>P: build PAC, bump version
-  P->>N: set auto-proxy URL http://127.0.0.1:p/<token>.pac?v=N
+  P->>N: set auto-proxy URL http://127.0.0.1:p/hostbay-pac/<token>/<N>.pac
   N->>N: journal prior state per service, networksetup
   B->>P: GET PAC (on setting change)
   B->>H: SOCKS5 CONNECT wiki.corp.example (matched)
@@ -175,7 +175,7 @@ PAC decision for one request (directional, not implementation):
 ```text
 host := lowercase(host)
 if host matches a listed domain (exact or ".domain" suffix) -> SOCKS5 port of its profile
-if host is an IPv4 literal in a listed network                -> SOCKS5 port of the most specific network's profile
+if host is an IPv4 literal in a network of its profile (R4)  -> SOCKS5 port of the most specific network's profile
 otherwise                                                     -> DIRECT
 ```
 
@@ -237,15 +237,16 @@ U1 → U2 → U3 → U4 → U5; U6 after U4 (so no release has neither path); U7
 - `internal/vpn/pac/pac.go` (new), `internal/vpn/pac/pac_test.go`
 **Approach:**
 1. Input per profile: id, name, SOCKS port, domains, networks (profile routes plus live pushed routes).
-2. Domains: exact or suffix match; first profile in saved order wins a duplicate and the rest are reported as skipped (KTD10).
-3. Networks: IPv4 only; most specific prefix wins; a default route counts as a network.
+2. Domains: exact or suffix match; an overlap that import, restore or sync still creates goes to the most specific (longest) domain, and an exact duplicate to the first profile in saved order, the rest reported as skipped (KTD10).
+3. Networks: IPv4 only; most specific prefix wins; a default route and the 0.0.0.0/1 and 128.0.0.0/1 halves do not count, since every hostname already goes direct and a full tunnel would otherwise capture every IPv4 literal on the LAN (decision default, see Deferred / Open Questions).
 4. Output contains only validated domains and canonical prefixes, so the script cannot be injected into.
 5. Reuse what fits from `splitPAC` in `internal/vpn/browser/launch.go`; drop its DNS and plain-name rules.
 **Test scenarios:**
 - `wiki.corp.example` and `corp.example` return profile A's `SOCKS5 127.0.0.1:p`; `notcorp.example` returns `DIRECT`.
 - Covers AE3. `10.212.4.5` returns OD Internal's proxy; `ipinfo.io` returns `DIRECT`.
 - Two profiles with `10.0.0.0/8` and `10.212.0.0/16`: `10.212.1.1` goes to the second.
-- A duplicate domain across profiles goes to the first and is reported skipped.
+- A duplicate domain across profiles goes to the first and is reported skipped; with `corp.example` on A and `wiki.corp.example` on B, `wiki.corp.example` goes to B.
+- A full-tunnel profile (`0.0.0.0/0`) leaves `192.168.1.1` DIRECT.
 - No profile: empty result, and the caller removes the setting.
 - The output never contains `SOCKS ` without `5`, `DIRECT` after a proxy, `dnsResolve`, or `myIpAddress`.
 - When `node` is on PATH, the generated script is evaluated against a host table (skipped otherwise).
@@ -265,9 +266,9 @@ U1 → U2 → U3 → U4 → U5; U6 after U4 (so no release has neither path); U7
 - `internal/netd/install.go` (install prompt text names the proxy setting)
 - Tests: `internal/netd/api_test.go`, `internal/netd/server_test.go`, `internal/netd/journal_test.go`, `internal/netd/proxy_darwin_test.go`
 **Approach:**
-1. Set: list services, skip disabled ones, record each prior URL and state once per connection, then set URL and enable.
+1. Set: list services, skip disabled ones, record each prior URL and state once per connection (before changing it, as route ops journal), then set URL and enable. The URL check accepts only `http://127.0.0.1:<port>/hostbay-pac/<token>/<N>.pac` with a safe token.
 2. Clear: restore each journaled service and drop the entries.
-3. Sweep: the same restore, newest first; an entry whose service no longer holds Hostbay's URL is dropped without change.
+3. Sweep: the same restore, newest first; an entry whose service no longer holds a URL of Hostbay's form is dropped without change.
 4. The tool runner is injected so tests record argv instead of running `networksetup`.
 **Patterns to follow:** route ops in `server.go` (`opMu`, `stopped`), `runTool` in `routes_darwin.go`, `fakeTable` in `fake_test.go`.
 **Test scenarios:**
@@ -275,7 +276,7 @@ U1 → U2 → U3 → U4 → U5; U6 after U4 (so no release has neither path); U7
 - Set on two enabled services and one disabled: two services set, prior states journaled.
 - Covers AE2. Connection end sweeps: a service that held a corporate PAC gets it back; one with none ends disabled.
 - A service whose URL someone else changed after Hostbay set it is left alone by sweep.
-- A second set with a new version updates the URL without journaling the prior state again.
+- A second set with a new version updates the URL without journaling the prior state again; set v1, set v2, then sweep restores the prior state.
 - A client of the old version gets CodeVersion.
 **Verification:** the helper's tests prove set, clear and sweep restore exactly the journaled state.
 
@@ -295,6 +296,7 @@ U1 → U2 → U3 → U4 → U5; U6 after U4 (so no release has neither path); U7
 4. Helper reconnect re-sets the current URL, since the sweep cleared it.
 5. Shutdown asks the helper to clear before the helper connection closes; a crash leaves it to the sweep.
 6. A missing or outdated helper leaves the setting unset and exposes that to the UI for U7's prompt.
+7. The PAC body, its URL and the SOCKS ports never reach a log, an event, the UI or MCP (as `internal/vpn/browserport.go` requires of the port).
 **Patterns to follow:** `RoutingService` signal wrapping of `vpns.emit` and its rebuild loop; `mcp.Server` start and stop.
 **Test scenarios:**
 - Connecting a profile with a domain serves a PAC containing it and sets the URL once.
@@ -316,15 +318,16 @@ U1 → U2 → U3 → U4 → U5; U6 after U4 (so no release has neither path); U7
 - `internal/app/routing.go` (resolve with the injected resolver, IPv4 only, 5-minute ticker kick, track added domain routes)
 - Tests: `internal/vpn/routing/planner_test.go`, `internal/app/routing_test.go`
 **Approach:**
-1. Resolve each domain of each connected system or external profile; keep IPv4 results.
+1. Resolve each domain of each connected system or external profile when it connects and on the 5-minute ticker, outside the apply lock, into a per-profile cache that `plan()` only reads; `plan()` never resolves domains, so route events do not re-resolve. Keep only IPv4 results that are global unicast and not a connected profile's gateway endpoint; report the rest as skips naming the domain.
 2. Each address becomes a host route on the profile's tunnel with a reason naming the domain.
 3. A previously added domain route no longer wanted becomes a delete.
 4. App-scoped profiles are untouched; their domains go through the PAC.
-**Patterns to follow:** gateway pins via `resolve` in `RoutingService.plan`; `dedupe` and skip reasons in `Build`.
+**Patterns to follow:** the injected `resolve` in `RoutingService`; `dedupe` and skip reasons in `Build`.
 **Test scenarios:**
 - Harmony connected with `portal.example` resolving to A: the plan adds `A/32` on its tunnel.
 - Covers AE4. The resolver now returns B: the next plan deletes `A/32` and adds `B/32`.
-- An IPv6-only answer adds nothing.
+- An IPv6-only answer adds nothing; an answer of `0.0.0.0` or `127.0.0.1`, or a profile's gateway, adds no route and is reported skipped.
+- A route event between ticks does not call the resolver and changes no domain route.
 - A resolution failure keeps existing routes and reports a skip.
 - A disconnected profile's domains are skipped as not connected.
 - The preview shows domain routes with their domain in the reason.
@@ -358,13 +361,14 @@ U1 → U2 → U3 → U4 → U5; U6 after U4 (so no release has neither path); U7
 - `internal/app/pac.go` (status: set, not set, needs helper, overridden), `src/api.ts`, `src/components/VpnPanel.tsx` (per-profile counts), a Settings VPN or network section, `src/shell/useHelperPrompt.ts`, `src/i18n/en.ts`
 - Tests: `internal/app/pac_test.go`, `src/components/VpnPanel.test.tsx`
 **Approach:**
-1. Counts per connected profile: domains plus networks.
+1. Counts per connected profile: domains plus networks, shown only while they are in effect (PAC set and not overridden, or host routes applied); otherwise the row says routing is not in effect and why (helper needed, overridden, awaiting apply).
 2. Override check: read the effective configuration with `scutil --proxy` and compare with Hostbay's URL.
-3. When the helper is missing or outdated and an app-scoped profile with entries connects, use the existing helper prompt.
+3. When the helper is missing or outdated and an app-scoped profile with entries connects, ask to install it then, extending `useHelperPrompt` to the missing state; declining leaves the VPN connected with the row showing that routing needs the helper.
 **Test scenarios:**
 - A connected profile with 2 domains and 3 networks shows "2 domains, 3 networks".
 - An effective proxy configuration naming another URL shows the override warning.
 - An outdated helper status triggers the reinstall prompt once.
+- With the helper missing, a connected profile with entries shows that routing needs the helper instead of counts.
 **Verification:** status text follows the fake service's states.
 
 ### U8. Manual browser checks
@@ -379,6 +383,7 @@ U1 → U2 → U3 → U4 → U5; U6 after U4 (so no release has neither path); U7
 3. Disconnecting makes the listed public domain go direct within seconds.
 4. Quitting Hostbay restores the prior proxy setting.
 5. Safari sends the hostname to the proxy (a name only the VPN's DNS knows still loads).
+6. With Harmony SASE connected alongside OD Internal, `scutil --proxy` still shows Hostbay's URL, checks 1 and 2 still pass in Safari and Chrome, and a domain listed on Harmony loads through Harmony's exit address.
 **Execution note:** the user runs these after the administrator prompt; report each result, and stop per the Goal Capsule if Safari ignores `SOCKS5`.
 **Test expectation:** none -- manual runtime verification of browser behavior.
 **Verification:** each check passes, or its failure is recorded with the browser and macOS version.
@@ -398,3 +403,14 @@ U1 → U2 → U3 → U4 → U5; U6 after U4 (so no release has neither path); U7
 - No reference to the browser launcher remains, and no dead code from abandoned attempts is left in the diff.
 - The helper reinstall prompt names the proxy setting, and the app recovers the system proxy setting after a crash (AE2).
 - U8 results are reported to the user, including any browser that did not behave as planned.
+
+## Deferred / Open Questions
+
+### From 2026-11-03 review
+
+- Decision default applied (U2): a full-tunnel app-scoped profile's default route is not a PAC network, so LAN addresses typed as IPv4 literals stay direct. Revisit if the user wants a full tunnel to capture every IPv4 literal.
+- Needs the user's confirmation: every connected app-scoped profile with domains or networks now keeps its no-login SOCKS listener open while connected (before, only after a browser launch), reachable by any local process or other macOS user through the machine-wide PAC. The Dependencies assumption understates this. Default kept: proceed per R4/R5; if declined, limit PAC entries and the listener to profiles that list a domain.
+- Not built: warning when Hostbay's PAC replaces a prior user or corporate PAC or manual proxy (unlisted traffic goes direct while connected). The helper journals the prior state, so the status could report it later.
+- Not added: a Safari SOCKS5 spike before U1; the stop condition stays at U8, and the launcher removal (U6) stays revertable from git history.
+- Residual: IPv6-capable networks reach a dual-stack listed domain over IPv6 outside the tunnel (R9 defers AAAA); a fixed 5-minute re-resolve can miss short-TTL CDN answers.
+
