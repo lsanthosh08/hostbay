@@ -150,14 +150,25 @@ func Running(b Browser) bool { return locked(b.UserData) }
 // for it; with no networks, or a default route among them, everything goes
 // through the listener.
 func Command(b Browser, dir string, port int, nets, domains []string) *exec.Cmd {
+	return exec.Command(b.Exe, append([]string{"--profile-directory=" + dir}, proxyArgs(port, nets, domains)...)...)
+}
+
+// CommandSeparate is Command for a profile kept in its own user data folder,
+// which opens beside a running browser: the browser's lock covers one user
+// data folder, so a second folder is a second browser, with Hostbay's proxy.
+func CommandSeparate(b Browser, userData string, port int, nets, domains []string) *exec.Cmd {
+	return exec.Command(b.Exe, append([]string{"--user-data-dir=" + userData, "--no-first-run", "--no-default-browser-check"}, proxyArgs(port, nets, domains)...)...)
+}
+
+// RunningIn reports whether a browser is running on user data folder dir.
+func RunningIn(dir string) bool { return locked(dir) }
+
+func proxyArgs(port int, nets, domains []string) []string {
 	proxy := "--proxy-server=socks5://127.0.0.1:" + strconv.Itoa(port)
 	if pac := splitPAC(port, nets, domains); pac != "" {
 		proxy = "--proxy-pac-url=data:application/x-ns-proxy-autoconfig;base64," + base64.StdEncoding.EncodeToString([]byte(pac))
 	}
-	return exec.Command(b.Exe,
-		"--profile-directory="+dir,
-		proxy,
-		"--force-webrtc-ip-handling-policy=disable_non_proxied_udp")
+	return []string{proxy, "--force-webrtc-ip-handling-policy=disable_non_proxied_udp"}
 }
 
 // splitPAC is the proxy auto-config for a VPN that carries only nets and the

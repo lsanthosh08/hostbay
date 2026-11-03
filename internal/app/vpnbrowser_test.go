@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -97,25 +98,43 @@ func TestLaunchBrowserRefusesAVPNWithoutSOCKS(t *testing.T) {
 	}
 }
 
-// A browser already running would open the profile itself, unproxied, so
-// Hostbay refuses and says to quit it (KTD11).
-func TestLaunchBrowserRefusesWhileTheBrowserRuns(t *testing.T) {
+// A browser already running would open the profile itself, unproxied, and
+// its lock covers every profile, so Hostbay opens a separate profile of its
+// own beside it, whichever profile was mapped (KTD11).
+func TestLaunchBrowserOpensASeparateProfileWhileTheBrowserRuns(t *testing.T) {
 	e := newVPNEnv(t, vpntest.OK)
 	userData, launched := fakeChrome(t)
 	liveLock(t, userData)
 	v := e.save(t, false)
-	e.svc.SaveBrowserMapping(store.BrowserMapping{Browser: "chrome", Profile: "Default", VPN: v.ID})
-	err := e.svc.LaunchBrowser(context.Background(), "chrome", "Default")
-	if err == nil || !strings.Contains(err.Error(), "already running") {
-		t.Fatalf("launch: %v", err)
+	e.svc.SaveBrowserMapping(store.BrowserMapping{Browser: "chrome", Profile: "Profile 3", VPN: v.ID})
+	if err := e.svc.LaunchBrowser(context.Background(), "chrome", "Profile 3"); err != nil {
+		t.Fatal(err)
 	}
-	if len(*launched) != 0 || len(e.fake.Starts(t)) != 0 {
-		t.Fatalf("%d launches, %d helper starts", len(*launched), len(e.fake.Starts(t)))
+	if len(*launched) != 1 {
+		t.Fatalf("%d launches", len(*launched))
+	}
+	own := filepath.Join(e.svc.st.Dir(), "browsers", "chrome-Profile_3")
+	args := (*launched)[0].Args
+	if args[1] != "--user-data-dir="+own || slices.ContainsFunc(args, func(a string) bool { return strings.HasPrefix(a, "--profile-directory") }) ||
+		!slices.ContainsFunc(args, func(a string) bool { return strings.HasPrefix(a, "--proxy-") }) {
+		t.Fatalf("args %q", args)
+	}
+	if fi, err := os.Stat(own); err != nil || !fi.IsDir() {
+		t.Fatalf("separate folder: %v", err)
+	}
+	// Its own window still open: another launch would hand the profile to it, with the old proxy.
+	liveLock(t, own)
+	if err := e.svc.LaunchBrowser(context.Background(), "chrome", "Profile 3"); err == nil || !strings.Contains(err.Error(), "still open") {
+		t.Fatalf("second launch: %v", err)
+	}
+	if len(*launched) != 1 {
+		t.Fatalf("%d launches", len(*launched))
 	}
 }
 
 // A browser opened while the VPN connects is caught before the launch,
-// which would otherwise hand the profile to it unproxied.
+// which would otherwise hand the profile to it unproxied: it gets a separate
+// profile too.
 func TestLaunchBrowserRechecksTheLockAfterConnecting(t *testing.T) {
 	e := newVPNEnv(t, vpntest.OTP)
 	userData, launched := fakeChrome(t)
@@ -128,11 +147,11 @@ func TestLaunchBrowserRechecksTheLockAfterConnecting(t *testing.T) {
 	if err := e.svc.AnswerVPN(v.ID, vpntest.Code); err != nil {
 		t.Fatal(err)
 	}
-	if err := <-done; err == nil || !strings.Contains(err.Error(), "already running") {
-		t.Fatalf("launch: %v", err)
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
-	if len(*launched) != 0 {
-		t.Fatalf("%d launches", len(*launched))
+	if len(*launched) != 1 || !strings.HasPrefix((*launched)[0].Args[1], "--user-data-dir=") {
+		t.Fatalf("launches %q", *launched)
 	}
 }
 
