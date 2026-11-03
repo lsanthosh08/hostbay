@@ -17,7 +17,7 @@ func TestVPNsPersistAndLeaveTombstones(t *testing.T) {
 	secret, _ := json.Marshal(VPNSecrets{PrivateKey: "test-private-key", PresharedKey: "test-psk"})
 	want := VPN{
 		Name: "office", Type: "wireguard", Tier: VPNTierApp, Gateway: "vpn.example", Port: 51820, User: "u",
-		Routes: []string{"10.10.0.0/16"}, DNSServers: []string{"10.10.0.53"}, DNSDomains: []string{"corp.example"},
+		Routes: []string{"10.10.0.0/16"}, DNSServers: []string{"10.10.0.53"}, DNSDomains: []string{"corp.example"}, Domains: []string{"wiki.corp.example"},
 		Tags: []string{"Project-A", "prod"}, AutoReconnect: true, Secret: string(secret),
 	}
 	var id, hostID string
@@ -98,11 +98,51 @@ func TestCheckVPNRefusesUnusableFields(t *testing.T) {
 		"address":          func(v *VPN) { v.Address = []string{"10.0.0.2"} },
 		"dns server":       func(v *VPN) { v.DNSServers = []string{"dns.example"} },
 		"dns domain":       func(v *VPN) { v.DNSDomains = []string{"a,b"} },
+		"domain wildcard":  func(v *VPN) { v.Domains = []string{"*.corp.example"} },
+		"domain url":       func(v *VPN) { v.Domains = []string{"http://x"} },
+		"domain space":     func(v *VPN) { v.Domains = []string{"a b"} },
+		"domain quote":     func(v *VPN) { v.Domains = []string{`"x"`} },
+		"domain control":   func(v *VPN) { v.Domains = []string{"a\x00b"} },
+		"domain upper":     func(v *VPN) { v.Domains = []string{"Corp.example"} },
+		"domain empty":     func(v *VPN) { v.Domains = []string{""} },
 	} {
 		v := ok
 		edit(&v)
 		if err := CheckVPN(v); err == nil {
 			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+// A domain is saved lowercased without its trailing dot; anything that is
+// not a plain DNS name is refused.
+func TestCleanDomain(t *testing.T) {
+	for in, want := range map[string]string{"Corp.Example.": "corp.example", " wiki-2.corp.example ": "wiki-2.corp.example", "intranet": "intranet"} {
+		if got, ok := CleanDomain(in); !ok || got != want {
+			t.Errorf("CleanDomain(%q) = %q, %v; want %q", in, got, ok, want)
+		}
+	}
+	for _, in := range []string{"*.corp.example", "http://x", "a b", `"x"`, "a\x00b", "", ".", "-a.example", "a..example", "a_b.example"} {
+		if got, ok := CleanDomain(in); ok {
+			t.Errorf("CleanDomain(%q) = %q, accepted", in, got)
+		}
+	}
+}
+
+// Two domains overlap when one is the other or inside it.
+func TestDomainsOverlap(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		want bool
+	}{
+		{"corp.example", "corp.example", true},
+		{"wiki.corp.example", "corp.example", true},
+		{"corp.example", "wiki.corp.example", true},
+		{"notcorp.example", "corp.example", false},
+		{"corp.example", "example.corp", false},
+	} {
+		if got := DomainsOverlap(c.a, c.b); got != c.want {
+			t.Errorf("DomainsOverlap(%q, %q) = %v", c.a, c.b, got)
 		}
 	}
 }

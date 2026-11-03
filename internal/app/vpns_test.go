@@ -739,3 +739,32 @@ func TestMCPClientDrivesAnExternalSASEProfileAndOwnsIt(t *testing.T) {
 
 // flag is a chosen auto-apply setting; nil is the one never chosen.
 func flag(b bool) *bool { return &b }
+
+// A profile's domains are saved in their plain form, and a domain another
+// profile already routes, or one inside or around it, is refused naming
+// that profile.
+func TestSaveVPNKeepsEachDomainInOneProfile(t *testing.T) {
+	e := newVPNEnv(t, vpntest.OK)
+	sase := saveExternal(t, e.svc, "Harmony SASE", func(v *VPN) { v.Domains = []string{"Corp.Example."} })
+	if !slices.Equal(sase.Domains, []string{"corp.example"}) {
+		t.Fatalf("domains saved as %q", sase.Domains)
+	}
+	for _, d := range []string{"wiki.corp.example", "corp.example"} {
+		_, err := e.svc.SaveVPN(VPN{Name: "OD Internal", Type: "other", Tier: "external", Domains: []string{d}})
+		if err == nil || !strings.Contains(err.Error(), "Harmony SASE") {
+			t.Errorf("saving %s: %v", d, err)
+		}
+	}
+	other := saveExternal(t, e.svc, "Branch", func(v *VPN) { v.Domains = []string{"branch.example"} })
+	sase.Domains = []string{"corp.example", "portal.example"}
+	if _, err := e.svc.SaveVPN(sase); err != nil {
+		t.Fatalf("re-saving a profile with its own domains: %v", err)
+	}
+	other.Domains = []string{"x.portal.example"}
+	if _, err := e.svc.SaveVPN(other); err == nil {
+		t.Fatal("a domain inside another profile's was saved")
+	}
+	if _, err := e.svc.SaveVPN(VPN{Name: "Bad", Type: "other", Tier: "external", Domains: []string{"*.x.example"}}); err == nil {
+		t.Fatal("a wildcard was saved")
+	}
+}

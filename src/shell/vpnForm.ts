@@ -67,7 +67,7 @@ export const defaultPort = (type: string) => (type === "wireguard" ? 51820 : typ
 export const FULL_TUNNEL = ["0.0.0.0/0", "::/0"];
 export const isFullTunnel = (routes?: string[] | null) => FULL_TUNNEL.every((r) => routes?.includes(r));
 
-export type VpnField = "name" | "gateway" | "port" | "user" | "authGroup" | "mtu" | "address" | "peerKey" | "privateKey" | "routes" | "dnsServers" | "dnsDomains" | "clientPath";
+export type VpnField = "name" | "gateway" | "port" | "user" | "authGroup" | "mtu" | "address" | "peerKey" | "privateKey" | "routes" | "dnsServers" | "dnsDomains" | "domains" | "clientPath";
 
 // eslint-disable-next-line no-control-regex
 const control = /[\x00-\x1f\x7f]/;
@@ -87,6 +87,11 @@ function ipv6(s: string) {
   }
 }
 export const validIp = (s: string) => ipv4(s) || ipv6(s);
+/** A plain DNS name, as store.CleanDomain takes it: any case, a trailing dot allowed. */
+export function validDomain(s: string) {
+  const d = s.trim().replace(/\.$/, "");
+  return d.length <= 253 && d.split(".").every((l) => /^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(l));
+}
 /** A network such as 10.0.0.0/24, as netip.ParsePrefix reads it. */
 export function validCidr(s: string) {
   const [ip, bits, extra] = s.split("/");
@@ -112,6 +117,7 @@ export function validateVpn(v: Vpn): Partial<Record<VpnField, MessageKey>> {
   if (!(v.routes ?? []).every(validCidr)) e.routes = "vpnForm.error.cidr";
   if (!(v.dnsServers ?? []).every(validIp)) e.dnsServers = "vpnForm.error.dnsServer";
   if (!(v.dnsDomains ?? []).every((d) => d && !spaceOrControl.test(d) && !d.includes(","))) e.dnsDomains = "vpnForm.error.dnsDomain";
+  if (!(v.domains ?? []).every(validDomain)) e.domains = "vpnForm.error.domain";
   const cp = v.clientPath?.trim();
   if (cp && (control.test(cp) || !(cp.startsWith("/") || /^[A-Za-z]:[\\/]/.test(cp)))) e.clientPath = "vpnForm.error.clientPath";
   if (v.type === "wireguard" && !external) {

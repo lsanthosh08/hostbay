@@ -908,6 +908,7 @@ export type Vpn = {
   routes?: string[] | null; // networks sent through the VPN; 0.0.0.0/0 and ::/0 are a full tunnel
   dnsServers?: string[] | null;
   dnsDomains?: string[] | null;
+  domains?: string[] | null; // sites, with their subdomains, sent through this VPN from browsers and the system
   mtu?: number; // 0 is 1280
   tags?: string[] | null;
   autoReconnect?: boolean;
