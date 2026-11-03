@@ -106,6 +106,10 @@ func (s *HostService) CommitVPNImport(token string, keep []VPN) (importer.Report
 	if !ok {
 		return importer.Report{}, errors.New("this import is no longer open; import the file again")
 	}
+	d, err := s.st.Data()
+	if err != nil {
+		return importer.Report{}, err
+	}
 	var vpns []store.VPN
 	var meta []importer.VPNImport
 	for _, k := range keep {
@@ -116,6 +120,9 @@ func (s *HostService) CommitVPNImport(token string, keep []VPN) (importer.Report
 			p.Name, p.Tags, p.Routes, p.DNSServers, p.DNSDomains = strings.TrimSpace(k.Name), k.Tags, k.Routes, k.DNSServers, k.DNSDomains
 			p.RoutingMode, p.AutoApply, p.Domains = k.RoutingMode, k.AutoApply, cleanDomains(k.Domains)
 			if err := checkVPN(vpnToUI(p)); err != nil {
+				return importer.Report{}, fmt.Errorf("%s: %w", p.Name, err)
+			}
+			if err := domainConflict(slices.Concat(d.VPNs.Items, vpns), p.ID, p.Domains); err != nil {
 				return importer.Report{}, fmt.Errorf("%s: %w", p.Name, err)
 			}
 			vpns, meta = append(vpns, p), append(meta, res.VPNs[i])
