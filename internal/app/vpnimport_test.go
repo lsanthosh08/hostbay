@@ -52,7 +52,7 @@ func TestVPNImportReviewSavesOnlyKeptDraftsWithEdits(t *testing.T) {
 	keep := pre.Drafts[0].Profile
 	keep.Name, keep.Tags, keep.Routes = "Office", []string{"atlas"}, []string{"10.1.0.0/16"}
 	keep.Gateway = "elsewhere.example" // not editable in review
-	keep.RoutingMode, keep.AutoApply = "split", true
+	keep.RoutingMode, keep.AutoApply = "split", flag(true)
 	rep, err = s.CommitVPNImport(pre.Token, []VPN{keep})
 	if err != nil {
 		t.Fatal(err)
@@ -62,7 +62,7 @@ func TestVPNImportReviewSavesOnlyKeptDraftsWithEdits(t *testing.T) {
 		t.Fatalf("report %+v, profiles %+v", rep.VPNs, d.VPNs.Items)
 	}
 	p := d.VPNs.Items[0]
-	if p.RoutingMode != "split" || !p.AutoApply {
+	if p.RoutingMode != "split" || p.AutoApply == nil || !*p.AutoApply {
 		t.Fatalf("the routing mode chosen in review was lost: %+v", p)
 	}
 	if p.Name != "Office" || !slices.Equal(p.Tags, []string{"atlas"}) || !slices.Equal(p.Routes, []string{"10.1.0.0/16"}) || p.Gateway != "vpn1.example.test" {

@@ -42,7 +42,7 @@ type VPN struct {
 	MTU           int      `json:"mtu,omitempty"`
 	Tags          []string `json:"tags,omitempty"`
 	AutoReconnect bool     `json:"autoReconnect,omitempty"`
-	AutoApply     bool     `json:"autoApply,omitempty"`
+	AutoApply     *bool    `json:"autoApply,omitempty"`
 	RoutingMode   string   `json:"routingMode,omitempty"`
 	Client        string   `json:"client,omitempty"`
 	// This computer's own, kept in store.Local and never synced: the

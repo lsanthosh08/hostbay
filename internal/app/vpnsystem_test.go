@@ -495,7 +495,7 @@ func TestSystemWideRoutesApplyOnConnect(t *testing.T) {
 	e.settle(t, 1) // Harmony SASE's route
 	v := e.vpn.save(t, false)
 	key := testWGKey
-	v.Tier, v.PrivateKey, v.Routes, v.AutoApply = store.VPNTierSystem, &key, []string{"10.30.0.0/16"}, true
+	v.Tier, v.PrivateKey, v.Routes, v.AutoApply = store.VPNTierSystem, &key, []string{"10.30.0.0/16"}, flag(true)
 	if _, err := e.vpn.svc.SaveVPN(v); err != nil {
 		t.Fatal(err)
 	}
@@ -825,7 +825,7 @@ func TestResetLeavesSystemWideVPNConnected(t *testing.T) {
 	e.settle(t, 1)
 	v := e.vpn.save(t, false)
 	key := testWGKey
-	v.Tier, v.PrivateKey, v.Routes, v.AutoApply = store.VPNTierSystem, &key, []string{"10.30.0.0/16"}, true
+	v.Tier, v.PrivateKey, v.Routes, v.AutoApply = store.VPNTierSystem, &key, []string{"10.30.0.0/16"}, flag(true)
 	if _, err := e.vpn.svc.SaveVPN(v); err != nil {
 		t.Fatal(err)
 	}

@@ -37,7 +37,7 @@ func newRoutingEnv(t *testing.T) *routingEnv {
 	det.set(detect.Snapshot{Tunnels: []detect.Tunnel{p2pTunnel("utun4", "10.255.0.54", "10.255.0.54")}})
 	e.vpn.svc.detect = det.detect
 	e.sase = saveExternal(t, e.vpn.svc, "Harmony SASE", func(v *VPN) {
-		v.Type, v.Routes, v.AutoApply, v.MTU = "perimeter81", []string{"10.1.0.0/16"}, true, 1280
+		v.Type, v.Routes, v.AutoApply, v.MTU = "perimeter81", []string{"10.1.0.0/16"}, flag(true), 1280
 	})
 	e.nd = NewNetdService()
 	e.nd.dial = func(context.Context) (netdClient, error) {
@@ -85,7 +85,7 @@ func TestApplyReportsEachChangeAndPartlyApplied(t *testing.T) {
 	e := newRoutingEnv(t)
 	sase := e.sase
 	sase.Routes = []string{"10.1.0.0/16", "10.2.0.0/16"}
-	sase.AutoApply = false
+	sase.AutoApply = flag(false)
 	if _, err := e.vpn.svc.SaveVPN(sase); err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +255,7 @@ func TestConflictNamesTheFullTunnel(t *testing.T) {
 func TestAppScopedGatewayIsPinnedWithoutAutoApply(t *testing.T) {
 	e := newRoutingEnv(t)
 	sase := e.sase
-	sase.AutoApply, sase.RoutingMode = false, routing.Full
+	sase.AutoApply, sase.RoutingMode = flag(false), routing.Full
 	if _, err := e.vpn.svc.SaveVPN(sase); err != nil {
 		t.Fatal(err)
 	}
@@ -284,7 +284,7 @@ func TestAppScopedGatewayIsPinnedWithoutAutoApply(t *testing.T) {
 func TestSystemWideWireGuardEndpointIsPinnedBehindAFullTunnel(t *testing.T) {
 	e := newRoutingEnv(t)
 	sase := e.sase
-	sase.AutoApply, sase.RoutingMode = false, routing.Full
+	sase.AutoApply, sase.RoutingMode = flag(false), routing.Full
 	if _, err := e.vpn.svc.SaveVPN(sase); err != nil {
 		t.Fatal(err)
 	}
@@ -307,7 +307,7 @@ func TestSystemWideWireGuardEndpointIsPinnedBehindAFullTunnel(t *testing.T) {
 	}
 	v := e.vpn.save(t, false)
 	key := testWGKey
-	v.Tier, v.PrivateKey, v.Routes, v.AutoApply = store.VPNTierSystem, &key, []string{"10.30.0.0/16"}, true
+	v.Tier, v.PrivateKey, v.Routes, v.AutoApply = store.VPNTierSystem, &key, []string{"10.30.0.0/16"}, flag(true)
 	if _, err := e.vpn.svc.SaveVPN(v); err != nil {
 		t.Fatal(err)
 	}
@@ -351,5 +351,28 @@ func TestDeletingAVPNDropsItsRoutingState(t *testing.T) {
 	defer e.svc.mu.Unlock()
 	if _, ok := e.svc.state.Profiles[id]; ok || len(e.svc.last) != 0 || len(e.svc.fights) != 0 {
 		t.Fatalf("state kept for a deleted profile: %v %v %v", e.svc.state.Profiles, e.svc.last, e.svc.fights)
+	}
+}
+
+// A split-tunnel external profile whose auto-apply was never chosen (the
+// TunnelHub import, or a first save in the form) still puts its routes right
+// as the vendor connects: the vendor client pushes a full tunnel the profile
+// must undo, and nothing but Hostbay does that.
+func TestExternalSplitProfileAppliesOnConnectWhenAutoApplyWasNeverChosen(t *testing.T) {
+	e := newRoutingEnv(t)
+	sase := e.sase
+	sase.AutoApply, sase.RoutingMode = nil, routing.Split
+	if _, err := e.vpn.svc.SaveVPN(sase); err != nil {
+		t.Fatal(err)
+	}
+	e.f.mu.Lock()
+	e.f.routes = append(e.f.routes,
+		netd.SysRoute{Dst: netip.MustParsePrefix("0.0.0.0/1"), Iface: "utun4"},
+		netd.SysRoute{Dst: netip.MustParsePrefix("128.0.0.0/1"), Iface: "utun4"})
+	e.f.mu.Unlock()
+	e.start(t)
+	e.settle(t, 3)
+	if !e.has("10.1.0.0/16", "utun4") || e.has("0.0.0.0/1", "utun4") || e.has("128.0.0.0/1", "utun4") {
+		t.Fatal("the split routes were not applied, or the vendor's full tunnel stayed")
 	}
 }

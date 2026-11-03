@@ -582,7 +582,7 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
         </label>
         {hasRouting(v.type) && (
           <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={!!v.autoApply} onChange={(e) => set({ autoApply: e.target.checked })} />
+            <input type="checkbox" checked={v.autoApply ?? v.tier === "external"} onChange={(e) => set({ autoApply: e.target.checked })} />
             {t("vpnForm.autoApply")}
           </label>
         )}
