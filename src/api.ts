@@ -971,18 +971,8 @@ export const launchVpnClient = (id: string) => VPNService.LaunchVPNClient(id);
 export const connectVpnClient = (id: string) => VPNService.ConnectVPNClient(id);
 export const disconnectVpnClient = (id: string) => VPNService.DisconnectVPNClient(id);
 
-// ---- Browser profiles through a VPN (R33) ----
-export type BrowserProfile = { dir: string; name: string };
-/** A Chromium-family browser on this computer and its profiles. */
-export type InstalledBrowser = { id: string; name: string; profiles: BrowserProfile[] | null };
-/** Launches `profile` (its folder) of `browser` through VPN profile `vpn`; kept on this computer. */
-export type BrowserMapping = { browser: string; profile: string; vpn: string };
-export const installedBrowsers = () => list(VPNService.InstalledBrowsers()) as Promise<InstalledBrowser[]>;
-export const browserMappings = () => list(VPNService.BrowserMappings()) as Promise<BrowserMapping[]>;
-export const saveBrowserMapping = (m: BrowserMapping) => VPNService.SaveBrowserMapping(m);
-export const deleteBrowserMapping = (browser: string, profile: string) => VPNService.DeleteBrowserMapping(browser, profile);
-/** Connects the mapped VPN if needed, which may need the vault, then starts the profile through it. */
-export const launchBrowser = (browser: string, profile: string) => unlocking(() => VPNService.LaunchBrowser(browser, profile));
+/** The folder of browser profiles Hostbay once opened through a VPN, kept for their sign-ins; "" when there is none. */
+export const browserProfilesFolder = () => VPNService.BrowserProfilesFolder();
 // Go asks for the VPN panel when a profile waits on a one-time code or a
 // browser sign-in, or a connect from the tray failed.
 export const onShowVpns = (cb: () => void) => on<null>("show-vpns", cb);

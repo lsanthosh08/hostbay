@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { DetectedVpn, Host, Vpn, VpnState } from "../api";
 import { en } from "../i18n/en";
 import { vpnCertPrompt } from "../connect/vpnCert";
-import { VpnCertBody, VpnPanelView } from "./VpnPanel";
+import { BrowserFolderNotice, VpnCertBody, VpnPanelView } from "./VpnPanel";
 import { vpnCancelled } from "../state/vpns";
 
 vi.mock("../platform", () => ({ isMac: () => true }));
@@ -158,5 +158,14 @@ describe("VPN cancelled connect", () => {
     expect(vpnCancelled(fail("disconnected"))).toBe(true);
     expect(vpnCancelled(fail("cert-unknown"))).toBe(false);
     expect(vpnCancelled(new Error("boom"))).toBe(false);
+  });
+});
+
+describe("browser profiles folder", () => {
+  it("says where the old browser profiles are only when the folder exists", () => {
+    expect(renderToStaticMarkup(createElement(BrowserFolderNotice, { path: "" }))).toBe("");
+    expect(renderToStaticMarkup(createElement(BrowserFolderNotice, { path: "/Users/me/Library/Application Support/Hostbay/browsers" }))).toContain(
+      "/Users/me/Library/Application Support/Hostbay/browsers"
+    );
   });
 });

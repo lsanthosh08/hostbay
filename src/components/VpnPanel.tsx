@@ -23,7 +23,6 @@ import { useToast } from "../ui/toast";
 import { onFilesDropped } from "../importApi";
 import { Fingerprint } from "./TrustDialog";
 import { VpnImport } from "./VpnImport";
-import { BrowserMappings } from "./BrowserMappings";
 
 const DOT: Record<api.VpnStatus, ConnStatus | undefined> = {
   disconnected: undefined,
@@ -385,6 +384,13 @@ export function VpnPanelView(p: {
 
 /** Saved VPN profiles with their live state: filter, connect, disconnect,
  *  and open the editor (R7, R8, R9, R11). */
+/** Where the browser profiles Hostbay once opened through a VPN still sit,
+ *  with their sign-ins, for the user to remove; nothing when there are none. */
+export function BrowserFolderNotice({ path }: { path: string }) {
+  if (!path) return null;
+  return <p className="px-2 py-2 text-xs text-muted allow-select break-words">{t("vpn.browsersLeftover", { path })}</p>;
+}
+
 export function VpnPanel() {
   const { vpns, states } = useVpns();
   const { hosts } = useHosts();
@@ -401,6 +407,10 @@ export function VpnPanel() {
   useEffect(() => onFilesDropped(queueImport), []);
   const [now, setNow] = useState(() => Date.now());
   const [announce, setAnnounce] = useState("");
+  const [browserFolder, setBrowserFolder] = useState("");
+  useEffect(() => {
+    api.browserProfilesFolder().then(setBrowserFolder, () => {});
+  }, []);
 
   useEffect(() => {
     reloadVpns();
@@ -484,7 +494,7 @@ export function VpnPanel() {
         onClientConnect={(id) => drive(id, api.connectVpnClient)}
         onClientDisconnect={(id) => drive(id, api.disconnectVpnClient)}
       />
-      <BrowserMappings vpns={vpns} />
+      <BrowserFolderNotice path={browserFolder} />
       {importing.length > 0 && (
         <VpnImport key={importing[0].id} path={importing[0].path} more={importing.length - 1} onClose={() => setImporting((q) => q.slice(1))} />
       )}

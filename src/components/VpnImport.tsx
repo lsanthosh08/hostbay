@@ -85,27 +85,13 @@ export function VpnDraftView({ draft, value, tried, onChange }: { draft: VpnDraf
   );
 }
 
-/** What the file held besides profiles: entries not imported, notes, and
- *  browser mappings, saved with the profiles kept. */
+/** What the file held besides profiles: entries not imported, and notes. */
 function PreviewNotes({ pre }: { pre: VpnImportPreview }) {
   const skipped = pre.skipped ?? [];
   const notes = pre.notes ?? [];
-  const browsers = pre.browsers ?? [];
-  if (!skipped.length && !notes.length && !browsers.length) return null;
+  if (!skipped.length && !notes.length) return null;
   return (
     <div className="flex flex-col gap-2 text-xs mb-3 allow-select">
-      {browsers.length > 0 && (
-        <div>
-          <p className="text-muted">{t("vpnImport.browsers", { count: browsers.length })}</p>
-          <ul>
-            {browsers.map((b, i) => (
-              <li key={i}>
-                {b.profile} → {b.vpn}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
       {skipped.length > 0 && (
         <div>
           <p className="text-muted">{t("import.skipped", { count: skipped.length })}</p>

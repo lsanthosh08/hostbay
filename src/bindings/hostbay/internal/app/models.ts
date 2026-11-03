@@ -24,9 +24,6 @@ import * as store$0 from "../store/models.js";
 import * as sync$0 from "../sync/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import * as browser$0 from "../vpn/browser/models.js";
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore: Unused imports
 import * as routing$0 from "../vpn/routing/models.js";
 
 export interface AIAllowEntry {
@@ -479,16 +476,6 @@ export interface IisSite {
 export interface Info {
     "name": string;
     "version": string;
-}
-
-/**
- * InstalledBrowser is a browser on this computer with its profiles, for the
- * mapping editor. Its path never leaves Go.
- */
-export interface InstalledBrowser {
-    "id": string;
-    "name": string;
-    "profiles": browser$0.Profile[] | null;
 }
 
 /**
@@ -967,7 +954,6 @@ export interface VPNImportPreview {
     "drafts": VPNDraft[] | null;
     "skipped": importer$0.Skipped[] | null;
     "notes": string[] | null;
-    "browsers": importer$0.BrowserMapping[] | null;
 }
 
 /**
