@@ -15,6 +15,15 @@ const TIER: Partial<Record<VpnTier, MessageKey>> = {
 
 const secondsLeft = (expires: string) => Math.max(0, Math.round((Date.parse(expires) - Date.now()) / 1000));
 
+/** A request's one-line heading, also its entry in the Notifications panel. */
+export function approvalLabel(p: AIPending): string {
+  if (p.tool === "save_skill") return t(p.replaces ? "ai.card.skillReplace" : "ai.card.skill", { name: `/${p.name ?? ""}` });
+  if (p.tool === "connect_vpn" || p.tool === "disconnect_vpn")
+    return t(p.tool === "connect_vpn" ? "mcp.card.vpnConnect" : "mcp.card.vpnDisconnect", { client: p.client ?? "", name: p.host });
+  if (p.client) return t("mcp.card.label", { client: p.client, host: p.host });
+  return t("ai.card.label", { host: p.host });
+}
+
 /** One request to run a command (KTD32): the host Go derived from the
  *  terminal or, for an MCP request, the client's token name and the saved
  *  host, the exact bytes in full and their size. A save_skill request
@@ -31,11 +40,7 @@ export function ApprovalCard({ p, onAnswer }: { p: VPNPending; onAnswer: (allow:
   }, [p.expires]);
   const skill = p.tool === "save_skill";
   const vpn = p.tool === "connect_vpn" || p.tool === "disconnect_vpn";
-  let label: string;
-  if (skill) label = t(p.replaces ? "ai.card.skillReplace" : "ai.card.skill", { name: `/${p.name ?? ""}` });
-  else if (vpn) label = t(p.tool === "connect_vpn" ? "mcp.card.vpnConnect" : "mcp.card.vpnDisconnect", { client: p.client ?? "", name: p.host });
-  else if (p.client) label = t("mcp.card.label", { client: p.client, host: p.host });
-  else label = t("ai.card.label", { host: p.host });
+  const label = approvalLabel(p);
 
   return (
     <article aria-label={label} className="panel rounded-card shadow-lg p-3 flex flex-col gap-2 text-sm">

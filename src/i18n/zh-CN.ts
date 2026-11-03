@@ -15,8 +15,6 @@ export const zhCN: Partial<Record<MessageKey, string>> = {
   "action.nextTab": "下一个标签",
   "action.prevTab": "上一个标签",
   "sidebar.recent": "最近",
-  "window.minimize": "最小化",
-  "window.maximize": "最大化",
   "tabs.newConnection": "新建连接",
   "sync.error": "同步失败",
   "sync.secret.password": "密码",

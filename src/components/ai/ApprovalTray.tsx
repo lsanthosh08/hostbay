@@ -3,8 +3,9 @@ import * as api from "../../api";
 import type { AIPending } from "../../api";
 import { t } from "../../i18n";
 import { layer } from "../../ui/layers";
+import { notices } from "../../ui/notices";
 import { useToast } from "../../ui/toast";
-import { ApprovalCard } from "./ApprovalCard";
+import { ApprovalCard, approvalLabel } from "./ApprovalCard";
 
 /** The tray's element ID; the "ai.approvals" action focuses it. */
 export const APPROVAL_TRAY_ID = "ai-approval-tray";
@@ -23,7 +24,10 @@ export function ApprovalTray() {
     let gone = false;
     const show = (l: AIPending[]) => {
       const fresh = l.filter((p) => !seen.current.has(p.id));
-      seen.current = new Set(l.map((p) => p.id));
+      const now = new Set(l.map((p) => p.id));
+      for (const id of seen.current) if (!now.has(id)) notices.settle(`approval:${id}`);
+      for (const p of fresh) notices.add({ id: `approval:${p.id}`, kind: "approval", msg: approvalLabel(p), pending: true });
+      seen.current = now;
       const last = fresh[fresh.length - 1];
       if (last)
         setAnnounce(

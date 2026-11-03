@@ -18,8 +18,6 @@ export const ja: Partial<Record<MessageKey, string>> = {
   "action.prevTab": "前のタブ",
   "sidebar.recent": "最近",
   "sidebar.clearRecent": "クリア",
-  "window.minimize": "最小化",
-  "window.maximize": "最大化",
   "tabs.newConnection": "新規接続",
   "sync.error": "同期に失敗しました",
   "sync.secret.password": "パスワード",

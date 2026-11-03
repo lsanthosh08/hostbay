@@ -1,6 +1,6 @@
 import { actions, keysFor, type Action, type AppCommands, type PanelId } from "../actions/registry";
 import { t } from "../i18n";
-import { WindowControls } from "../components/WindowControls";
+import { Notifications } from "../components/Notifications";
 import { focusRing } from "../ui/Button";
 import { syncLabel, type SyncState } from "./StatusBar";
 
@@ -13,7 +13,8 @@ const BADGE: Record<SyncState, string> = {
 };
 
 /** The left rail: one entry per side panel, then sync and appearance. Its
- *  entries come from the action registry; one that has not shipped is hidden. */
+ *  entries come from the action registry; one that has not shipped is hidden.
+ *  The bell at the foot lists this session's notices. */
 export function ActivityRail({ app, panel, sync }: { app: AppCommands; panel: PanelId | null; sync: SyncState }) {
   const entry = (a: Action) => {
     const panelId = a.id.startsWith("panel.") ? (a.id.slice(6) as PanelId) : null;
@@ -49,7 +50,7 @@ export function ActivityRail({ app, panel, sync }: { app: AppCommands; panel: Pa
       {shown.filter((a) => a.rail === "top").map(entry)}
       <div className="flex-1" />
       {shown.filter((a) => a.rail === "bottom").map(entry)}
-      <WindowControls />
+      <Notifications />
     </nav>
   );
 }

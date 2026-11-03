@@ -46,15 +46,15 @@ export const en = {
   "sidebar.clearRecent": "clear",
   "sidebar.clearRecentHint": "Clear recent",
 
-  "window.menu": "Window",
-  "window.minimize": "Minimize",
-  "window.maximize": "Maximize",
-  "window.restore": "Restore",
-  "window.fullScreen": "Full screen",
-  "window.exitFullScreen": "Exit full screen",
   "window.alwaysOnTop": "Always on top",
   "window.zoom": "UI zoom",
   "window.zoomReset": "Reset to 100%",
+
+  "notices.title": "Notifications",
+  "notices.waiting": "Notifications: {n} waiting for approval",
+  "notices.empty": "No notifications yet",
+  "notices.clear": "Clear",
+  "notices.review": "Waiting for approval. Select to review.",
 
   "tabs.label": "Sessions",
   "tabs.newConnection": "New connection",
