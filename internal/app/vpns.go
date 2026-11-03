@@ -266,6 +266,17 @@ func (s *VPNService) SaveVPN(profile VPN) (VPN, error) {
 	return v, err
 }
 
+// BrowserProfilesFolder is where Hostbay once kept the browser profiles it
+// opened through a VPN beside a running browser, or "" when there is none.
+// The folder keeps their sign-ins, so Hostbay leaves it for the user to remove.
+func (s *VPNService) BrowserProfilesFolder() string {
+	dir := filepath.Join(s.st.Dir(), "browsers")
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+		return ""
+	}
+	return dir
+}
+
 // setLocal sets m[id] to v, or removes it when v is "".
 func setLocal(m map[string]string, id, v string) map[string]string {
 	if v == "" {
@@ -294,7 +305,6 @@ func (s *VPNService) DeleteVPN(id string) error {
 		delete(l.VPNIfaces, id)
 		delete(l.VPNNodeStates, id)
 		delete(l.VPNNarrow, id)
-		l.BrowserMappings = slices.DeleteFunc(l.BrowserMappings, func(m store.BrowserMapping) bool { return m.VPN == id })
 		l.MCP.VPNAllow = slices.DeleteFunc(l.MCP.VPNAllow, func(e store.VPNAllowEntry) bool { return e.Profile == id })
 		return nil
 	}); err != nil {

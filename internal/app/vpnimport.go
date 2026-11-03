@@ -34,7 +34,6 @@ type VPNImportPreview struct {
 	Drafts   []VPNDraft                `json:"drafts"`
 	Skipped  []importer.Skipped        `json:"skipped"`
 	Notes    []string                  `json:"notes"`
-	Browsers []importer.BrowserMapping `json:"browsers"`
 }
 
 // vpnImports holds each previewed file, secrets included, until it is
@@ -82,7 +81,7 @@ func (s *HostService) PreviewVPNImport(path string) (VPNImportPreview, error) {
 	if err != nil {
 		return VPNImportPreview{}, err
 	}
-	pre := VPNImportPreview{Token: store.NewID(), Drafts: []VPNDraft{}, Skipped: res.Skipped, Notes: res.Notes, Browsers: res.Browsers}
+	pre := VPNImportPreview{Token: store.NewID(), Drafts: []VPNDraft{}, Skipped: res.Skipped, Notes: res.Notes}
 	for i, p := range res.Bundle.VPNs {
 		pre.Drafts = append(pre.Drafts, VPNDraft{Profile: vpnToUI(p), Ignored: res.VPNs[i].Ignored, AskPassword: res.VPNs[i].AskPassword})
 	}
@@ -124,11 +123,7 @@ func (s *HostService) CommitVPNImport(token string, keep []VPN) (importer.Report
 	}
 	delete(vpnImports.m, token)
 	res.Bundle.VPNs, res.VPNs = vpns, meta
-	rep, err := importer.Import(s.st, s.vault, res)
-	if err == nil {
-		rep.Browsers = saveImportedBrowsers(s.st, rep) // only the saved ones are reported
-	}
-	return rep, err
+	return importer.Import(s.st, s.vault, res)
 }
 
 // ScanVPNConfigs lists the VPN configurations installed clients keep on

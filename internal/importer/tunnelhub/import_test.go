@@ -3,6 +3,7 @@ package tunnelhub
 import (
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"hostbay/internal/importer"
@@ -12,7 +13,7 @@ import (
 
 func fixture() string { return filepath.Join(importertest.Fixtures, "tunnelhub", "vpn-config.json") }
 
-func TestVPNsRoutesAndBrowserEntries(t *testing.T) {
+func TestVPNsRoutesAndSkippedBrowserEntries(t *testing.T) {
 	st, v, _ := importertest.Store(t)
 	res, err := Parse(fixture(), "")
 	if err != nil {
@@ -41,8 +42,10 @@ func TestVPNsRoutesAndBrowserEntries(t *testing.T) {
 	if routes != 7 {
 		t.Errorf("%d routes, want 7", routes)
 	}
-	if !slices.Equal(rep.Browsers, []importer.BrowserMapping{{Profile: "Work", VPN: "Harmony SASE"}}) {
-		t.Errorf("browser mappings = %+v", rep.Browsers)
+	if !slices.ContainsFunc(rep.Skipped, func(s importer.Skipped) bool {
+		return s.File == "chrome Work" && strings.Contains(s.Reason, "list the sites on Harmony SASE")
+	}) {
+		t.Errorf("skipped = %+v", rep.Skipped)
 	}
 	if !importertest.Noted(rep, "WireGuard Lab", "detection") {
 		t.Errorf("notes = %v", rep.Notes)

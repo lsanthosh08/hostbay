@@ -94,7 +94,6 @@ export type {
     IisPool,
     IisSite,
     Info,
-    InstalledBrowser,
     MCPAllowEntry,
     MCPNewToken,
     MCPStatus,

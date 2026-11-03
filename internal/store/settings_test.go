@@ -71,3 +71,23 @@ func TestLocalSettingsPersistOutsideData(t *testing.T) {
 		}
 	}
 }
+
+// Settings saved while browser launching existed still load, mappings and all.
+func TestLocalSettingsWithOldBrowserMappingsLoad(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "Hostbay")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	old := `{"schemaVersion":1,"data":{"keepRunning":true,"browserMappings":[{"browser":"chrome","profile":"Work","vpn":"abc"}]}}`
+	if err := os.WriteFile(filepath.Join(dir, localName), []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if l, err := s.Local(); err != nil || !l.KeepRunning {
+		t.Fatalf("local = %+v, %v", l, err)
+	}
+}

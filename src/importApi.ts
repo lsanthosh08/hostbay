@@ -2,7 +2,7 @@
 import { Events } from "@wailsio/runtime";
 import type { Vpn } from "./api";
 import { HostService } from "./bindings/hostbay/internal/app";
-import type { BrowserMapping, Report, Skipped } from "./bindings/hostbay/internal/importer/models";
+import type { Report, Skipped } from "./bindings/hostbay/internal/importer/models";
 import type { Found } from "./bindings/hostbay/internal/importer/vpnconf/models";
 
 /** The host importers, and "vpn" and "tunnelhub", which go through the VPN
@@ -25,7 +25,7 @@ export const importFrom = (tool: Exclude<ImportTool, "vpn" | "tunnelhub">, path:
 
 /** One profile a VPN import read, with no secret; hasSecret says the file held some. */
 export type VpnDraft = { profile: Vpn; ignored: string[] | null; askPassword: boolean };
-export type VpnImportPreview = { token: string; drafts: VpnDraft[]; skipped: Skipped[] | null; notes: string[] | null; browsers: BrowserMapping[] | null };
+export type VpnImportPreview = { token: string; drafts: VpnDraft[]; skipped: Skipped[] | null; notes: string[] | null };
 /** A configuration an installed VPN client keeps (R39); an unreadable one is listed by name only. */
 export type FoundVpnConfig = Found;
 

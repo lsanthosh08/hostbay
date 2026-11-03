@@ -53,9 +53,6 @@ type Report struct {
 	// VPNs are the VPN profiles added, each with what the file held that
 	// was dropped (R43).
 	VPNs []VPNImport `json:"vpns"`
-	// Browsers are browser-profile mappings the file holds. A VPN import's
-	// commit saves those of the VPNs kept and reports only them.
-	Browsers []BrowserMapping `json:"browsers"`
 }
 
 // VPNImport is one VPN profile an import read, by its ID in the bundle.
@@ -70,25 +67,18 @@ type VPNImport struct {
 	AskPassword bool `json:"askPassword"`
 }
 
-// BrowserMapping sends a browser profile through a VPN profile, by name.
-type BrowserMapping struct {
-	Profile string `json:"profile"`
-	VPN     string `json:"vpn"`
-}
-
 // Result is one parsed export: a bundle to restore with plaintext passwords
 // that Restore seals, and what the parser could not map.
 type Result struct {
 	Bundle   backup.Bundle
 	Skipped  []Skipped
 	Notes    []string
-	VPNs     []VPNImport // one per Bundle.VPNs entry
-	Browsers []BrowserMapping
+	VPNs    []VPNImport // one per Bundle.VPNs entry
 }
 
 // Import restores res into st and reports what it added.
 func Import(st *store.Store, v *secrets.Vault, res Result) (Report, error) {
-	rep := Report{Ran: true, Skipped: append([]Skipped{}, res.Skipped...), Notes: append([]string{}, res.Notes...), VPNs: []VPNImport{}, Browsers: append([]BrowserMapping{}, res.Browsers...)}
+	rep := Report{Ran: true, Skipped: append([]Skipped{}, res.Skipped...), Notes: append([]string{}, res.Notes...), VPNs: []VPNImport{}}
 	if err := Restore(st, v, res.Bundle, WithoutSecrets(res.Bundle), &rep); err != nil {
 		return Report{}, err
 	}

@@ -9,8 +9,9 @@ import (
 )
 
 // BrowserPort asks the helper for its no-login SOCKS5 listener on
-// 127.0.0.1, which it opens on the first request and keeps until it exits
-// (KTD11). The port must not reach the UI, an event, a log or MCP.
+// 127.0.0.1, which it opens on the first request and keeps until it exits;
+// the system PAC sends browsers to it. The port must not reach the UI, an
+// event, a log or MCP.
 func (h *Helper) BrowserPort(ctx context.Context) (int, error) {
 	h.browserMu.Lock()
 	defer h.browserMu.Unlock()

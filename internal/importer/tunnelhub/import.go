@@ -1,6 +1,7 @@
 // Package tunnelhub imports a TunnelHub vpn-config.json (R41): its VPNs as
-// external profiles, its routes as per-destination routes on them, and its
-// Chrome entries as browser mappings, which the import's commit saves.
+// external profiles and its routes as per-destination routes on them. Its
+// Chrome entries are listed as skipped: a VPN profile's sites reach it from
+// every browser instead.
 package tunnelhub
 
 import (
@@ -89,11 +90,12 @@ func Parse(path, _ string) (importer.Result, error) {
 	}
 	res := b.Result()
 	for _, ch := range c.Chrome {
-		if names[ch.VPN] == "" {
-			res.Skipped = append(res.Skipped, importer.Skipped{File: "chrome " + ch.Profile, Reason: fmt.Sprintf("it names VPN %q, which was not imported", ch.VPN)})
-			continue
+		vpn := names[ch.VPN]
+		if vpn == "" {
+			vpn = ch.VPN
 		}
-		res.Browsers = append(res.Browsers, importer.BrowserMapping{Profile: ch.Profile, VPN: names[ch.VPN]})
+		res.Skipped = append(res.Skipped, importer.Skipped{File: "chrome " + ch.Profile,
+			Reason: fmt.Sprintf("Hostbay does not open browser profiles through a VPN; list the sites on %s instead, and every browser sends them through it", vpn)})
 	}
 	return res, nil
 }
