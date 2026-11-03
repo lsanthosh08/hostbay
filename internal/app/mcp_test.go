@@ -459,3 +459,36 @@ func TestMCPConnectVPNEndToEnd(t *testing.T) {
 		t.Fatalf("disconnect_vpn = %s", text)
 	}
 }
+
+// An external profile whose app Hostbay drives (Harmony SASE) is offered for a
+// VPN allow entry like an app-scoped one; an external one it cannot drive is not.
+func TestMCPVPNAllowOffersAnExternalProfileHostbayDrives(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("Hostbay drives a VPN app's command line on macOS only")
+	}
+	e := newMCPEnv(t)
+	nt, _ := e.s.CreateToken(t.Context(), "c")
+	vpns := e.s.srv.VPNs.(*mcpVPNs).creds.vpns
+	bin := filepath.Join(t.TempDir(), "Check Point SASE.app", "Contents", "MacOS", "Check Point SASE")
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sase, err := vpns.SaveVPN(VPN{Name: "Check Point SASE", Type: "perimeter81", Tier: "external", ClientPath: filepath.Dir(filepath.Dir(filepath.Dir(bin)))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, _ := vpns.SaveVPN(VPN{Name: "forti", Type: "other", Tier: "external"})
+	if err := e.s.AddVPNAllow(t.Context(), nt.Token.ID, other.ID); err == nil {
+		t.Fatal("an external profile Hostbay cannot drive was allowed")
+	}
+	if err := e.s.AddVPNAllow(t.Context(), nt.Token.ID, sase.ID); err != nil {
+		t.Fatal(err)
+	}
+	l, _ := e.s.ListVPNAllow()
+	if len(l.Entries) != 1 || l.Entries[0].VPNName != "Check Point SASE" || len(l.Profiles) != 1 || l.Profiles[0].ID != sase.ID {
+		t.Fatalf("list = %+v", l)
+	}
+}
