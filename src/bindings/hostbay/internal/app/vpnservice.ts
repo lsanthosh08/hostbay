@@ -27,7 +27,7 @@ export function AnswerVPN(id: string, code: string): $CancellablePromise<void> {
 }
 
 /**
- * BrowserProfilesFolder is where Hostbay once kept the browser profiles it
+ * BrowserProfilesFolder is where Hostbay kept the browser profiles it
  * opened through a VPN beside a running browser, or "" when there is none.
  * The folder keeps their sign-ins, so Hostbay leaves it for the user to remove.
  */
