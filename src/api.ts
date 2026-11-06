@@ -859,7 +859,7 @@ export const localXServer = (): Promise<X11Status> => X11Service.LocalXServer();
 // Xvnc, an Xvnc without -rfbunixpath, no desktop) rejects with why.
 export const x11DesktopOpen = (hostId: string) => unlocking(() => X11Service.X11DesktopOpen(hostId));
 
-// ---- Tunnels (saved port forwards on a host) ----
+// ---- Tunnels (saved port forwards on a host or through a VPN profile) ----
 // local (-L) and dynamic SOCKS (-D) listen here; remote (-R) listens on the
 // host. bindHost "" means 127.0.0.1; anything beyond loopback needs allowExternal.
 // A tunnel names exactly one of hostId and vpnId; one through a VPN profile is

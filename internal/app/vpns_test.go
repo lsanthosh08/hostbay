@@ -541,7 +541,8 @@ func TestExternalProfilesFollowTheirTunnels(t *testing.T) {
 
 // R22, R23: detection offers the VPNs no profile names yet, and a refresh
 // drops a profile whose client this computer added and has since removed,
-// unless a host uses it; a profile set up on another computer stays.
+// unless a host or a tunnel uses it; a profile set up on another computer
+// stays.
 func TestDetectVPNsOffersNewOnesAndDropsRemovedOnes(t *testing.T) {
 	e := newVPNEnv(t, vpntest.OK)
 	f := &fakeDetect{}
@@ -567,15 +568,18 @@ func TestDetectVPNsOffersNewOnesAndDropsRemovedOnes(t *testing.T) {
 	}
 	gone := saveExternal(t, e.svc, "Gone VPN", func(v *VPN) { v.ClientPath = app("Gone") })
 	used := saveExternal(t, e.svc, "Used VPN", func(v *VPN) { v.ClientPath = app("Used") })
+	forwarded := saveExternal(t, e.svc, "Tunnel VPN", func(v *VPN) { v.ClientPath = app("Tunnel") })
 	saveExternal(t, e.svc, "Elsewhere VPN", nil)
 	if err := e.svc.st.Edit(func(d *store.Data) error {
 		d.PutHost(store.Host{Alias: "db", Hostname: "10.0.0.5", VPNID: &used.ID})
+		d.PutTunnel(store.Tunnel{Kind: "local", VPNID: forwarded.ID, TargetHost: "db", TargetPort: 5432})
 		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
 	os.RemoveAll(filepath.Join(dir, "Gone.app"))
 	os.RemoveAll(filepath.Join(dir, "Used.app"))
+	os.RemoveAll(filepath.Join(dir, "Tunnel.app"))
 	if _, err := e.svc.DetectVPNs(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -585,7 +589,7 @@ func TestDetectVPNsOffersNewOnesAndDropsRemovedOnes(t *testing.T) {
 		names = append(names, v.Name)
 	}
 	slices.Sort(names)
-	if !slices.Equal(names, []string{"Elsewhere VPN", "Office", "Used VPN"}) {
+	if !slices.Equal(names, []string{"Elsewhere VPN", "Office", "Tunnel VPN", "Used VPN"}) {
 		t.Fatalf("profiles %v", names)
 	}
 	if loc, _ := e.svc.st.Local(); loc.VPNClients[gone.ID] != "" {

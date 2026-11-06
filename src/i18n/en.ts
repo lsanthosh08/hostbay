@@ -240,6 +240,7 @@ export const en = {
   "tunnels.form.notLoopback": "is not a loopback address. Other computers on that network can use this tunnel to reach {to} with no password.",
   "tunnels.form.reachComputer": "this computer",
   "tunnels.form.reachHostNetwork": "the host's network",
+  "tunnels.form.reachVpnNetwork": "the network behind the VPN profile",
   "tunnels.form.allowExternal": "Allow connections from other computers",
   "tunnels.form.loopbackNote": "Even on 127.0.0.1, other users of this computer and web pages (through DNS rebinding) can reach a running tunnel. Stop tunnels you are not using.",
   "tunnels.form.save": "Save",

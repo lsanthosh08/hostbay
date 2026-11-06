@@ -2,10 +2,12 @@ package store
 
 import "errors"
 
-// Tunnel is a saved port forward on a host (R23). Kind is "local" (-L),
-// "remote" (-R) or "dynamic" (-D, SOCKS). For local and dynamic tunnels
-// Bind is on this computer and Target is dialled from the host; for remote
-// tunnels Bind is on the host and Target is dialled from this computer.
+// Tunnel is a saved port forward on a host (R23), or a local forward
+// through a VPN profile. Kind is "local" (-L), "remote" (-R) or "dynamic"
+// (-D, SOCKS). For local and dynamic tunnels Bind is on this computer and
+// Target is dialled from the host, or through the VPN profile when VPNID is
+// set; for remote tunnels Bind is on the host and Target is dialled from
+// this computer.
 type Tunnel struct {
 	Meta
 	HostID string `json:"hostId"`

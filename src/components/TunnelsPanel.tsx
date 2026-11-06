@@ -239,6 +239,11 @@ function TunnelForm({
     : draft.kind === "local"
     ? "tunnels.form.destFromHost"
     : "tunnels.form.destFromComputer";
+  const reach: MessageKey = throughVpn
+    ? "tunnels.form.reachVpnNetwork"
+    : draft.kind === "remote"
+    ? "tunnels.form.reachComputer"
+    : "tunnels.form.reachHostNetwork";
   const where = t(draft.kind === "remote" ? "tunnels.form.onHost" : "tunnels.form.onComputer");
   const label = "text-xs text-muted flex flex-col gap-1";
   const dirty = JSON.stringify(draft) !== JSON.stringify(tunnel);
@@ -336,7 +341,7 @@ function TunnelForm({
             <p>
               <b>{draft.bindHost}</b>{" "}
               {t("tunnels.form.notLoopback", {
-                to: t(draft.kind === "remote" ? "tunnels.form.reachComputer" : "tunnels.form.reachHostNetwork"),
+                to: t(reach),
               })}
             </p>
             <label className="flex items-center gap-2">

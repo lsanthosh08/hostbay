@@ -2,12 +2,16 @@ package app
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net"
 	"slices"
 	"strconv"
 	"testing"
+	"time"
 
 	"hostbay/internal/apperr"
+	"hostbay/internal/store"
 	"hostbay/internal/vpn/vpntest"
 )
 
@@ -96,5 +100,58 @@ func TestSaveTunnelNeedsOneHostOrOneLocalVPN(t *testing.T) {
 		if _, err := c.svc.SaveTunnel(c.tn); err == nil {
 			t.Errorf("%s: saved", c.name)
 		}
+	}
+}
+
+// A listening forward whose profile then drops closes each new connection
+// and never reaches the destination by any other way.
+func TestVPNForwardAfterProfileDropsFailsClosed(t *testing.T) {
+	svc, c, p := vpnTunnels(t, vpntest.Down)
+	host, port := echoAddr(t)
+	e := newVPNEndpoint(t, net.JoinHostPort(host, strconv.Itoa(port)))
+	up(c.creds.vpns, p.ID, e)
+	tn, err := svc.SaveTunnel(Tunnel{Name: "db", Kind: "local", VPNID: p.ID, TargetHost: host, TargetPort: port})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := svc.StartTunnel(context.Background(), tn.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := c.creds.vpns
+	v.mu.Lock()
+	delete(v.runs, p.ID)
+	v.set(VPNState{ID: p.ID, Status: VPNDropped})
+	v.mu.Unlock()
+
+	conn, err := net.Dial("tcp", st.Addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(5 * time.Second))
+	if _, err := conn.Read(make([]byte, 1)); !errors.Is(err, io.EOF) {
+		t.Fatalf("read = %v, want EOF from a closed connection", err)
+	}
+	if got := e.asked(); len(got) != 0 {
+		t.Fatalf("the dropped profile was still asked for %v", got)
+	}
+}
+
+// A forward through an external profile whose own app is not connected
+// fails to start naming the profile, rather than listening and resetting
+// every connection.
+func TestVPNForwardThroughDisconnectedExternalProfileFailsToStart(t *testing.T) {
+	svc, c, _ := vpnTunnels(t, vpntest.Down)
+	c.creds.vpns.detect = (&fakeDetect{}).detect
+	p := saveProfile(t, c.creds.vpns, "Vendor VPN", func(v *VPN) { v.Tier, v.Type, v.Gateway = store.VPNTierExternal, "other", "" })
+	tn, err := svc.SaveTunnel(Tunnel{Name: "db", Kind: "local", VPNID: p.ID, TargetHost: "db.internal", TargetPort: 5432})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := svc.StartTunnel(context.Background(), tn.ID)
+	vpnCode(t, err, apperr.VPNDown, p.ID)
+	if st.Status != TunnelFailed || svc.RunningTunnels() != 0 {
+		t.Fatalf("state = %+v, running %d", st, svc.RunningTunnels())
 	}
 }

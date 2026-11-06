@@ -272,6 +272,13 @@ func (s *TunnelService) openVPN(ctx context.Context, d *store.Data, t *store.Tun
 	if err := creds.vpnUp(ctx, p); err != nil {
 		return nil, err
 	}
+	if p.External() {
+		// Its own app connects it, so vpnUp cannot; fail now, naming it,
+		// rather than listen and reset every connection.
+		if _, _, err := p.Iface(ctx); err != nil {
+			return nil, err
+		}
+	}
 	return tunnel.OpenDial(spec, func(ctx context.Context, addr string) (net.Conn, error) { return sshx.DialTCP(ctx, p, addr) })
 }
 

@@ -182,7 +182,7 @@ func (s *VPNService) VPNTunnels(ctx context.Context) ([]detect.Tunnel, error) {
 // DetectVPNs looks for VPNs on this computer now and lists the ones no
 // profile names yet, to offer as external profiles (R22). It also drops an
 // external profile whose client program this computer saved and has since
-// removed, that detection no longer sees and no host uses (R23); a profile
+// removed, that detection no longer sees and no host or tunnel uses (R23); a profile
 // with no client program here was set up elsewhere and stays.
 func (s *VPNService) DetectVPNs(ctx context.Context) ([]detect.VPN, error) {
 	d, err := s.st.Data()
@@ -203,10 +203,11 @@ func (s *VPNService) DetectVPNs(ctx context.Context) ([]detect.VPN, error) {
 			return strings.EqualFold(f.Name, v.Name) || strings.EqualFold(f.Name, v.Client) || (f.Client != "" && f.Client == l.VPNClients[v.ID])
 		}
 	}
-	// Hosts and routes both count as users (R23).
+	// Hosts, tunnels and routes all count as users (R23).
 	used := func(id string) bool {
 		v := d.VPN(id)
 		return slices.ContainsFunc(d.Hosts.Items, func(h store.Host) bool { return store.Deref(h.VPNID) == id }) ||
+			slices.ContainsFunc(d.Tunnels.Items, func(t store.Tunnel) bool { return t.VPNID == id }) ||
 			(v != nil && len(v.Routes) > 0) || len(l.VPNNarrow[id]) > 0
 	}
 	for _, v := range d.VPNs.Items {
