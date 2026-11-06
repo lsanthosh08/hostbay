@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import * as api from "../api";
-import type { Host, Tunnel, TunnelKind, TunnelState } from "../api";
+import type { Host, Tunnel, TunnelKind, TunnelState, Vpn } from "../api";
 import { useConnect } from "../connect/useConnect";
 import { t, type MessageKey } from "../i18n";
 import { PanelHeader } from "../shell/SidePanel";
 import { useHosts } from "../state/hosts";
+import { useVpns } from "../state/vpns";
 import { EmptyState } from "../ui/EmptyState";
 import { StatusDot, type ConnStatus } from "../ui/StatusDot";
 import { Button } from "../ui/Button";
@@ -41,9 +42,16 @@ function describe(tn: Tunnel) {
   return tn.kind === "local" ? `${bind} → ${target}` : t("tunnels.describe.remote", { bind, target });
 }
 
-const blank = (hostId: string): Tunnel => ({
+// The form's "Through" select names a host or a VPN profile in one value.
+const through = (tn: Tunnel) => (tn.vpnId ? `vpn:${tn.vpnId}` : `host:${tn.hostId}`);
+const fromThrough = (v: string): Partial<Tunnel> =>
+  v.startsWith("vpn:") ? { hostId: "", vpnId: v.slice(4), kind: "local" } : { hostId: v.slice(5), vpnId: "" };
+
+const blank = (via: string): Tunnel => ({
   id: "",
-  hostId,
+  hostId: "",
+  vpnId: "",
+  ...fromThrough(via),
   name: "",
   kind: "local",
   bindHost: "",
@@ -84,15 +92,17 @@ export function useTunnelStates(onError: (e: unknown) => void = () => {}) {
 /** A tunnel that is listening or on its way there. */
 export const isRunning = (s?: TunnelState) => s?.status === "listening" || s?.status === "starting";
 
-/** Saved tunnels for every host, with their live state (R23, R33). */
+/** Saved tunnels for every host and VPN profile, with their live state (R23, R33). */
 export function TunnelsPanel() {
   const { hosts } = useHosts();
+  const { vpns } = useVpns();
   const { push } = useToast();
   const { confirm } = usePrompt();
   const [tunnels, setTunnels] = useState<Tunnel[]>([]);
   const [editing, setEditing] = useState<Tunnel | null>(null);
   const { fail: connectFailed, dialog } = useConnect();
   const sshHosts = hosts.filter((h) => h.kind !== "rdp");
+  const firstVia = sshHosts[0] ? `host:${sshHosts[0].id}` : vpns[0] ? `vpn:${vpns[0].id}` : "";
 
   const fail = (e: unknown) => push("error", api.errorInfo(e).message);
   const reload = () => api.listTunnels().then(setTunnels).catch(fail);
@@ -133,15 +143,17 @@ export function TunnelsPanel() {
         <IconButton
           label={t("tunnels.add")}
           icon={AddIcon}
-          onClick={() => sshHosts[0] && setEditing(blank(sshHosts[0].id))}
-          disabled={sshHosts.length === 0}
+          onClick={() => firstVia && setEditing(blank(firstVia))}
+          disabled={!firstVia}
         />
       </PanelHeader>
       <ul className="flex-1 min-h-0 overflow-auto px-2 pb-2">
         {tunnels.map((t) => {
           const s = states[t.id];
           const running = isRunning(s);
-          const host = hosts.find((h) => h.id === t.hostId);
+          const via = t.vpnId
+            ? vpns.find((v) => v.id === t.vpnId)?.name ?? "deleted VPN profile"
+            : hosts.find((h) => h.id === t.hostId)?.alias ?? "deleted host";
           return (
             <li key={t.id} className="group px-2 py-1 rounded text-sm hover:bg-hover">
               <div className="flex items-center gap-2">
@@ -149,7 +161,7 @@ export function TunnelsPanel() {
                 <button
                   className="truncate text-left flex-1"
                   onClick={() => setEditing(t)}
-                  title={`${host?.alias ?? "deleted host"}: ${describe(t)} (${s?.status ?? "stopped"})`}
+                  title={`${via}: ${describe(t)} (${s?.status ?? "stopped"})`}
                 >
                   {t.name || describe(t)}
                 </button>
@@ -192,6 +204,7 @@ export function TunnelsPanel() {
         <TunnelForm
           tunnel={editing}
           hosts={sshHosts}
+          vpns={vpns}
           onSave={save}
           onCancel={() => setEditing(null)}
         />
@@ -204,17 +217,20 @@ export function TunnelsPanel() {
 function TunnelForm({
   tunnel,
   hosts,
+  vpns,
   onSave,
   onCancel,
 }: {
   tunnel: Tunnel;
   hosts: Host[];
+  vpns: Vpn[];
   onSave: (t: Tunnel) => void;
   onCancel: () => void;
 }) {
   const [draft, setDraft] = useState(tunnel);
   const set = (patch: Partial<Tunnel>) => setDraft((x) => ({ ...x, ...patch }));
   const external = !isLoopback(draft.bindHost.trim());
+  const viaVpn = !!draft.vpnId;
   const where = t(draft.kind === "remote" ? "tunnels.form.onHost" : "tunnels.form.onComputer");
   const label = "text-xs text-muted flex flex-col gap-1";
   const dirty = JSON.stringify(draft) !== JSON.stringify(tunnel);
@@ -234,18 +250,35 @@ function TunnelForm({
         </label>
         <div className="grid grid-cols-2 gap-3">
           <label className={label}>
-            {t("tunnels.form.host")}
-            <Select value={draft.hostId} onChange={(e) => set({ hostId: e.target.value })}>
-              {hosts.map((h) => (
-                <option key={h.id} value={h.id}>
-                  {h.alias}
-                </option>
-              ))}
+            {t("tunnels.form.through")}
+            <Select value={through(draft)} onChange={(e) => set(fromThrough(e.target.value))}>
+              {hosts.length > 0 && (
+                <optgroup label={t("tunnels.form.sshHosts")}>
+                  {hosts.map((h) => (
+                    <option key={h.id} value={`host:${h.id}`}>
+                      {h.alias}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {vpns.length > 0 && (
+                <optgroup label={t("tunnels.form.vpnProfiles")}>
+                  {vpns.map((v) => (
+                    <option key={v.id} value={`vpn:${v.id}`}>
+                      {v.name}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
             </Select>
           </label>
           <label className={label}>
             {t("tunnels.form.type")}
-            <Select value={draft.kind} onChange={(e) => set({ kind: e.target.value as TunnelKind })}>
+            <Select
+              value={draft.kind}
+              disabled={viaVpn}
+              onChange={(e) => set({ kind: e.target.value as TunnelKind })}
+            >
               {(Object.keys(KIND_LABEL) as TunnelKind[]).map((k) => (
                 <option key={k} value={k}>
                   {t(KIND_LABEL[k])}
@@ -274,7 +307,13 @@ function TunnelForm({
         {draft.kind !== "dynamic" && (
           <div className="grid grid-cols-[1fr_7rem] gap-3">
             <label className={label}>
-              {t(draft.kind === "local" ? "tunnels.form.destFromHost" : "tunnels.form.destFromComputer")}
+              {t(
+                viaVpn
+                  ? "tunnels.form.destFromVpn"
+                  : draft.kind === "local"
+                  ? "tunnels.form.destFromHost"
+                  : "tunnels.form.destFromComputer"
+              )}
               <Input required value={draft.targetHost} onChange={(e) => set({ targetHost: e.target.value })} />
             </label>
             <label className={label}>
@@ -308,6 +347,7 @@ function TunnelForm({
             </label>
           </div>
         )}
+        {viaVpn && <p className="text-xs text-muted">{t("tunnels.form.vpnNote")}</p>}
         <p className="text-xs text-muted">
           {t("tunnels.form.loopbackNote")}
         </p>

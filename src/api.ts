@@ -862,10 +862,13 @@ export const x11DesktopOpen = (hostId: string) => unlocking(() => X11Service.X11
 // ---- Tunnels (saved port forwards on a host) ----
 // local (-L) and dynamic SOCKS (-D) listen here; remote (-R) listens on the
 // host. bindHost "" means 127.0.0.1; anything beyond loopback needs allowExternal.
+// A tunnel names exactly one of hostId and vpnId; one through a VPN profile is
+// local only, so apps outside Hostbay reach hosts behind an app-scoped VPN.
 export type TunnelKind = "local" | "remote" | "dynamic";
 export type Tunnel = {
   id: string;
   hostId: string;
+  vpnId: string;
   name: string;
   kind: TunnelKind;
   bindHost: string;

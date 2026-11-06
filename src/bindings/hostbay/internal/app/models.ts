@@ -776,11 +776,13 @@ export interface TransferSource {
 }
 
 /**
- * Tunnel is a saved port forward on a host (R23); see store.Tunnel.
+ * Tunnel is a saved port forward on a host (R23), or a local forward
+ * through a VPN profile; see store.Tunnel.
  */
 export interface Tunnel {
     "id": string;
     "hostId": string;
+    "vpnId": string;
     "name": string;
 
     /**
