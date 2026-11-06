@@ -8,7 +8,10 @@ import "errors"
 // tunnels Bind is on the host and Target is dialled from this computer.
 type Tunnel struct {
 	Meta
-	HostID     string `json:"hostId"`
+	HostID string `json:"hostId"`
+	// VPNID, set instead of HostID, makes a local tunnel dial its
+	// destination through that VPN profile rather than an SSH host.
+	VPNID      string `json:"vpnId,omitempty"`
 	Name       string `json:"name"`
 	Kind       string `json:"kind"`
 	BindHost   string `json:"bindHost,omitempty"` // "" means 127.0.0.1

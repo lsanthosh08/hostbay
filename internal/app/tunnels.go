@@ -3,9 +3,11 @@ package app
 import (
 	"context"
 	"errors"
+	"net"
 	"sync"
 
 	"hostbay/internal/apperr"
+	"hostbay/internal/sshx"
 	"hostbay/internal/store"
 	"hostbay/internal/tunnel"
 )
@@ -13,10 +15,12 @@ import (
 // TunnelStateEvent carries a TunnelState each time a tunnel's state changes.
 const TunnelStateEvent = "tunnel-state"
 
-// Tunnel is a saved port forward on a host (R23); see store.Tunnel.
+// Tunnel is a saved port forward on a host (R23), or a local forward
+// through a VPN profile; see store.Tunnel.
 type Tunnel struct {
 	ID            string `json:"id"`
 	HostID        string `json:"hostId"`
+	VPNID         string `json:"vpnId"`
 	Name          string `json:"name"`
 	Kind          string `json:"kind"` // local | remote | dynamic
 	BindHost      string `json:"bindHost"`
@@ -82,7 +86,7 @@ func (s *TunnelService) ListTunnels() ([]Tunnel, error) {
 	out := []Tunnel{}
 	for _, t := range d.Tunnels.Items {
 		out = append(out, Tunnel{
-			ID: t.ID, HostID: t.HostID, Name: t.Name, Kind: t.Kind, BindHost: t.BindHost, BindPort: t.BindPort,
+			ID: t.ID, HostID: t.HostID, VPNID: t.VPNID, Name: t.Name, Kind: t.Kind, BindHost: t.BindHost, BindPort: t.BindPort,
 			TargetHost: t.TargetHost, TargetPort: t.TargetPort, AllowExternal: t.AllowExternal,
 		})
 	}
@@ -93,15 +97,24 @@ func (s *TunnelService) ListTunnels() ([]Tunnel, error) {
 // the next time it starts.
 func (s *TunnelService) SaveTunnel(t Tunnel) (Tunnel, error) {
 	rec := store.Tunnel{
-		Meta: store.Meta{ID: t.ID}, HostID: t.HostID, Name: t.Name, Kind: t.Kind, BindHost: t.BindHost, BindPort: t.BindPort,
+		Meta: store.Meta{ID: t.ID}, HostID: t.HostID, VPNID: t.VPNID, Name: t.Name, Kind: t.Kind, BindHost: t.BindHost, BindPort: t.BindPort,
 		TargetHost: t.TargetHost, TargetPort: t.TargetPort, AllowExternal: t.AllowExternal,
+	}
+	switch {
+	case (t.HostID == "") == (t.VPNID == ""):
+		return Tunnel{}, errors.New("choose a host or a VPN profile for the tunnel")
+	case t.VPNID != "" && t.Kind != string(tunnel.Local):
+		return Tunnel{}, errors.New("a tunnel through a VPN profile can only be a local forward")
 	}
 	if err := tunnelSpec(rec).Validate(); err != nil {
 		return Tunnel{}, err
 	}
 	err := s.st.Edit(func(d *store.Data) error {
-		if d.Host(t.HostID) == nil {
+		if t.HostID != "" && d.Host(t.HostID) == nil {
 			return errors.New("host not found")
+		}
+		if t.VPNID != "" && d.VPN(t.VPNID) == nil {
+			return errors.New("VPN profile not found")
 		}
 		if old := d.Tunnel(t.ID); old != nil {
 			rec.Meta = old.Meta
@@ -179,7 +192,7 @@ func (s *TunnelService) StartTunnel(ctx context.Context, id string) (TunnelState
 		cancel()
 		if tn != nil {
 			tn.Close()
-			s.conns.Disconnect(session)
+			s.release(session)
 		}
 		return st, nil
 	}
@@ -198,8 +211,9 @@ func (s *TunnelService) StartTunnel(ctx context.Context, id string) (TunnelState
 	return s.set(TunnelState{ID: id, Status: TunnelListening, Addr: tn.Addr().String()}), nil
 }
 
-// open takes a lease on the tunnel's host and starts the tunnel on it. On
-// failure the lease is released again.
+// open takes a lease on the tunnel's host and starts the tunnel on it, or
+// starts a forward through the tunnel's VPN profile, which takes no lease.
+// On failure the lease is released again.
 func (s *TunnelService) open(ctx context.Context, id string) (*tunnel.Tunnel, string, error) {
 	d, err := s.st.Data()
 	if err != nil {
@@ -212,6 +226,10 @@ func (s *TunnelService) open(ctx context.Context, id string) (*tunnel.Tunnel, st
 	spec := tunnelSpec(*t)
 	if err := spec.Validate(); err != nil {
 		return nil, "", err
+	}
+	if t.VPNID != "" {
+		tn, err := s.openVPN(ctx, d, t, spec)
+		return tn, "", err
 	}
 	session, err := s.conns.Connect(ctx, t.HostID)
 	if err != nil {
@@ -233,6 +251,38 @@ func (s *TunnelService) open(ctx context.Context, id string) (*tunnel.Tunnel, st
 	return tn, session, nil
 }
 
+// openVPN connects the tunnel's VPN profile if it is down, as the UI's
+// dials do, and forwards through it. Every dial goes through the profile and
+// fails rather than going direct (KTD22).
+//
+// shortcut: the forward keeps listening if the profile drops later, and its
+// dials fail until the profile reconnects; watch the profile's state if the
+// tunnel should show as dropped instead.
+func (s *TunnelService) openVPN(ctx context.Context, d *store.Data, t *store.Tunnel, spec tunnel.Spec) (*tunnel.Tunnel, error) {
+	v := d.VPN(t.VPNID)
+	if v == nil {
+		return nil, apperr.New(apperr.VPNFailed, "This tunnel's VPN profile no longer exists; choose another in the tunnel's settings").
+			With("vpnId", t.VPNID).With("reason", "missing")
+	}
+	creds := s.conns.creds
+	p, err := creds.vpnProxy(v, t.TargetHost)
+	if err != nil {
+		return nil, err
+	}
+	if err := creds.vpnUp(ctx, p); err != nil {
+		return nil, err
+	}
+	return tunnel.OpenDial(spec, func(ctx context.Context, addr string) (net.Conn, error) { return sshx.DialTCP(ctx, p, addr) })
+}
+
+// release gives back a running tunnel's lease; a forward through a VPN
+// profile holds none.
+func (s *TunnelService) release(session string) {
+	if session != "" {
+		s.conns.Disconnect(session)
+	}
+}
+
 // watch shows a tunnel that ended by itself as dropped and releases its
 // lease. It does not restart it (R33).
 func (s *TunnelService) watch(id string, r *tunnelRun) {
@@ -250,7 +300,7 @@ func (s *TunnelService) watch(id string, r *tunnelRun) {
 	s.set(st)
 	s.mu.Unlock()
 	r.cancel()
-	s.conns.Disconnect(r.session)
+	s.release(r.session)
 }
 
 // StopTunnel closes the tunnel's listener and connections and releases its
@@ -265,7 +315,7 @@ func (s *TunnelService) StopTunnel(id string) error {
 		r.cancel()
 		if r.tn != nil {
 			r.tn.Close()
-			s.conns.Disconnect(r.session)
+			s.release(r.session)
 		}
 	}
 	s.mu.Lock()
