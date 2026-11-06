@@ -1,5 +1,6 @@
 // Package tunnel runs saved port forwards over an SSH connection: local
-// (-L), remote (-R) and dynamic SOCKS (-D) (R23). Listeners bind loopback
+// (-L), remote (-R) and dynamic SOCKS (-D) (R23), and local forwards through
+// a dialer of their own, such as a VPN profile's. Listeners bind loopback
 // unless the tunnel explicitly allows more (R33), and a dropped connection
 // ends the tunnel with a reason instead of restarting it.
 //
@@ -83,10 +84,14 @@ func isLoopback(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
+// Dialer dials a forward's destination, given as host:port and unresolved.
+type Dialer func(ctx context.Context, addr string) (net.Conn, error)
+
 // Tunnel is a running forward.
 type Tunnel struct {
 	spec   Spec
-	cl     *ssh.Client
+	cl     *ssh.Client // nil for a forward opened with OpenDial
+	dial   Dialer      // reaches the destination of a local or dynamic forward
 	ln     net.Listener
 	ctx    context.Context // cancelled at shutdown so pending dials give up
 	cancel context.CancelFunc
@@ -117,14 +122,38 @@ func Open(cl *ssh.Client, s Spec) (*Tunnel, error) {
 	} else if ln, err = net.Listen("tcp", s.bindAddr()); err != nil {
 		return nil, err // names the address and why, e.g. already in use
 	}
-	t := &Tunnel{spec: s, cl: cl, ln: ln, done: make(chan struct{}), open: map[net.Conn]struct{}{}}
-	t.ctx, t.cancel = context.WithCancel(context.Background())
-	t.wg.Add(1)
-	go t.accept()
+	dial := func(ctx context.Context, addr string) (net.Conn, error) { return cl.DialContext(ctx, "tcp", addr) }
+	t := start(s, cl, ln, dial)
 	// shortcut: this goroutine outlives a stopped tunnel until the shared
 	// connection ends, since Wait cannot be cancelled; fine at a few per start.
 	go func() { t.shutdown(dropped(cl.Wait())) }()
 	return t, nil
+}
+
+// OpenDial starts a local or dynamic forward that reaches its destinations
+// with dial instead of an SSH connection, as one through a VPN profile does.
+// It runs until Close; a dial that fails closes only that connection.
+func OpenDial(s Spec, dial Dialer) (*Tunnel, error) {
+	if err := s.Validate(); err != nil {
+		return nil, err
+	}
+	if s.Kind == Remote {
+		return nil, errors.New("a remote forward needs an SSH host to listen on")
+	}
+	ln, err := net.Listen("tcp", s.bindAddr())
+	if err != nil {
+		return nil, err // names the address and why, e.g. already in use
+	}
+	return start(s, nil, ln, dial), nil
+}
+
+// start serves ln until shutdown. cl is nil for a forward without SSH.
+func start(s Spec, cl *ssh.Client, ln net.Listener, dial Dialer) *Tunnel {
+	t := &Tunnel{spec: s, cl: cl, dial: dial, ln: ln, done: make(chan struct{}), open: map[net.Conn]struct{}{}}
+	t.ctx, t.cancel = context.WithCancel(context.Background())
+	t.wg.Add(1)
+	go t.accept()
+	return t
 }
 
 func dropped(err error) error {
@@ -181,8 +210,10 @@ func (t *Tunnel) accept() {
 			// shutdown waits for wg.
 			go func() {
 				reason := fmt.Errorf("the tunnel stopped accepting connections: %w", err)
-				if _, _, kerr := t.cl.SendRequest("keepalive@openssh.com", true, nil); kerr != nil {
-					reason = dropped(kerr)
+				if t.cl != nil {
+					if _, _, kerr := t.cl.SendRequest("keepalive@openssh.com", true, nil); kerr != nil {
+						reason = dropped(kerr)
+					}
 				}
 				t.shutdown(reason)
 			}()
@@ -207,14 +238,14 @@ func (t *Tunnel) serve(c net.Conn) {
 	var err error
 	switch t.spec.Kind {
 	case Local:
-		dst, err = t.cl.DialContext(t.ctx, "tcp", t.spec.target())
+		dst, err = t.dial(t.ctx, t.spec.target())
 	case Remote:
 		dst, err = (&net.Dialer{Timeout: 10 * time.Second}).DialContext(t.ctx, "tcp", t.spec.target())
 	case Dynamic:
 		c.SetDeadline(time.Now().Add(socksHandshakeWait * time.Second))
 		var addr string
 		if addr, err = socksHandshake(c); err == nil {
-			if dst, err = t.cl.DialContext(t.ctx, "tcp", addr); err != nil {
+			if dst, err = t.dial(t.ctx, addr); err != nil {
 				socksReply(c, socksUnreachable)
 			} else if err = socksReply(c, socksOK); err != nil {
 				dst.Close()

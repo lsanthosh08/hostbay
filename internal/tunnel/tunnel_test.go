@@ -2,12 +2,14 @@ package tunnel
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"io"
 	"net"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -218,4 +220,68 @@ func splitAddr(t *testing.T, addr string) (string, int) {
 	}
 	port, _ := strconv.Atoi(p)
 	return h, port
+}
+
+// A forward opened with its own dialer, as one through a VPN profile is,
+// hands the dialer the destination unresolved, so names resolve beyond it.
+func TestOpenDialForwardsThroughItsDialer(t *testing.T) {
+	echo := echoServer(t)
+	asked := make(chan string, 1)
+	dial := func(ctx context.Context, addr string) (net.Conn, error) {
+		asked <- addr
+		return (&net.Dialer{}).DialContext(ctx, "tcp", echo)
+	}
+	tn, err := OpenDial(Spec{Kind: Local, TargetHost: "db.internal", TargetPort: 5432}, dial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tn.Close()
+	c, err := net.Dial("tcp", tn.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	roundTrip(t, c, "ping")
+	if got := <-asked; got != "db.internal:5432" {
+		t.Fatalf("dialer asked for %q, want db.internal:5432", got)
+	}
+}
+
+// A dial that fails closes that one connection and leaves the forward
+// listening, so the next connection is tried again.
+func TestOpenDialFailedDialClosesOnlyThatConnection(t *testing.T) {
+	echo := echoServer(t)
+	var fail atomic.Bool
+	fail.Store(true)
+	dial := func(ctx context.Context, addr string) (net.Conn, error) {
+		if fail.Load() {
+			return nil, errors.New("VPN down")
+		}
+		return (&net.Dialer{}).DialContext(ctx, "tcp", echo)
+	}
+	tn, err := OpenDial(Spec{Kind: Local, TargetHost: "db", TargetPort: 5432}, dial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tn.Close()
+	c, err := net.Dial("tcp", tn.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if _, err := c.Read(make([]byte, 1)); err == nil {
+		t.Fatal("a connection whose dial failed stayed open")
+	}
+	fail.Store(false)
+	c, err = net.Dial("tcp", tn.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	roundTrip(t, c, "again")
+}
+
+func TestOpenDialRefusesRemote(t *testing.T) {
+	dial := func(context.Context, string) (net.Conn, error) { return nil, errors.New("unused") }
+	if _, err := OpenDial(Spec{Kind: Remote, BindPort: 9000, TargetHost: "127.0.0.1", TargetPort: 1}, dial); err == nil {
+		t.Fatal("opened a remote forward without a host to listen on")
+	}
 }
