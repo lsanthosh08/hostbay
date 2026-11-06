@@ -225,7 +225,6 @@ export const en = {
   "tunnels.form.new": "New tunnel",
   "tunnels.form.name": "Name",
   "tunnels.form.namePlaceholder": "Postgres on db1",
-  "tunnels.form.host": "Host",
   "tunnels.form.through": "Through",
   "tunnels.form.sshHosts": "SSH hosts",
   "tunnels.form.vpnProfiles": "VPN profiles",

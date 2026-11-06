@@ -53,7 +53,6 @@ export const vi: Partial<Record<MessageKey, string>> = {
   "tunnels.empty.title": "Chưa có đường hầm nào",
   "tunnels.form.edit": "Sửa đường hầm",
   "tunnels.form.name": "Tên",
-  "tunnels.form.host": "Máy chủ",
   "tunnels.form.port": "Cổng",
   "tunnels.form.save": "Lưu",
   "rdp.connecting": "Đang kết nối…",

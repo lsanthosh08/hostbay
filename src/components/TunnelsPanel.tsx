@@ -42,10 +42,13 @@ function describe(tn: Tunnel) {
   return tn.kind === "local" ? `${bind} → ${target}` : t("tunnels.describe.remote", { bind, target });
 }
 
-// The form's "Through" select names a host or a VPN profile in one value.
-const through = (tn: Tunnel) => (tn.vpnId ? `vpn:${tn.vpnId}` : `host:${tn.hostId}`);
-const fromThrough = (v: string): Partial<Tunnel> =>
-  v.startsWith("vpn:") ? { hostId: "", vpnId: v.slice(4), kind: "local" } : { hostId: v.slice(5), vpnId: "" };
+const viaHost = (id: string) => `host:${id}`;
+const viaVpn = (id: string) => `vpn:${id}`;
+const through = (tn: Tunnel) => (tn.vpnId ? viaVpn(tn.vpnId) : viaHost(tn.hostId));
+const fromThrough = (v: string): Partial<Tunnel> => {
+  const id = v.slice(v.indexOf(":") + 1);
+  return v === viaVpn(id) ? { hostId: "", vpnId: id, kind: "local" } : { hostId: id, vpnId: "" };
+};
 
 const blank = (via: string): Tunnel => ({
   id: "",
@@ -102,7 +105,7 @@ export function TunnelsPanel() {
   const [editing, setEditing] = useState<Tunnel | null>(null);
   const { fail: connectFailed, dialog } = useConnect();
   const sshHosts = hosts.filter((h) => h.kind !== "rdp");
-  const firstVia = sshHosts[0] ? `host:${sshHosts[0].id}` : vpns[0] ? `vpn:${vpns[0].id}` : "";
+  const firstVia = sshHosts[0] ? viaHost(sshHosts[0].id) : vpns[0] ? viaVpn(vpns[0].id) : "";
 
   const fail = (e: unknown) => push("error", api.errorInfo(e).message);
   const reload = () => api.listTunnels().then(setTunnels).catch(fail);
@@ -230,7 +233,12 @@ function TunnelForm({
   const [draft, setDraft] = useState(tunnel);
   const set = (patch: Partial<Tunnel>) => setDraft((x) => ({ ...x, ...patch }));
   const external = !isLoopback(draft.bindHost.trim());
-  const viaVpn = !!draft.vpnId;
+  const throughVpn = !!draft.vpnId;
+  const dest: MessageKey = throughVpn
+    ? "tunnels.form.destFromVpn"
+    : draft.kind === "local"
+    ? "tunnels.form.destFromHost"
+    : "tunnels.form.destFromComputer";
   const where = t(draft.kind === "remote" ? "tunnels.form.onHost" : "tunnels.form.onComputer");
   const label = "text-xs text-muted flex flex-col gap-1";
   const dirty = JSON.stringify(draft) !== JSON.stringify(tunnel);
@@ -255,7 +263,7 @@ function TunnelForm({
               {hosts.length > 0 && (
                 <optgroup label={t("tunnels.form.sshHosts")}>
                   {hosts.map((h) => (
-                    <option key={h.id} value={`host:${h.id}`}>
+                    <option key={h.id} value={viaHost(h.id)}>
                       {h.alias}
                     </option>
                   ))}
@@ -264,7 +272,7 @@ function TunnelForm({
               {vpns.length > 0 && (
                 <optgroup label={t("tunnels.form.vpnProfiles")}>
                   {vpns.map((v) => (
-                    <option key={v.id} value={`vpn:${v.id}`}>
+                    <option key={v.id} value={viaVpn(v.id)}>
                       {v.name}
                     </option>
                   ))}
@@ -276,7 +284,7 @@ function TunnelForm({
             {t("tunnels.form.type")}
             <Select
               value={draft.kind}
-              disabled={viaVpn}
+              disabled={throughVpn}
               onChange={(e) => set({ kind: e.target.value as TunnelKind })}
             >
               {(Object.keys(KIND_LABEL) as TunnelKind[]).map((k) => (
@@ -307,13 +315,7 @@ function TunnelForm({
         {draft.kind !== "dynamic" && (
           <div className="grid grid-cols-[1fr_7rem] gap-3">
             <label className={label}>
-              {t(
-                viaVpn
-                  ? "tunnels.form.destFromVpn"
-                  : draft.kind === "local"
-                  ? "tunnels.form.destFromHost"
-                  : "tunnels.form.destFromComputer"
-              )}
+              {t(dest)}
               <Input required value={draft.targetHost} onChange={(e) => set({ targetHost: e.target.value })} />
             </label>
             <label className={label}>
@@ -347,7 +349,7 @@ function TunnelForm({
             </label>
           </div>
         )}
-        {viaVpn && <p className="text-xs text-muted">{t("tunnels.form.vpnNote")}</p>}
+        {throughVpn && <p className="text-xs text-muted">{t("tunnels.form.vpnNote")}</p>}
         <p className="text-xs text-muted">
           {t("tunnels.form.loopbackNote")}
         </p>

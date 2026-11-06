@@ -45,7 +45,6 @@ export const fr: Partial<Record<MessageKey, string>> = {
   "tunnels.empty.title": "Aucun tunnel",
   "tunnels.form.edit": "Modifier le tunnel",
   "tunnels.form.name": "Nom",
-  "tunnels.form.host": "Hôte",
   "tunnels.form.save": "Enregistrer",
   "rdp.connecting": "Connexion…",
   "rdp.disconnect": "Déconnecter",

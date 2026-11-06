@@ -43,7 +43,6 @@ export const zhTW: Partial<Record<MessageKey, string>> = {
   "tunnels.add": "新增隧道",
   "tunnels.empty.title": "尚無隧道",
   "tunnels.form.edit": "編輯隧道",
-  "tunnels.form.host": "主機",
   "tunnels.form.type": "類型",
   "tunnels.form.port": "連接埠",
   "tunnels.form.save": "儲存",

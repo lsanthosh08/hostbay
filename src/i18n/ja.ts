@@ -46,7 +46,6 @@ export const ja: Partial<Record<MessageKey, string>> = {
   "tunnels.empty.title": "トンネルがまだありません",
   "tunnels.form.edit": "トンネルを編集",
   "tunnels.form.name": "名前",
-  "tunnels.form.host": "ホスト",
   "tunnels.form.port": "ポート",
   "tunnels.form.save": "保存",
   "rdp.connecting": "接続中…",

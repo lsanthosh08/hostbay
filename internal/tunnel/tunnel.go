@@ -91,7 +91,7 @@ type Dialer func(ctx context.Context, addr string) (net.Conn, error)
 type Tunnel struct {
 	spec   Spec
 	cl     *ssh.Client // nil for a forward opened with OpenDial
-	dial   Dialer      // reaches the destination of a local or dynamic forward
+	dial   Dialer
 	ln     net.Listener
 	ctx    context.Context // cancelled at shutdown so pending dials give up
 	cancel context.CancelFunc

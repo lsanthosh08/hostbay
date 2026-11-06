@@ -43,7 +43,6 @@ export const zhCN: Partial<Record<MessageKey, string>> = {
   "tunnels.add": "新建隧道",
   "tunnels.empty.title": "还没有隧道",
   "tunnels.form.edit": "编辑隧道",
-  "tunnels.form.host": "主机",
   "tunnels.form.type": "类型",
   "tunnels.form.port": "端口",
   "tunnels.form.save": "保存",

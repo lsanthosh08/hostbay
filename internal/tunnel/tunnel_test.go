@@ -268,8 +268,8 @@ func TestOpenDialFailedDialClosesOnlyThatConnection(t *testing.T) {
 		t.Fatal(err)
 	}
 	c.SetReadDeadline(time.Now().Add(5 * time.Second))
-	if _, err := c.Read(make([]byte, 1)); err == nil {
-		t.Fatal("a connection whose dial failed stayed open")
+	if _, err := c.Read(make([]byte, 1)); !errors.Is(err, io.EOF) {
+		t.Fatalf("read = %v, want EOF: a connection whose dial failed stayed open", err)
 	}
 	fail.Store(false)
 	c, err = net.Dial("tcp", tn.Addr().String())

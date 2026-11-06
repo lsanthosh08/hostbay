@@ -45,7 +45,6 @@ export const ru: Partial<Record<MessageKey, string>> = {
   "tunnels.add": "Добавить туннель",
   "tunnels.empty.title": "Пока нет туннелей",
   "tunnels.form.edit": "Редактировать туннель",
-  "tunnels.form.host": "Хост",
   "tunnels.form.type": "Тип",
   "tunnels.form.port": "Порт",
   "tunnels.form.save": "Сохранить",

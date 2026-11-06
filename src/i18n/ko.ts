@@ -48,7 +48,6 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "tunnels.empty.title": "터널이 없습니다",
   "tunnels.form.edit": "터널 편집",
   "tunnels.form.name": "이름",
-  "tunnels.form.host": "호스트",
   "tunnels.form.port": "포트",
   "tunnels.form.save": "저장",
   "rdp.connecting": "연결 중…",
