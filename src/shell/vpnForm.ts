@@ -31,6 +31,24 @@ export const tierFor = (id: string) => typeOf(id)?.tier ?? "external";
 // The OpenConnect protocols (internal/vpn/openconnect/launch.go).
 const OPENCONNECT = ["anyconnect", "sslvpn", "globalprotect", "pulse", "nc", "f5", "array"];
 
+/** Whether the editor lets the user pick app-scoped or system-wide: OpenConnect profiles on macOS. */
+export const offersScope = (type: string, mac: boolean) => mac && OPENCONNECT.includes(type);
+
+/** System-wide runs password sign-in only; the other sign-ins stay app-scoped. */
+export const offersSystemWide = (type: string, auth: VpnAuth | "", mac: boolean) => offersScope(type, mac) && auth === "password";
+
+/** The tier a profile has after its type or sign-in changes: a chosen
+ *  system-wide tier stays while the new type and sign-in still offer it,
+ *  else the type's own tier. */
+export function tierAfterEdit(prev: { type: string; tier: string }, next: { type: string; auth: VpnAuth | "" }, mac: boolean): string {
+  if (prev.tier === "system" && offersScope(prev.type, mac)) return offersSystemWide(next.type, next.auth, mac) ? "system" : tierFor(next.type);
+  return prev.type === next.type ? prev.tier : tierFor(next.type);
+}
+
+/** What picking a scope changes: system-wide also turns on applying the
+ *  profile's routes, which nothing else would do for a system profile. */
+export const scopeChange = (tier: "app" | "system"): Partial<Vpn> => (tier === "system" ? { tier, autoApply: true } : { tier });
+
 export type { VpnAuth };
 export const AUTH_LABEL: Record<VpnAuth, MessageKey> = {
   password: "vpnForm.auth.password",

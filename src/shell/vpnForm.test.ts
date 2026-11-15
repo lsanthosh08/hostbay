@@ -2,7 +2,23 @@ import { describe, expect, it } from "vitest";
 import type { Host, Vpn } from "../api";
 import { en } from "../i18n/en";
 import { addTag } from "../components/TagEditor";
-import { FULL_TUNNEL, VPN_TYPES, filterVpns, isFullTunnel, tagCounts, tierFor, typeLabel, validateVpn, vpnAsksSecretAgain, authsFor, pickAuth } from "./vpnForm";
+import {
+  FULL_TUNNEL,
+  VPN_TYPES,
+  filterVpns,
+  isFullTunnel,
+  offersScope,
+  offersSystemWide,
+  scopeChange,
+  tagCounts,
+  tierAfterEdit,
+  tierFor,
+  typeLabel,
+  validateVpn,
+  vpnAsksSecretAgain,
+  authsFor,
+  pickAuth,
+} from "./vpnForm";
 
 const vpn = (over: Partial<Vpn> = {}): Vpn => ({
   id: "v1",
@@ -54,6 +70,55 @@ describe("VPN types", () => {
   });
 });
 
+describe("system-wide OpenConnect", () => {
+  it("shows the scope choice for OpenConnect types on macOS only", () => {
+    for (const ty of ["sslvpn", "anyconnect", "globalprotect", "pulse", "f5", "array"]) {
+      expect(offersScope(ty, true), ty).toBe(true);
+      expect(offersScope(ty, false), ty).toBe(false);
+    }
+    for (const ty of ["wireguard", "openvpn", "ipsec", "tailscale", "zerotier"]) expect(offersScope(ty, true), ty).toBe(false);
+  });
+
+  it("offers system-wide only for password sign-in", () => {
+    expect(offersSystemWide("sslvpn", "password", true)).toBe(true);
+    expect(offersSystemWide("anyconnect", "browser", true)).toBe(false);
+    expect(offersSystemWide("anyconnect", "otp", true)).toBe(false);
+    expect(offersSystemWide("sslvpn", "certificate", true)).toBe(false);
+    expect(offersSystemWide("sslvpn", "password", false)).toBe(false);
+  });
+
+  it("turns on applying routes when system-wide is chosen, and leaves it when app-scoped is", () => {
+    expect(scopeChange("system")).toEqual({ tier: "system", autoApply: true });
+    expect(scopeChange("app")).toEqual({ tier: "app" });
+  });
+
+  it("keeps a chosen system-wide tier across OpenConnect types and drops it elsewhere", () => {
+    const chosen = { type: "sslvpn", tier: "system" };
+    expect(tierAfterEdit(chosen, { type: "anyconnect", auth: "password" }, true)).toBe("system");
+    expect(tierAfterEdit(chosen, { type: "wireguard", auth: "" }, true)).toBe("app");
+    expect(tierAfterEdit(chosen, { type: "openvpn", auth: "password" }, true)).toBe("system");
+    expect(tierAfterEdit(chosen, { type: "zerotier", auth: "" }, true)).toBe("external");
+  });
+
+  it("returns a system-wide profile to app-scoped when its sign-in stops being a password", () => {
+    const chosen = { type: "anyconnect", tier: "system" };
+    for (const auth of ["browser", "otp", "certificate"] as const) expect(tierAfterEdit(chosen, { type: "anyconnect", auth }, true), auth).toBe("app");
+    expect(tierAfterEdit(chosen, { type: "sslvpn", auth: "password" }, true)).toBe("system");
+  });
+
+  it("does not carry OpenVPN's own system tier into an OpenConnect type", () => {
+    expect(tierAfterEdit({ type: "openvpn", tier: "system" }, { type: "sslvpn", auth: "password" }, true)).toBe("app");
+  });
+
+  it("leaves an app-scoped profile app-scoped, and behaves as before off macOS", () => {
+    expect(tierAfterEdit({ type: "sslvpn", tier: "app" }, { type: "anyconnect", auth: "password" }, true)).toBe("app");
+    expect(tierAfterEdit({ type: "sslvpn", tier: "app" }, { type: "sslvpn", auth: "otp" }, true)).toBe("app");
+    expect(tierAfterEdit({ type: "sslvpn", tier: "system" }, { type: "sslvpn", auth: "otp" }, false)).toBe("system");
+    expect(tierAfterEdit({ type: "sslvpn", tier: "system" }, { type: "anyconnect", auth: "password" }, false)).toBe(tierFor("anyconnect"));
+    expect(tierFor("sslvpn")).toBe("app");
+  });
+});
+
 describe("VPN form", () => {
   it("accepts a complete WireGuard profile", () => {
     expect(validateVpn(vpn())).toEqual({});
@@ -84,6 +149,7 @@ describe("VPN form", () => {
     const saved = vpn({ type: "sslvpn", user: "me", auth: "password" });
     expect(vpnAsksSecretAgain(saved, { ...saved, gateway: "other.example" })).toBe(true);
     expect(vpnAsksSecretAgain(saved, { ...saved, user: "you" })).toBe(true);
+    expect(vpnAsksSecretAgain(saved, { ...saved, tier: "system" })).toBe(true);
     expect(vpnAsksSecretAgain(saved, { ...saved, peerKey: "other" })).toBe(true);
     expect(vpnAsksSecretAgain(saved, { ...saved, name: "renamed", port: 4443 })).toBe(false);
     expect(vpnAsksSecretAgain(saved, { ...saved, gateway: "other.example", password: "new" })).toBe(false);

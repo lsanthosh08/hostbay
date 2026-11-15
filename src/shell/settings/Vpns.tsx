@@ -6,6 +6,7 @@ import { TagEditor } from "../../components/TagEditor";
 import { VpnImport } from "../../components/VpnImport";
 import { openApp } from "../../dialogs";
 import { t } from "../../i18n";
+import { isMac } from "../../platform";
 import { useHosts } from "../../state/hosts";
 import { Button } from "../../ui/Button";
 import { Dialog } from "../../ui/Dialog";
@@ -25,8 +26,11 @@ import {
   hasRouting,
   isFullTunnel,
   needsGateway,
+  offersScope,
+  offersSystemWide,
   pickAuth,
-  tierFor,
+  scopeChange,
+  tierAfterEdit,
   typeLabel,
   validCidr,
   validDomain,
@@ -377,7 +381,7 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
           <Field label={t("vpnForm.name")} error={err("name")}>
             <Input className="w-full" autoFocus value={v.name} aria-invalid={!!err("name")} onChange={(e) => set({ name: e.target.value })} />
           </Field>
-          <Field label={t("vpnForm.type")} hint={tierFor(v.type) === "system" ? t("vpnForm.typeLater") : undefined}>
+          <Field label={t("vpnForm.type")} hint={v.tier === "system" ? t("vpnForm.typeLater") : undefined}>
             <Select
               className="w-full"
               value={v.type}
@@ -387,7 +391,8 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
                 // sign-in the new type lacks is dropped, and so are typed
                 // secrets, so one type's key never reaches another's field.
                 const port = (v.port ?? 0) === defaultPort(v.type) ? defaultPort(type) : v.port;
-                set({ ...noSecrets, type, tier: tierFor(type), port, auth: pickAuth(type, v.auth) });
+                const auth = pickAuth(type, v.auth);
+                set({ ...noSecrets, type, tier: tierAfterEdit(v, { type, auth }, isMac()), port, auth });
               }}
             >
               {VPN_TYPES.map((ty) => (
@@ -500,7 +505,14 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label={t("vpnForm.auth")}>
-                <Select className="w-full" value={auth} onChange={(e) => set({ auth: e.target.value as VpnAuth })}>
+                <Select
+                  className="w-full"
+                  value={auth}
+                  onChange={(e) => {
+                    const next = e.target.value as VpnAuth;
+                    set({ auth: next, tier: tierAfterEdit(v, { type: v.type, auth: next }, isMac()) });
+                  }}
+                >
                   {auths.map((a) => (
                     <option key={a} value={a}>
                       {t(AUTH_LABEL[a])}
@@ -556,6 +568,19 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
             {auth === "browser" && <p className="text-xs text-muted">{t("vpnForm.browserHint")}</p>}
             {v.type === "ipsec" && secret(t("vpnForm.presharedKey"), "presharedKey")}
           </>
+        )}
+        {offersScope(v.type, isMac()) && !external && (
+          <Field label={t("vpnForm.scope")} hint={t("vpnForm.scopeHint")}>
+            <SegmentedControl
+              label={t("vpnForm.scope")}
+              value={v.tier === "system" ? "system" : "app"}
+              options={[
+                { value: "app", label: t("vpnForm.scope.app") },
+                { value: "system", label: t("vpnForm.scope.system"), disabled: !offersSystemWide(v.type, auth, true) },
+              ]}
+              onChange={(tier) => set(scopeChange(tier))}
+            />
+          </Field>
         )}
         {vpnAsksSecretAgain(start, v) && <p className="text-xs text-warning">{t("vpnForm.secretAgain")}</p>}
 
