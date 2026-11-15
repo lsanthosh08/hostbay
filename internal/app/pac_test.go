@@ -27,6 +27,12 @@ type pacEnv struct {
 	f   *fakeHelper
 	// down makes the helper unreachable until it is cleared.
 	down atomic.Bool
+
+	// The service's loop reads its hooks while it runs, so a test changes
+	// what they report through these, not by replacing the hooks.
+	mu       sync.Mutex
+	override string   // another proxy configuration macOS applies instead, if set
+	last     PACState // the last state event
 }
 
 // newPACEnv is the office profile, app-scoped through the fake VPN helper,
@@ -45,11 +51,24 @@ func newPACEnv(t *testing.T) *pacEnv {
 	}
 	e.svc = NewPACService(e.vpn.svc.st, e.vpn.svc, e.nd)
 	e.svc.local = func() []netip.Prefix { return nil }
-	// macOS applies whatever the helper set.
+	// macOS applies whatever the helper set, unless overridden.
 	e.svc.effective = func() (string, bool, error) {
+		e.mu.Lock()
+		url := e.override
+		e.mu.Unlock()
+		if url != "" {
+			return url, true, nil
+		}
 		e.f.mu.Lock()
 		defer e.f.mu.Unlock()
 		return e.f.proxy, e.f.proxy != "", nil
+	}
+	e.svc.emit = func(name string, data any) {
+		if st, ok := data.(PACState); ok {
+			e.mu.Lock()
+			e.last = st
+			e.mu.Unlock()
+		}
 	}
 	e.svc.ServiceStartup(context.Background(), application.ServiceOptions{})
 	e.nd.ServiceStartup(context.Background(), application.ServiceOptions{})
@@ -228,14 +247,21 @@ func TestPACReportsAnOverridingProxy(t *testing.T) {
 	v := e.vpn.save(t, false)
 	e.vpn.svc.ConnectVPN(context.Background(), v.ID)
 	url := e.proxyIs(t, true)
-	e.svc.effective = func() (string, bool, error) { return url, true, nil }
+	e.overrideWith(url)
 	if st := e.svc.State(); st.State != PACSet {
 		t.Fatalf("state %+v", st)
 	}
-	e.svc.effective = func() (string, bool, error) { return "http://proxy.corp.example/proxy.pac", true, nil }
+	e.overrideWith("http://proxy.corp.example/proxy.pac")
 	if st := e.svc.State(); st.State != PACOverridden {
 		t.Fatalf("state %+v", st)
 	}
+}
+
+// overrideWith makes macOS apply another proxy configuration, url.
+func (e *pacEnv) overrideWith(url string) {
+	e.mu.Lock()
+	e.override = url
+	e.mu.Unlock()
 }
 
 // stateIs waits until State reports want.
@@ -313,22 +339,15 @@ func TestPACReportsARefusedChangeAndRetries(t *testing.T) {
 // The state event carries an override, as State does.
 func TestPACEventsReportAnOverride(t *testing.T) {
 	e := newPACEnv(t)
-	var mu sync.Mutex
-	var last PACState
-	e.svc.emit = func(name string, data any) {
-		mu.Lock()
-		defer mu.Unlock()
-		last = data.(PACState)
-	}
-	e.svc.effective = func() (string, bool, error) { return "http://proxy.corp.example/proxy.pac", true, nil }
+	e.overrideWith("http://proxy.corp.example/proxy.pac")
 	v := e.vpn.save(t, false)
 	e.vpn.svc.ConnectVPN(context.Background(), v.ID)
 	e.proxyIs(t, true)
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		mu.Lock()
-		st := last.State
-		mu.Unlock()
+		e.mu.Lock()
+		st := e.last.State
+		e.mu.Unlock()
 		if st == PACOverridden {
 			return
 		}
