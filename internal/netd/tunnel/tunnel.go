@@ -1,4 +1,4 @@
-// Package tunnel runs hostbay-netd's system-wide tunnels (U12, KTD8):
+// Package tunnel runs hostbay-netd's system-wide tunnels:
 // OpenVPN from a configuration the helper writes itself, OpenConnect on a
 // Wintun adapter on Windows or a utun on macOS, and WireGuard on a real
 // TUN. Only cmd/hostbay-netd imports it, which keeps WireGuard out of

@@ -22,7 +22,7 @@ import (
 	"hostbay/internal/vpn/proto"
 )
 
-// System-wide profiles (U12) run through hostbay-netd: OpenVPN, WireGuard,
+// System-wide profiles run through hostbay-netd: OpenVPN, WireGuard,
 // and the OpenConnect types, which on Windows have no unprivileged mode and
 // on macOS are system-wide when the profile says so. IKEv2 and L2TP
 // ("ipsec") run through the operating system's own VPN service. Their
@@ -165,11 +165,13 @@ func (t *netdTunnel) askCode() (string, error) {
 // helper's tunnel events.
 func (s *VPNService) startTunnel(v *store.VPN, sec store.VPNSecrets, up func(string, []string), rep func(proto.Msg)) (systemRun, error) {
 	// openconnect runs --non-inter under the helper: no browser, no code prompt.
-	if proto.IsOpenConnect(v.Type) {
-		if why := map[string]string{"browser": "in the browser", "otp": "with a one-time code"}[v.Auth]; why != "" {
-			return nil, apperr.New(apperr.VPNFailed, fmt.Sprintf("VPN %s cannot sign in %s while it runs system-wide; only password sign-in works there", v.Name, why)).
-				With("vpnId", v.ID).With("reason", "unsupported")
+	if proto.IsOpenConnect(v.Type) && (v.Auth == "browser" || v.Auth == "otp") {
+		why := "in the browser"
+		if v.Auth == "otp" {
+			why = "with a one-time code"
 		}
+		return nil, apperr.New(apperr.VPNFailed, fmt.Sprintf("VPN %s cannot sign in %s while it runs system-wide; only password sign-in works there", v.Name, why)).
+			With("vpnId", v.ID).With("reason", "unsupported")
 	}
 	var c tunnelClient
 	if s.tunnels != nil {
