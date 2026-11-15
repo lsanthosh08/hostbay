@@ -294,6 +294,7 @@ func (s *RoutingService) reapply(ctx context.Context) time.Duration {
 		s.last[key], run[key] = now, true
 	}
 	s.mu.Unlock()
+	s.dropStalePins(ctx, connected)
 	var changes []routing.Change
 	for _, c := range plan.Changes {
 		if c.Kind == routing.KindPin || run[c.Profile] {
@@ -313,6 +314,29 @@ func (s *RoutingService) reapply(ctx context.Context) time.Duration {
 		s.mu.Unlock()
 	}
 	return held
+}
+
+// dropStalePins deletes the gateway pins of profiles that are no longer
+// connected; unlike a tunnel's routes, a pin does not go with an interface.
+func (s *RoutingService) dropStalePins(ctx context.Context, connected map[string]bool) {
+	c := s.netd.client()
+	s.mu.Lock()
+	var stale []routing.Change
+	for _, a := range s.added {
+		if a.Kind == routing.KindPin && !connected[a.Profile] {
+			stale = append(stale, a)
+		}
+	}
+	s.mu.Unlock()
+	for _, a := range stale {
+		if err := c.Delete(ctx, a.Route()); err == nil || routeGone(err) {
+			s.mu.Lock()
+			s.added = slices.DeleteFunc(s.added, func(x routing.Change) bool {
+				return x.Kind == routing.KindPin && x.Profile == a.Profile && x.Dst == a.Dst
+			})
+			s.mu.Unlock()
+		}
+	}
 }
 
 // plan builds the plan from the saved profiles, with profile id's mode
@@ -377,13 +401,13 @@ func (s *RoutingService) plan(ctx context.Context, id, mode string) (routing.Pla
 		if vpnTier(*v) == store.VPNTierSystem && st.Iface != "" {
 			in.Labels = append(in.Labels, detect.Labeled{Tunnel: detect.Tunnel{Iface: st.Iface}, Profile: v.ID})
 		}
-		// An app-scoped profile's gateway, and a system-wide WireGuard peer, are
-		// reached through the physical network; behind another full tunnel their
-		// packets would loop into it. (OpenVPN keeps its own server off the
-		// tunnel with a route of its own.)
+		// An app-scoped profile's gateway, and a system-wide WireGuard peer or
+		// OpenConnect gateway, are reached through the physical network; behind
+		// another full tunnel their packets would loop into it. (OpenVPN keeps
+		// its own server off the tunnel with a route of its own.)
 		app := vpnTier(*v) == store.VPNTierApp && v.Type != proto.TypeTailscale
-		wg := vpnTier(*v) == store.VPNTierSystem && v.Type == proto.TypeWireGuard
-		if (app || wg) && v.Gateway != "" {
+		sys := vpnTier(*v) == store.VPNTierSystem && (v.Type == proto.TypeWireGuard || proto.IsOpenConnect(v.Type))
+		if (app || sys) && v.Gateway != "" {
 			host, _, _ := strings.Cut(v.Gateway, "/") // an AnyConnect gateway may carry a /group path
 			as, _ := s.resolve(ctx, host)
 			for _, a := range as {

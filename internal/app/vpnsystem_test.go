@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -846,5 +847,194 @@ func TestResetLeavesSystemWideVPNConnected(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	if st := stateOf(e.vpn.svc, v.ID); st.Status != VPNConnected {
 		t.Fatalf("after reset the system-wide VPN is %+v", st)
+	}
+}
+
+// saveSystemOpenConnect saves a system-wide Fortinet profile, as macOS
+// offers one, with the networks Corp Internal routes.
+func saveSystemOpenConnect(t *testing.T, s *VPNService, mod func(*VPN)) VPN {
+	t.Helper()
+	pw := "pw"
+	v := VPN{Name: "Corp Internal", Type: "sslvpn", Tier: store.VPNTierSystem, Gateway: "vpn.example.test", User: "bob", Auth: "password", Password: &pw,
+		Routes: []string{"10.62.0.0/16", "172.16.58.0/24"}, AutoApply: flag(true)}
+	if mod != nil {
+		mod(&v)
+	}
+	v, err := s.SaveVPN(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+func onDarwin(t *testing.T) {
+	old := vpnGOOS
+	vpnGOOS = "darwin"
+	t.Cleanup(func() { vpnGOOS = old })
+}
+
+// On macOS a system-wide OpenConnect profile runs under the helper and an
+// app-scoped one still runs under hostbay-vpn.
+func TestDarwinOpenConnectFollowsItsTier(t *testing.T) {
+	onDarwin(t)
+	for _, tier := range []string{store.VPNTierSystem, store.VPNTierApp} {
+		t.Run(tier, func(t *testing.T) {
+			e := newVPNEnv(t, vpntest.OK)
+			f := useTunnels(e.svc)
+			f.reply = func(m netd.Msg) (netd.Msg, error) {
+				go f.event(netd.Msg{Tunnel: m.Tunnel, State: netd.TunnelUp, Iface: "utun7", Address: []string{"10.62.0.9/32"}})
+				return netd.Msg{Iface: "utun7"}, nil
+			}
+			v := saveSystemOpenConnect(t, e.svc, func(v *VPN) { v.Tier = tier })
+			if _, err := e.svc.ConnectVPN(context.Background(), v.ID); err != nil {
+				t.Fatal(err)
+			}
+			helper, app := f.started(), len(e.fake.Starts(t))
+			if (tier == store.VPNTierSystem) != (helper == 1 && app == 0) || (tier == store.VPNTierApp) != (helper == 0 && app == 1) {
+				t.Fatalf("%s: %d helper starts, %d hostbay-vpn starts", tier, helper, app)
+			}
+			if tier == store.VPNTierSystem && f.starts[0].T != netd.OpenConnectStart {
+				t.Fatalf("start %+v", f.starts[0])
+			}
+		})
+	}
+}
+
+// A system-wide OpenConnect profile on macOS gets its routes on the
+// helper's utun and its gateway pinned past a full tunnel, so openconnect's
+// own TLS never enters it; disconnecting takes the pin away, and the
+// interface takes the routes.
+func TestSystemWideOpenConnectRoutesAndGatewayPin(t *testing.T) {
+	onDarwin(t)
+	e := newRoutingEnv(t)
+	sase := e.sase
+	sase.AutoApply, sase.RoutingMode = flag(false), routing.Full
+	if _, err := e.vpn.svc.SaveVPN(sase); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.resolve = func(context.Context, string) ([]netip.Addr, error) {
+		return []netip.Addr{netip.MustParseAddr("203.0.113.7")}, nil
+	}
+	ft := &fakeTunnels{}
+	e.nd.dial = func(context.Context) (netdClient, error) {
+		e.f.reopen()
+		return tunnelHelper{e.f, ft}, nil
+	}
+	ft.reply = func(m netd.Msg) (netd.Msg, error) {
+		go ft.event(netd.Msg{Tunnel: m.Tunnel, State: netd.TunnelUp, Iface: "utun7", Address: []string{"10.62.0.9/32"}})
+		return netd.Msg{Iface: "utun7"}, nil
+	}
+	e.start(t)
+	e.settle(t, 0)
+	if _, err := e.svc.Apply(context.Background(), "", ""); err != nil || !e.has("0.0.0.0/1", "utun4") {
+		t.Fatalf("full tunnel: %v", err)
+	}
+	v := saveSystemOpenConnect(t, e.vpn.svc, nil)
+	if _, err := e.vpn.svc.ConnectVPN(context.Background(), v.ID); err != nil {
+		t.Fatal(err)
+	}
+	pinned := func() bool {
+		rs, _ := e.f.Routes()
+		return slices.ContainsFunc(rs, func(r netd.SysRoute) bool { return r.Dst.String() == "203.0.113.7/32" && r.Iface == "en0" })
+	}
+	waitFor(t, func() bool { return pinned() && e.has("10.62.0.0/16", "utun7") && e.has("172.16.58.0/24", "utun7") })
+	e.vpn.svc.DisconnectVPN(v.ID)
+	waitFor(t, func() bool { return !pinned() })
+}
+
+// Two profiles on one gateway share its pin: disconnecting one leaves the
+// pin the other still needs.
+func TestSharedGatewayPinOutlivesOneProfile(t *testing.T) {
+	onDarwin(t)
+	e := newRoutingEnv(t)
+	sase := e.sase
+	sase.AutoApply, sase.RoutingMode = flag(false), routing.Full
+	if _, err := e.vpn.svc.SaveVPN(sase); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.resolve = func(context.Context, string) ([]netip.Addr, error) {
+		return []netip.Addr{netip.MustParseAddr("203.0.113.7")}, nil
+	}
+	ft := &fakeTunnels{}
+	e.nd.dial = func(context.Context) (netdClient, error) {
+		e.f.reopen()
+		return tunnelHelper{e.f, ft}, nil
+	}
+	var n atomic.Int32
+	ft.reply = func(m netd.Msg) (netd.Msg, error) {
+		iface := fmt.Sprintf("utun%d", 7+n.Add(1))
+		go ft.event(netd.Msg{Tunnel: m.Tunnel, State: netd.TunnelUp, Iface: iface, Address: []string{"10.62.0.9/32"}})
+		return netd.Msg{Iface: iface}, nil
+	}
+	e.start(t)
+	e.settle(t, 0)
+	od := saveSystemOpenConnect(t, e.vpn.svc, nil)
+	branch := saveSystemOpenConnect(t, e.vpn.svc, func(v *VPN) { v.Name, v.Routes = "Branch", []string{"10.71.0.0/16"} })
+	pinned := func() bool {
+		rs, _ := e.f.Routes()
+		return slices.ContainsFunc(rs, func(r netd.SysRoute) bool { return r.Dst.String() == "203.0.113.7/32" && r.Iface == "en0" })
+	}
+	for _, v := range []VPN{od, branch} {
+		if _, err := e.vpn.svc.ConnectVPN(context.Background(), v.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitFor(t, func() bool { return pinned() && e.has("10.71.0.0/16", "utun9") })
+	e.vpn.svc.DisconnectVPN(od.ID)
+	waitFor(t, func() bool { return stateOf(e.vpn.svc, od.ID).Status == VPNDisconnected })
+	if _, err := e.svc.Apply(context.Background(), "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if !pinned() {
+		t.Fatal("the gateway pin Branch still needs was deleted with Corp Internal's")
+	}
+}
+
+// A host bound to a system-wide OpenConnect profile connects it and dials
+// through its route.
+func TestHostOnASystemWideOpenConnectDialsThroughItsRoute(t *testing.T) {
+	onDarwin(t)
+	srv := newCountingServer(t)
+	c, s, _ := vpnConn(t, vpntest.OK, srv.knownLine())
+	f := useTunnels(c.creds.vpns)
+	lo := loopback(t) // the tunnel's address is loopback's, which routes the server
+	f.reply = func(m netd.Msg) (netd.Msg, error) {
+		go f.event(netd.Msg{Tunnel: m.Tunnel, State: netd.TunnelUp, Iface: lo, Address: []string{"127.0.0.1/32"}})
+		return netd.Msg{Iface: lo}, nil
+	}
+	v := saveSystemOpenConnect(t, c.creds.vpns, nil)
+	form := srv.form("pw")
+	form.VPNID = &v.ID
+	h, err := s.SaveHost(form)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Connect(context.Background(), h.ID); err != nil {
+		t.Fatal(err)
+	}
+	if srv.conns.Load() != 1 || stateOf(c.creds.vpns, v.ID).Status != VPNConnected {
+		t.Fatalf("server saw %d connections, state %+v", srv.conns.Load(), stateOf(c.creds.vpns, v.ID))
+	}
+}
+
+// The helper runs openconnect with --non-inter and no browser, so a
+// profile that signs in in the browser or with a one-time code is refused
+// before the helper hears of it.
+func TestSystemWideOpenConnectRefusesSignInsItCannotRun(t *testing.T) {
+	onDarwin(t)
+	for auth, want := range map[string]string{"browser": "browser", "otp": "one-time code"} {
+		t.Run(auth, func(t *testing.T) {
+			e := newVPNEnv(t, vpntest.OK)
+			f := useTunnels(e.svc)
+			f.reply = func(netd.Msg) (netd.Msg, error) { return netd.Msg{}, errors.New("the helper was asked") }
+			v := saveSystemOpenConnect(t, e.svc, func(v *VPN) { v.Type, v.Auth = "anyconnect", auth })
+			_, err := e.svc.ConnectVPN(context.Background(), v.ID)
+			if ae := vpnCode(t, err, apperr.VPNFailed, v.ID); !strings.Contains(ae.Message, want) {
+				t.Fatalf("message %q does not name %q", ae.Message, want)
+			}
+			if n := f.started() + len(e.fake.Starts(t)); n != 0 {
+				t.Fatalf("%d starts of a profile that cannot sign in", n)
+			}
+		})
 	}
 }
