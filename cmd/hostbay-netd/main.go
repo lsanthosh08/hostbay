@@ -7,7 +7,7 @@
 //	hostbay-netd serve            run the helper (the daemon does this)
 //	hostbay-netd install [<uid>]  install and pair with the hostbay beside it (as root)
 //	hostbay-netd uninstall        stop and remove the installed helper (as root)
-//	hostbay-netd oc-script        openconnect's script for a system-wide run (Windows)
+//	hostbay-netd oc-script [<utun>]  openconnect's script for a system-wide run (the utun on macOS)
 //
 // install takes the installing user's uid on macOS and SID on Windows; on
 // Linux pkexec supplies it.
@@ -53,7 +53,7 @@ func run(args []string) error {
 	case "uninstall":
 		return netd.TearDown()
 	case "oc-script":
-		return tunnel.Script()
+		return tunnel.Script(args[1:])
 	}
 	return fmt.Errorf("unknown command %q", args[0])
 }

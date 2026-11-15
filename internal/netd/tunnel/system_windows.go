@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"strconv"
 
 	"golang.zx2c4.com/wintun"
@@ -24,6 +25,12 @@ func setAddrs(dev tun.Device, _ string, addrs []netip.Prefix) error {
 	return winipcfg.LUID(nt.LUID()).SetIPAddresses(addrs)
 }
 
+// ocTarget is the Wintun adapter openconnect runs on and its script, the
+// helper itself, a command line Windows runs without a shell.
+func ocTarget(dir, h string) (iface, script, caFile string, err error) {
+	return tunName(h), `"` + filepath.Join(dir, "hostbay-netd.exe") + `" oc-script`, "", nil
+}
+
 // createAdapter creates the Wintun adapter openconnect opens by name;
 // closing it removes it.
 func createAdapter(name string) (io.Closer, error) {
@@ -38,7 +45,7 @@ func createAdapter(name string) (io.Closer, error) {
 // puts the tunnel's addresses, from openconnect's environment (see
 // vpnc-script), on the adapter. Routes come from Hostbay (U11); nothing
 // else is changed.
-func Script() error {
+func Script([]string) error {
 	if os.Getenv("reason") != "connect" {
 		return nil
 	}

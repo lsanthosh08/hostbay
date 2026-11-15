@@ -14,8 +14,8 @@
 // route through a tunnel interface or the local default gateway, set a tunnel
 // interface's MTU, start or stop a system-wide tunnel: OpenVPN
 // from a configuration it writes itself, OpenConnect on a Wintun adapter on
-// Windows, or WireGuard on a real TUN, and point the system's automatic
-// proxy at Hostbay's loopback PAC. Every route it adds, every vendor route
+// Windows or a utun on macOS, or WireGuard on a real TUN, and point the
+// system's automatic proxy at Hostbay's loopback PAC. Every route it adds, every vendor route
 // it deletes and every proxy setting it changes is journaled first and
 // swept back when Hostbay disconnects or the helper restarts (journal.go);
 // every tunnel stops then too.
@@ -33,10 +33,10 @@ import (
 // what the helper accepts in them (3: OpenVPN profiles need a CA or peer
 // fingerprint, and peer-fingerprint is allowed; 4: static-challenge is
 // allowed, for profiles that ask for a one-time code; 5: the automatic proxy
-// can be set and cleared). A helper and a Hostbay that
-// disagree refuse each other with CodeVersion, and Hostbay offers to
-// reinstall the helper.
-const Version = 5
+// can be set and cleared; 6: OpenConnect runs system-wide on macOS too). A
+// helper and a Hostbay that disagree refuse each other with CodeVersion, and
+// Hostbay offers to reinstall the helper.
+const Version = 6
 
 // Message tags.
 const (
@@ -51,7 +51,7 @@ const (
 	// Tunnel; the helper's TunnelEvent messages and Hostbay's StopTunnel
 	// name it too. A helper built without tunnels answers CodeUnsupported.
 	OpenVPNStart     = "openvpn-start"     // Hostbay: Tunnel, OpenVPN; reply: Mgmt, MgmtPass
-	OpenConnectStart = "openconnect-start" // Hostbay: Tunnel, OpenConnect (Windows)
+	OpenConnectStart = "openconnect-start" // Hostbay: Tunnel, OpenConnect (macOS, Windows)
 	WireGuardStart   = "wireguard-start"   // Hostbay: Tunnel, WireGuard
 	StopTunnel       = "tunnel-stop"       // Hostbay: Tunnel
 	TunnelEvent      = "tunnel"            // helper: Tunnel, State, and Iface and Address when up, Reason when ended
@@ -142,8 +142,9 @@ type Msg struct {
 	Reason string `json:"reason,omitempty"`
 }
 
-// OpenConnect is a system-wide OpenConnect run (Windows): the hostbay-vpn
-// start message's type, Config and password, checked the same way.
+// OpenConnect is a system-wide OpenConnect run (macOS, Windows): the
+// hostbay-vpn start message's type, Config and password, checked the same
+// way.
 type OpenConnect struct {
 	Type     string `json:"type"`
 	Config   string `json:"config"`

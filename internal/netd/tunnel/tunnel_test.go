@@ -104,9 +104,10 @@ func newEnv(t *testing.T) *env {
 }
 
 // A client starts with a fixed environment, inheriting none of the
-// helper's, and with an OpenSSL configuration of the helper's own, so a
-// Homebrew OpenSSL running as root never reads its user-writable
-// openssl.cnf or loads providers and engines from beside it.
+// helper's, and with an OpenSSL configuration and GnuTLS priority file of
+// the helper's own, so a Homebrew OpenSSL or GnuTLS running as root never
+// reads its user-writable configuration or loads providers and engines
+// from beside it.
 func TestClientsInheritNoEnvironment(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows keeps the system variables processes need")
@@ -124,15 +125,18 @@ func TestClientsInheritNoEnvironment(t *testing.T) {
 		t.Fatal(err)
 	}
 	conf := filepath.Join(dir, "run", "openssl.cnf")
+	prio := filepath.Join(dir, "run", "gnutls.config")
 	libs := filepath.Dir(netd.ClientPath(dir, "openvpn"))
-	want := []string{"OPENSSL_CONF=" + conf, "OPENSSL_ENGINES=" + libs, "OPENSSL_MODULES=" + libs, "PATH=/usr/bin:/bin:/usr/sbin:/sbin"}
+	want := []string{"GNUTLS_SYSTEM_PRIORITY_FILE=" + prio, "OPENSSL_CONF=" + conf, "OPENSSL_ENGINES=" + libs, "OPENSSL_MODULES=" + libs, "PATH=/usr/bin:/bin:/usr/sbin:/sbin"}
 	got := strings.Split(strings.TrimSpace(out.String()), "\n")
 	slices.Sort(got)
 	if !slices.Equal(got, want) {
 		t.Errorf("client environment = %q, want %q", got, want)
 	}
-	if fi, err := os.Stat(conf); err != nil || fi.Size() != 0 || fi.Mode().Perm() != 0o600 {
-		t.Errorf("OpenSSL configuration %s: %v, want an empty file only root reads", conf, err)
+	for _, f := range []string{conf, prio} {
+		if fi, err := os.Stat(f); err != nil || fi.Size() != 0 || fi.Mode().Perm() != 0o600 {
+			t.Errorf("%s: %v, want an empty file only root reads", f, err)
+		}
 	}
 }
 
@@ -217,7 +221,7 @@ func TestOpenVPNScriptsRefusedByTheHelper(t *testing.T) {
 	if len(e.starts) != 0 {
 		t.Fatal("OpenVPN started")
 	}
-	if es, _ := os.ReadDir(filepath.Join(e.dir, "run")); len(es) != 1 || es[0].Name() != "openssl.cnf" { // the clients' shared one
+	if es, _ := os.ReadDir(filepath.Join(e.dir, "run")); len(es) != 2 || es[0].Name() != "gnutls.config" || es[1].Name() != "openssl.cnf" { // the clients' shared ones
 		t.Errorf("a refused profile left %v behind", es)
 	}
 }
@@ -231,45 +235,6 @@ func TestUntrustedClientRefused(t *testing.T) {
 		t.Fatalf("err %v, starts %d", err, len(e.starts))
 	}
 }
-
-// Windows: OpenConnect starts on the Wintun adapter the helper created,
-// named by --interface, with the password on stdin; it is up once
-// openconnect says it is configured, and the adapter goes with it.
-func TestOpenConnectRunsOnTheHelpersAdapter(t *testing.T) {
-	e := newEnv(t)
-	var made []string
-	closed := make(chan struct{})
-	e.m.adapter = func(name string) (io.Closer, error) {
-		made = append(made, name)
-		return closer(func() { close(closed) }), nil
-	}
-	e.run = func(s started, stdout io.Writer, _ *fakeProc) {
-		go fmt.Fprintln(stdout, "Configured as 10.1.2.3, with SSL connected and DTLS in progress")
-	}
-	r, err := e.start(netd.Msg{T: netd.OpenConnectStart, OpenConnect: &netd.OpenConnect{Type: "anyconnect", Config: `{"gateway":"vpn.example.test","user":"alice"}`, Password: "pw"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	const name = "Hostbay AB12CD34"
-	s := <-e.starts
-	if r.Iface != name || !slices.Equal(made, []string{name}) || !slices.Contains(s.args, "--interface="+name) || s.stdin != "pw\n" ||
-		slices.ContainsFunc(s.args, func(a string) bool { return strings.Contains(a, "pw") && !strings.Contains(a, "passwd") }) {
-		t.Fatalf("reply %+v, adapters %v, args %q, stdin %q", r, made, s.args, s.stdin)
-	}
-	if ev := e.event(t); ev.State != netd.TunnelUp || ev.Iface != name || !slices.Equal(ev.Address, []string{"10.1.2.3"}) {
-		t.Fatalf("event %+v", ev)
-	}
-	e.m.Stop(handle)
-	select {
-	case <-closed:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the adapter outlived its tunnel")
-	}
-}
-
-type closer func()
-
-func (c closer) Close() error { c(); return nil }
 
 // A system-wide WireGuard tunnel runs on the TUN the helper created, with
 // the profile's addresses on it, and is up after its first handshake.

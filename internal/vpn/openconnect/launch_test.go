@@ -199,7 +199,7 @@ func TestParseNet(t *testing.T) {
 // adapter by --interface, no --script-tun, and still no password in argv.
 func TestSystemArgs(t *testing.T) {
 	const script = `"C:\Program Files\HostbayNetd\hostbay-netd.exe" oc-script`
-	args, err := SystemArgs(proto.TypeAnyConnect, `{"gateway":"vpn.example.test","user":"alice"}`, map[string]string{"password": testPass}, "Hostbay AB12CD34", script)
+	args, err := SystemArgs(proto.TypeAnyConnect, `{"gateway":"vpn.example.test","user":"alice"}`, map[string]string{"password": testPass}, "Hostbay AB12CD34", script, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,10 +207,31 @@ func TestSystemArgs(t *testing.T) {
 	if !slices.Equal(args, want) {
 		t.Errorf("argv %q\nwant %q", args, want)
 	}
-	if _, err := SystemArgs(proto.TypeAnyConnect, `{"gateway":"vpn.example.test","browser":true}`, nil, "x", script); err == nil {
+	if _, err := SystemArgs(proto.TypeAnyConnect, `{"gateway":"vpn.example.test","browser":true}`, nil, "x", script, ""); err == nil {
 		t.Error("browser sign-in accepted system-wide")
 	}
-	if _, err := SystemArgs(proto.TypeAnyConnect, `{"gateway":"-vpn"}`, nil, "x", script); err == nil {
+	if _, err := SystemArgs(proto.TypeAnyConnect, `{"gateway":"-vpn"}`, nil, "x", script, ""); err == nil {
 		t.Error("an option as the gateway accepted")
+	}
+}
+
+// On macOS a profile with no pinned certificate trusts only the CA bundle
+// the helper names, not the one compiled into openconnect's libraries; a
+// pinned profile trusts its pin alone.
+func TestSystemArgsCAFile(t *testing.T) {
+	const script = `'/Library/PrivilegedHelperTools/dev.hostbay.netd/hostbay-netd' oc-script utun10`
+	args, err := SystemArgs(proto.TypeSSLVPN, `{"gateway":"vpn.example.test"}`, nil, "utun10", script, "/etc/ssl/cert.pem")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"--protocol=fortinet", "--non-inter", "--interface=utun10", "--script=" + script, "--no-system-trust", "--cafile=/etc/ssl/cert.pem", "--", "vpn.example.test"}
+	if !slices.Equal(args, want) {
+		t.Errorf("argv %q\nwant %q", args, want)
+	}
+	pin := "pin-sha256:" + strings.Repeat("A", 43) + "="
+	args, err = SystemArgs(proto.TypeSSLVPN, `{"gateway":"vpn.example.test","serverCert":"`+pin+`"}`, nil, "utun10", script, "/etc/ssl/cert.pem")
+	want = []string{"--protocol=fortinet", "--non-inter", "--interface=utun10", "--script=" + script, "--servercert=" + pin, "--", "vpn.example.test"}
+	if err != nil || !slices.Equal(args, want) {
+		t.Errorf("argv %q, %v\nwant %q", args, err, want)
 	}
 }

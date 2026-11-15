@@ -1,7 +1,8 @@
 // Package tunnel runs hostbay-netd's system-wide tunnels (U12, KTD8):
 // OpenVPN from a configuration the helper writes itself, OpenConnect on a
-// Wintun adapter on Windows, and WireGuard on a real TUN. Only
-// cmd/hostbay-netd imports it, which keeps WireGuard out of Hostbay.
+// Wintun adapter on Windows or a utun on macOS, and WireGuard on a real
+// TUN. Only cmd/hostbay-netd imports it, which keeps WireGuard out of
+// Hostbay.
 //
 // The helper starts only the VPN client copies install placed in its
 // root-owned directory, checking them before each start
@@ -85,19 +86,23 @@ func New(env netd.TunnelEnv) netd.Tunnels {
 	restrictDir(m.run)
 	conf := filepath.Join(m.run, "openssl.cnf")
 	writePrivate(conf, "") // left missing, OpenSSL still skips its compiled-in one
-	m.childEnv = clientEnv(conf, filepath.Dir(netd.ClientPath(env.Dir, "openvpn")))
+	prio := filepath.Join(m.run, "gnutls.config")
+	writePrivate(prio, "") // left missing, GnuTLS still skips its compiled-in one
+	m.childEnv = clientEnv(conf, prio, filepath.Dir(netd.ClientPath(env.Dir, "openvpn")))
 	return m
 }
 
 // clientEnv is the whole environment a VPN client starts with, inheriting
 // nothing. OpenSSL in a client otherwise reads the configuration, providers
 // and engines its build names, which for Homebrew's lie in a folder the user
-// can write, and would load them into a root process. conf is an empty
-// configuration and libs a folder only root can write.
-func clientEnv(conf, libs string) []string {
+// can write, and would load them into a root process; GnuTLS in openconnect
+// reads its system priority file from there too. conf is an empty OpenSSL
+// configuration, prio an empty GnuTLS priority file, and libs a folder only
+// root can write.
+func clientEnv(conf, prio, libs string) []string {
 	env := []string{"OPENSSL_CONF=" + conf, "OPENSSL_MODULES=" + libs, "OPENSSL_ENGINES=" + libs}
 	if runtime.GOOS != "windows" {
-		return append(env, "PATH=/usr/bin:/bin:/usr/sbin:/sbin")
+		return append(env, "GNUTLS_SYSTEM_PRIORITY_FILE="+prio, "PATH=/usr/bin:/bin:/usr/sbin:/sbin")
 	}
 	root := os.Getenv("SystemRoot")
 	env = append(env, "PATH="+root+`\System32;`+root) // the machine PATH may hold folders users can write

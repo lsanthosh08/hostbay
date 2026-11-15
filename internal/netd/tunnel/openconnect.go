@@ -4,25 +4,27 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"path/filepath"
 	"strings"
 
 	"hostbay/internal/netd"
 	"hostbay/internal/vpn/openconnect"
 )
 
-// openConnect runs the helper's openconnect on a Wintun adapter it creates
-// (Windows, where openconnect has no unprivileged mode). openconnect calls
-// the helper back as its script ("hostbay-netd oc-script", Script), which
-// puts the tunnel's addresses on the adapter; Hostbay routes through it
-// (U11). The password goes on stdin.
+// openConnect runs the helper's openconnect on an interface the helper
+// chose (ocTarget): on Windows, where openconnect has no unprivileged mode,
+// a Wintun adapter it creates; on macOS a free utun, which openconnect
+// creates. openconnect calls the helper back as its script ("hostbay-netd
+// oc-script", Script), which puts the tunnel's addresses on that interface;
+// Hostbay's routing engine routes through it. The password goes on stdin.
 func (m *Manager) openConnect(h string, oc *netd.OpenConnect, up func(string, []string), ended func(string)) (netd.Msg, *netd.Error) {
 	if err := netd.CheckClient(m.env.Dir, "openconnect", m.env.Owner); err != nil {
 		return netd.Msg{}, refused(fmt.Sprintf("The helper has no OpenConnect it can trust (%v); reinstall the helper.", err))
 	}
-	name := "Hostbay " + h[:8]
-	script := `"` + filepath.Join(m.env.Dir, "hostbay-netd.exe") + `" oc-script`
-	args, err := openconnect.SystemArgs(oc.Type, oc.Config, map[string]string{"password": oc.Password}, name, script)
+	name, script, caFile, err := ocTarget(m.env.Dir, h)
+	if err != nil {
+		return netd.Msg{}, refused(err.Error())
+	}
+	args, err := openconnect.SystemArgs(oc.Type, oc.Config, map[string]string{"password": oc.Password}, name, script, caFile)
 	if err != nil {
 		return netd.Msg{}, refused(err.Error())
 	}

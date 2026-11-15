@@ -99,7 +99,7 @@ func unsafe(r rune) bool { return r <= ' ' || r == 0x7f }
 // as the browser. No secret is ever an argument: the password goes on
 // stdin.
 func (l launch) args(self string) []string {
-	a := l.signIn([]string{"--protocol=" + proto.OpenConnectTypes[l.typ], "--non-inter", "--script-tun", "--script=" + shellQuote(self) + " tun-fd"})
+	a := l.signIn([]string{"--protocol=" + proto.OpenConnectTypes[l.typ], "--non-inter", "--script-tun", "--script=" + ShellQuote(self) + " tun-fd"})
 	if l.cfg.Browser && l.cookie == "" {
 		a = append(a, "--external-browser="+self)
 	}
@@ -116,12 +116,14 @@ func (l launch) stdinSecret() string {
 }
 
 // SystemArgs is openconnect's command line for a system-wide run under
-// hostbay-netd on Windows (U12): the tunnel on the Wintun adapter iface,
-// configured by script, a command line Windows runs without a shell. The
-// start message is checked as for an app-scoped run; browser sign-in is
-// refused, since the helper runs as SYSTEM with no browser. The password,
-// if any, goes on stdin.
-func SystemArgs(typ, conf string, secrets map[string]string, iface, script string) ([]string, error) {
+// hostbay-netd: the tunnel on the interface iface the helper chose (a
+// Wintun adapter on Windows, a utun on macOS), configured by script, which
+// Windows runs without a shell and macOS through /bin/sh -c. The start
+// message is checked as for an app-scoped run; browser sign-in is refused,
+// since the helper runs as root or SYSTEM with no browser. A profile with
+// no pinned certificate trusts only the CA bundle caFile when it is set.
+// The password, if any, goes on stdin.
+func SystemArgs(typ, conf string, secrets map[string]string, iface, script, caFile string) ([]string, error) {
 	l, err := prepare(typ, conf, secrets)
 	if err != nil {
 		return nil, err
@@ -130,6 +132,9 @@ func SystemArgs(typ, conf string, secrets map[string]string, iface, script strin
 		return nil, errors.New("A system-wide VPN cannot sign in in the browser.")
 	}
 	a := l.signIn([]string{"--protocol=" + proto.OpenConnectTypes[l.typ], "--non-inter", "--interface=" + iface, "--script=" + script})
+	if caFile != "" && l.cfg.ServerCert == "" {
+		a = append(a, "--no-system-trust", "--cafile="+caFile)
+	}
 	return append(a, "--", l.cfg.Gateway), nil
 }
 
@@ -161,7 +166,8 @@ func (l launch) pin(a []string) []string {
 	return a
 }
 
-func shellQuote(s string) string {
+// ShellQuote quotes s as one word for /bin/sh.
+func ShellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
