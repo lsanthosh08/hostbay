@@ -35,7 +35,8 @@ type fakeTunnels struct {
 	mu     sync.Mutex
 	starts []netd.Msg
 	stops  []string
-	on     func(netd.Msg)
+	on     map[string]func(netd.Msg) // by handle, as netd.Client routes events
+	last   func(netd.Msg)            // the latest tunnel's, for an event that names none
 	done   chan struct{}
 	reply  func(netd.Msg) (netd.Msg, error)
 }
@@ -48,7 +49,10 @@ func useTunnels(s *VPNService) *fakeTunnels {
 
 func (f *fakeTunnels) Tunnel(_ context.Context, m netd.Msg, on func(netd.Msg)) (netd.Msg, error) {
 	f.mu.Lock()
-	f.starts, f.on = append(f.starts, m), on
+	if f.on == nil {
+		f.on = map[string]func(netd.Msg){}
+	}
+	f.starts, f.on[m.Tunnel], f.last = append(f.starts, m), on, on
 	reply := f.reply
 	f.mu.Unlock()
 	if reply != nil {
@@ -61,7 +65,7 @@ func (f *fakeTunnels) Tunnel(_ context.Context, m netd.Msg, on func(netd.Msg)) (
 func (f *fakeTunnels) StopTunnel(_ context.Context, h string) error {
 	f.mu.Lock()
 	f.stops = append(f.stops, h)
-	on := f.on
+	on := f.on[h]
 	f.mu.Unlock()
 	on(netd.Msg{Tunnel: h, State: netd.TunnelEnded})
 	return nil
@@ -71,7 +75,10 @@ func (f *fakeTunnels) Done() <-chan struct{} { return f.done }
 
 func (f *fakeTunnels) event(m netd.Msg) {
 	f.mu.Lock()
-	on := f.on
+	on, ok := f.on[m.Tunnel]
+	if !ok {
+		on = f.last
+	}
 	f.mu.Unlock()
 	on(m)
 }
@@ -980,14 +987,32 @@ func TestSharedGatewayPinOutlivesOneProfile(t *testing.T) {
 		}
 	}
 	waitFor(t, func() bool { return pinned() && e.has("10.71.0.0/16", "utun9") })
+	owner := func() string {
+		e.svc.mu.Lock()
+		defer e.svc.mu.Unlock()
+		for _, a := range e.svc.added {
+			if a.Kind == routing.KindPin {
+				return a.Profile
+			}
+		}
+		return ""
+	}
 	e.vpn.svc.DisconnectVPN(od.ID)
-	waitFor(t, func() bool { return stateOf(e.vpn.svc, od.ID).Status == VPNDisconnected })
-	if _, err := e.svc.Apply(context.Background(), "", ""); err != nil {
-		t.Fatal(err)
+	// The pin must never be missing while it passes to Branch, not only come
+	// back on a later pass.
+	for deadline := time.Now().Add(5 * time.Second); owner() != branch.ID; time.Sleep(time.Millisecond) {
+		if !pinned() {
+			t.Fatal("the gateway pin Branch still needs was deleted with Corp Internal's")
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("pin owner = %q, want Branch's", owner())
+		}
 	}
 	if !pinned() {
 		t.Fatal("the gateway pin Branch still needs was deleted with Corp Internal's")
 	}
+	e.vpn.svc.DisconnectVPN(branch.ID)
+	waitFor(t, func() bool { return !pinned() })
 }
 
 // A host bound to a system-wide OpenConnect profile connects it and dials

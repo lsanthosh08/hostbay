@@ -266,10 +266,11 @@ func (s *RoutingService) reapply(ctx context.Context) time.Duration {
 	}
 	s.applying.Lock()
 	defer s.applying.Unlock()
-	plan, err := s.plan(ctx, "", "")
+	in, err := s.input(ctx, "", "")
 	if err != nil {
 		return 0
 	}
+	plan := routing.Build(in)
 	now, held, run := s.now(), time.Duration(0), map[string]bool{}
 	s.mu.Lock()
 	for _, c := range plan.Changes {
@@ -294,7 +295,7 @@ func (s *RoutingService) reapply(ctx context.Context) time.Duration {
 		s.last[key], run[key] = now, true
 	}
 	s.mu.Unlock()
-	s.dropStalePins(ctx, connected)
+	s.dropStalePins(ctx, connected, in.Endpoints)
 	var changes []routing.Change
 	for _, c := range plan.Changes {
 		if c.Kind == routing.KindPin || run[c.Profile] {
@@ -318,14 +319,26 @@ func (s *RoutingService) reapply(ctx context.Context) time.Duration {
 
 // dropStalePins deletes the gateway pins of profiles that are no longer
 // connected; unlike a tunnel's routes, a pin does not go with an interface.
-func (s *RoutingService) dropStalePins(ctx context.Context, connected map[string]bool) {
+// A pin a connected profile's gateway still needs (two profiles on one
+// gateway share the first one's pin) passes to that profile instead.
+func (s *RoutingService) dropStalePins(ctx context.Context, connected map[string]bool, endpoints []routing.Endpoint) {
 	c := s.netd.client()
+	if c == nil {
+		return // onConnect clears s.added when the helper is back
+	}
 	s.mu.Lock()
 	var stale []routing.Change
-	for _, a := range s.added {
-		if a.Kind == routing.KindPin && !connected[a.Profile] {
-			stale = append(stale, a)
+	for i, a := range s.added {
+		if a.Kind != routing.KindPin || connected[a.Profile] {
+			continue
 		}
+		if j := slices.IndexFunc(endpoints, func(e routing.Endpoint) bool {
+			return connected[e.Profile] && netip.PrefixFrom(e.Addr, e.Addr.BitLen()).String() == a.Dst
+		}); j >= 0 {
+			s.added[i].Profile = endpoints[j].Profile
+			continue
+		}
+		stale = append(stale, a)
 	}
 	s.mu.Unlock()
 	for _, a := range stale {
@@ -342,28 +355,37 @@ func (s *RoutingService) dropStalePins(ctx context.Context, connected map[string
 // plan builds the plan from the saved profiles, with profile id's mode
 // replaced by mode when id is set.
 func (s *RoutingService) plan(ctx context.Context, id, mode string) (routing.Plan, error) {
+	in, err := s.input(ctx, id, mode)
+	if err != nil {
+		return routing.Plan{}, err
+	}
+	return routing.Build(in), nil
+}
+
+// input is what plan builds from.
+func (s *RoutingService) input(ctx context.Context, id, mode string) (routing.Input, error) {
 	if id != "" && mode != routing.PerDestination && mode != routing.Full && mode != routing.Split {
-		return routing.Plan{}, fmt.Errorf("unknown routing mode %q", mode)
+		return routing.Input{}, fmt.Errorf("unknown routing mode %q", mode)
 	}
 	d, err := s.st.Data()
 	if err != nil {
-		return routing.Plan{}, err
+		return routing.Input{}, err
 	}
 	l, err := s.st.Local()
 	if err != nil {
-		return routing.Plan{}, err
+		return routing.Input{}, err
 	}
 	_, labels, err := s.vpns.labelNow(ctx, d, l)
 	if err != nil {
-		return routing.Plan{}, err
+		return routing.Input{}, err
 	}
 	routes, err := s.table.Routes()
 	if err != nil {
-		return routing.Plan{}, fmt.Errorf("reading the route table: %w", err)
+		return routing.Input{}, fmt.Errorf("reading the route table: %w", err)
 	}
 	ifaces, err := s.table.Interfaces()
 	if err != nil {
-		return routing.Plan{}, fmt.Errorf("listing interfaces: %w", err)
+		return routing.Input{}, fmt.Errorf("listing interfaces: %w", err)
 	}
 	in := routing.Input{Labels: labels, Local: l.RoutingLocal, Routes: routes, Tunnels: map[string]bool{}, MTUs: map[string]int{}}
 	s.mu.Lock()
@@ -415,7 +437,7 @@ func (s *RoutingService) plan(ctx context.Context, id, mode string) (routing.Pla
 			}
 		}
 	}
-	return routing.Build(in), nil
+	return in, nil
 }
 
 func profileFor(v store.VPN, l store.Local) routing.Profile {
