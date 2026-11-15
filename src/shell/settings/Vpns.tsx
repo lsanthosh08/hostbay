@@ -250,6 +250,25 @@ export function RouteEditor({ v, set, err }: { v: Vpn; set: (patch: Partial<Vpn>
 
 /** Creates or edits one profile: type, sign-in per type, routes (full or
  *  split tunnel), DNS and MTU (R20, R42). */
+// ReachField picks how far an OpenConnect profile on macOS reaches: this
+// app only, or the whole computer, which only password sign-in can run.
+export function ReachField({ v, auth, set }: { v: Vpn; auth: VpnAuth | ""; set: (patch: Partial<Vpn>) => void }) {
+  if (!offersScope(v.type, isMac()) || v.tier === "external") return null;
+  return (
+    <Field label={t("vpnForm.scope")} hint={t("vpnForm.scopeHint")}>
+      <SegmentedControl
+        label={t("vpnForm.scope")}
+        value={v.tier === "system" ? "system" : "app"}
+        options={[
+          { value: "app", label: t("vpnForm.scope.app") },
+          { value: "system", label: t("vpnForm.scope.system"), disabled: !offersSystemWide(v.type, auth, true) },
+        ]}
+        onChange={(tier) => set(scopeChange(tier))}
+      />
+    </Field>
+  );
+}
+
 export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: () => void; onSaved: () => void }) {
   const run = useAsyncToast();
   const { push } = useToast();
@@ -569,19 +588,7 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
             {v.type === "ipsec" && secret(t("vpnForm.presharedKey"), "presharedKey")}
           </>
         )}
-        {offersScope(v.type, isMac()) && !external && (
-          <Field label={t("vpnForm.scope")} hint={t("vpnForm.scopeHint")}>
-            <SegmentedControl
-              label={t("vpnForm.scope")}
-              value={v.tier === "system" ? "system" : "app"}
-              options={[
-                { value: "app", label: t("vpnForm.scope.app") },
-                { value: "system", label: t("vpnForm.scope.system"), disabled: !offersSystemWide(v.type, auth, true) },
-              ]}
-              onChange={(tier) => set(scopeChange(tier))}
-            />
-          </Field>
-        )}
+        <ReachField v={v} auth={auth} set={set} />
         {vpnAsksSecretAgain(start, v) && <p className="text-xs text-warning">{t("vpnForm.secretAgain")}</p>}
 
         {/* An external profile's routes label its tunnel, and its DNS servers resolve names over it (R24, KTD7). */}
