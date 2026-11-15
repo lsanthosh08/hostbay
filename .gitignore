@@ -49,3 +49,4 @@ build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
 
 # local agent state (worktrees, settings)
 /.claude/
+node_modules/
