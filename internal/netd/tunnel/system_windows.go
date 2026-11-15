@@ -27,7 +27,7 @@ func setAddrs(dev tun.Device, _ string, addrs []netip.Prefix) error {
 
 // ocTarget is the Wintun adapter openconnect runs on and its script, the
 // helper itself, a command line Windows runs without a shell.
-func ocTarget(dir, h string) (iface, script, caFile string, err error) {
+func ocTarget(dir, h string, _ []string) (iface, script, caFile string, err error) {
 	return tunName(h), `"` + filepath.Join(dir, "hostbay-netd.exe") + `" oc-script`, "", nil
 }
 

@@ -52,3 +52,30 @@ func TestOpenConnectRunsOnTheHelpersUtun(t *testing.T) {
 		}
 	}
 }
+
+// Two tunnels started while the first is still signing in, before its
+// utun exists, get different utuns; an ended tunnel's utun is free again.
+func TestOpenConnectTunnelsStartingTogetherGetTheirOwnUtun(t *testing.T) {
+	e := newEnv(t)
+	start := func(h string) string {
+		t.Helper()
+		r, err := e.m.Start(netd.Msg{T: netd.OpenConnectStart, Tunnel: h,
+			OpenConnect: &netd.OpenConnect{Type: "sslvpn", Config: `{"gateway":"vpn.example.test","user":"alice"}`, Password: "pw"}},
+			func(ev netd.Msg) { e.events <- ev })
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s := <-e.starts; !slices.Contains(s.args, "--interface="+r.Iface) {
+			t.Fatalf("args %q, want --interface=%s", s.args, r.Iface)
+		}
+		return r.Iface
+	}
+	a, b := start("AAAAAAAAAA"), start("BBBBBBBBBB")
+	if a == b {
+		t.Fatalf("both tunnels got %s", a)
+	}
+	e.m.Stop("AAAAAAAAAA")
+	if c := start("CCCCCCCCCC"); c != a {
+		t.Errorf("after %s ended the next tunnel got %s, want %s again", a, c, a)
+	}
+}

@@ -9,7 +9,7 @@ import (
 
 const ocSystems = "OpenConnect runs system-wide only on macOS and Windows."
 
-func ocTarget(string, string) (string, string, string, error) {
+func ocTarget(string, string, []string) (string, string, string, error) {
 	return "", "", "", errors.New(ocSystems)
 }
 

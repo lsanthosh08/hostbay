@@ -65,6 +65,10 @@ type Manager struct {
 
 	mu      sync.Mutex
 	tunnels map[string]*tunnel
+	// ifaces holds the interface each OpenConnect tunnel was given, from
+	// its start until it ends: openconnect creates a macOS utun only once
+	// it has signed in, so the system does not show it taken before then.
+	ifaces map[string]string
 }
 
 // tunnel is one running tunnel.
@@ -76,7 +80,7 @@ type tunnel struct {
 // New is netd.NewTunnels.
 func New(env netd.TunnelEnv) netd.Tunnels {
 	m := &Manager{env: env, run: filepath.Join(env.Dir, "run"), createTUN: tun.CreateTUN, setAddrs: setAddrs,
-		adapter: createAdapter, tunnels: map[string]*tunnel{}}
+		adapter: createAdapter, tunnels: map[string]*tunnel{}, ifaces: map[string]string{}}
 	m.start = func(path string, args []string, stdin io.Reader, stdout io.Writer) (process, error) {
 		return startProcess(path, args, m.childEnv, stdin, stdout)
 	}

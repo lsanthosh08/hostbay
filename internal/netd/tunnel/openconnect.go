@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"strings"
 
 	"hostbay/internal/netd"
@@ -20,10 +22,26 @@ func (m *Manager) openConnect(h string, oc *netd.OpenConnect, up func(string, []
 	if err := netd.CheckClient(m.env.Dir, "openconnect", m.env.Owner); err != nil {
 		return netd.Msg{}, refused(fmt.Sprintf("The helper has no OpenConnect it can trust (%v); reinstall the helper.", err))
 	}
-	name, script, caFile, err := ocTarget(m.env.Dir, h)
+	m.mu.Lock()
+	name, script, caFile, err := ocTarget(m.env.Dir, h, slices.Collect(maps.Values(m.ifaces)))
+	if err == nil {
+		m.ifaces[h] = name
+	}
+	m.mu.Unlock()
 	if err != nil {
 		return netd.Msg{}, refused(err.Error())
 	}
+	release := func() {
+		m.mu.Lock()
+		delete(m.ifaces, h)
+		m.mu.Unlock()
+	}
+	started := false
+	defer func() {
+		if !started {
+			release()
+		}
+	}()
 	args, err := openconnect.SystemArgs(oc.Type, oc.Config, map[string]string{"password": oc.Password}, name, script, caFile)
 	if err != nil {
 		return netd.Msg{}, refused(err.Error())
@@ -54,12 +72,14 @@ func (m *Manager) openConnect(h string, oc *netd.OpenConnect, up func(string, []
 		}
 		io.Copy(io.Discard, out)
 	}()
+	started = true
 	exited := make(chan error, 1)
 	end := m.add(h, supervise(proc, exited))
 	go func() {
 		err := <-exited
 		outW.Close()
 		adapter.Close()
+		release()
 		end()
 		reason := "OpenConnect stopped."
 		if err != nil {

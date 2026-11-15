@@ -40,10 +40,15 @@ var utunName = regexp.MustCompile(`^utun[0-9]+$`)
 // itself with that utun's name. openconnect runs the script through
 // /bin/sh -c, so the script is built only from values the helper owns. A
 // profile with no pinned certificate trusts macOS's root-owned CA bundle,
-// not the user-writable one compiled into openconnect's libraries.
-func ocTarget(dir, _ string) (iface, script, caFile string, err error) {
-	ifs, _ := net.Interfaces() // a utun it missed only makes openconnect fail, and Hostbay retry
-	var names []string
+// not the user-writable one compiled into openconnect's libraries. taken
+// are the utuns given to tunnels still signing in, which the system does
+// not list yet.
+func ocTarget(dir, _ string, taken []string) (iface, script, caFile string, err error) {
+	ifs, err := net.Interfaces()
+	if err != nil {
+		return "", "", "", fmt.Errorf("listing interfaces: %w", err)
+	}
+	names := taken
 	for _, i := range ifs {
 		names = append(names, i.Name)
 	}
