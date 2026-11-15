@@ -75,7 +75,7 @@ export function DeleteVPN(id: string): $CancellablePromise<void> {
  * DetectVPNs looks for VPNs on this computer now and lists the ones no
  * profile names yet, to offer as external profiles (R22). It also drops an
  * external profile whose client program this computer saved and has since
- * removed, that detection no longer sees and no host uses (R23); a profile
+ * removed, that detection no longer sees and no host or tunnel uses (R23); a profile
  * with no client program here was set up elsewhere and stays.
  */
 export function DetectVPNs(): $CancellablePromise<detect$0.VPN[] | null> {
