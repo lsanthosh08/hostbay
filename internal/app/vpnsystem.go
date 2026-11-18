@@ -136,6 +136,10 @@ type netdTunnel struct {
 	closeOnce     sync.Once
 	endOnce       sync.Once
 	codes         chan string // the one-time code a static-challenge profile waits for
+	// challenge takes an AWS SSO run's CRV1 challenge: the session and the
+	// browser sign-in address.
+	challenge func(sid, url string)
+	managed   chan struct{} // closed once manage has returned
 }
 
 // Answer gives the one-time code a signing-in OpenVPN profile waits for.
@@ -203,8 +207,17 @@ func (s *VPNService) startTunnel(v *store.VPN, sec store.VPNSecrets, up func(str
 		return nil, apperr.New(apperr.VPNFailed, fmt.Sprintf("Hostbay cannot connect %s profiles system-wide", v.Type)).
 			With("vpnId", v.ID).With("reason", "unsupported")
 	}
-	t := &netdTunnel{c: c, handle: m.Tunnel, up: up, rep: rep, closing: make(chan struct{}), done: make(chan struct{}), codes: make(chan string, 1)}
 	rep(proto.Msg{T: proto.State, State: proto.Connecting})
+	if m.OpenVPN != nil && v.Auth == "browser" {
+		return s.startAWS(c, v, m.OpenVPN, up, rep)
+	}
+	return startNetd(c, m, up, rep, v.User, sec.Password, nil)
+}
+
+// startNetd asks the helper for tunnel m and, for OpenVPN, follows it
+// through its management interface signing in with user and pass.
+func startNetd(c tunnelClient, m netd.Msg, up func(string, []string), rep func(proto.Msg), user, pass string, challenge func(sid, url string)) (*netdTunnel, error) {
+	t := &netdTunnel{c: c, handle: m.Tunnel, up: up, rep: rep, closing: make(chan struct{}), done: make(chan struct{}), codes: make(chan string, 1), challenge: challenge, managed: make(chan struct{})}
 	ctx, cancel := context.WithTimeout(context.Background(), tunnelStartWait)
 	defer cancel()
 	reply, err := c.Tunnel(ctx, m, t.event)
@@ -219,7 +232,7 @@ func (s *VPNService) startTunnel(v *store.VPN, sec store.VPNSecrets, up func(str
 		}
 	}()
 	if m.OpenVPN != nil {
-		go t.manage(reply, v.User, sec.Password)
+		go t.manage(reply, user, pass)
 	}
 	return t, nil
 }
@@ -240,6 +253,7 @@ func (t *netdTunnel) event(m netd.Msg) {
 // manage follows OpenVPN through its management interface and gives it the
 // user name and password, which never pass through the helper.
 func (t *netdTunnel) manage(r netd.Msg, user, pass string) {
+	defer close(t.managed)
 	network, err := mgmtNetwork(vpnGOOS, r.Mgmt)
 	if err != nil {
 		t.end(err.Error())
@@ -274,6 +288,10 @@ func (t *netdTunnel) manage(r netd.Msg, user, pass string) {
 			t.up(ifaceWith(e.Local), addrs)
 		case openvpn.Connecting:
 			t.rep(proto.Msg{T: proto.State, State: proto.Connecting})
+		case openvpn.Challenge:
+			if t.challenge != nil {
+				t.challenge(e.SID, e.URL)
+			}
 		case openvpn.Failed:
 			reason = e.Reason
 		case openvpn.Exiting:
