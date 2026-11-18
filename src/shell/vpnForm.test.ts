@@ -18,6 +18,7 @@ import {
   vpnAsksSecretAgain,
   authsFor,
   pickAuth,
+  authAfterTypeChange,
 } from "./vpnForm";
 
 const vpn = (over: Partial<Vpn> = {}): Vpn => ({
@@ -72,6 +73,12 @@ describe("VPN types", () => {
     expect(typeLabel("openvpn", "browser")).toBe("AWS Client VPN (SSO)");
     expect(typeLabel("openvpn", "password")).toBe("OpenVPN");
     expect(typeLabel("openvpn")).toBe("OpenVPN");
+  });
+
+  it("does not turn a profile into AWS SSO when its type changes to OpenVPN", () => {
+    expect(authAfterTypeChange("openvpn", "browser")).toBe("password");
+    expect(authAfterTypeChange("openvpn", "certificate")).toBe("certificate");
+    expect(authAfterTypeChange("anyconnect", "browser")).toBe("browser");
   });
 
   it("keeps a sign-in the type offers, else falls back to its first or none", () => {

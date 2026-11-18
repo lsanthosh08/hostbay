@@ -80,6 +80,11 @@ export const pickAuth = (type: string, auth?: VpnAuth | "") => {
   return auth && auths.includes(auth) ? auth : (auths[0] ?? "");
 };
 
+/** The sign-in after the user changes a profile's type: browser sign-in
+ *  never carries into OpenVPN, since that pair is AWS SSO, which only
+ *  import sets up. */
+export const authAfterTypeChange = (type: string, auth?: VpnAuth | "") => pickAuth(type, awsSSO(type, auth) ? "" : auth);
+
 /** Whether a type's profiles have routing settings; Tailscale's and ZeroTier's do not. */
 export const hasRouting = (type: string) => type !== "tailscale" && type !== "zerotier";
 

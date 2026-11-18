@@ -30,6 +30,7 @@ import {
   offersScope,
   offersSystemWide,
   pickAuth,
+  authAfterTypeChange,
   scopeChange,
   tierAfterEdit,
   typeLabel,
@@ -413,7 +414,7 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
                 // sign-in the new type lacks is dropped, and so are typed
                 // secrets, so one type's key never reaches another's field.
                 const port = (v.port ?? 0) === defaultPort(v.type) ? defaultPort(type) : v.port;
-                const auth = pickAuth(type, v.auth);
+                const auth = authAfterTypeChange(type, v.auth);
                 set({ ...noSecrets, type, tier: tierAfterEdit(v, { type, auth }, isMac()), port, auth });
               }}
             >
