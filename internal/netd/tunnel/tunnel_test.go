@@ -81,7 +81,7 @@ func newEnv(t *testing.T) *env {
 	os.Chmod(dir, 0o755)
 	cdir := filepath.Dir(netd.ClientPath(dir, "openvpn"))
 	os.MkdirAll(cdir, 0o755)
-	for _, c := range []string{"openvpn", "openconnect"} {
+	for _, c := range []string{"openvpn", "openconnect", "openvpn-aws"} {
 		os.WriteFile(netd.ClientPath(dir, c), []byte("#!/bin/false\n"), 0o755)
 	}
 	e := &env{dir: dir, starts: make(chan started, 4), events: make(chan netd.Msg, 8)}
@@ -223,6 +223,49 @@ func TestOpenVPNScriptsRefusedByTheHelper(t *testing.T) {
 	}
 	if es, _ := os.ReadDir(filepath.Join(e.dir, "run")); len(es) != 2 || es[0].Name() != "gnutls.config" || es[1].Name() != "openssl.cnf" { // the clients' shared ones
 		t.Errorf("a refused profile left %v behind", es)
+	}
+}
+
+// An AWS SSO profile runs on the patched client; every other OpenVPN
+// profile keeps the ordinary one.
+func TestOpenVPNAWSRunsThePatchedClient(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows uses a loopback port")
+	}
+	for _, c := range []struct {
+		p    openvpn.Profile
+		want string
+	}{
+		{openvpn.Profile{AWS: true, Remote: "203.0.113.7", Port: 443, Extra: "peer-fingerprint AA:BB"}, "openvpn-aws"},
+		{openvpn.Profile{Remote: "vpn.example.test", UserPass: true, Extra: "peer-fingerprint AA:BB"}, "openvpn"},
+	} {
+		e := newEnv(t)
+		sock := filepath.Join(e.dir, "run", handle+".sock")
+		e.run = func(s started, _ io.Writer, p *fakeProc) {
+			ln, err := net.Listen("unix", sock)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			p.onStop = func() { ln.Close() }
+		}
+		if _, err := e.start(netd.Msg{T: netd.OpenVPNStart, OpenVPN: &c.p}); err != nil {
+			t.Fatal(err)
+		}
+		if s := <-e.starts; s.path != netd.ClientPath(e.dir, c.want) || s.args[0] != "--config" {
+			t.Errorf("started %q %q, want %s", s.path, s.args, c.want)
+		}
+		e.m.StopAll()
+	}
+}
+
+// The patched client is checked as the ordinary one is.
+func TestUntrustedAWSClientRefused(t *testing.T) {
+	e := newEnv(t)
+	os.Chmod(netd.ClientPath(e.dir, "openvpn-aws"), 0o777)
+	_, err := e.start(netd.Msg{T: netd.OpenVPNStart, OpenVPN: &openvpn.Profile{AWS: true, Remote: "203.0.113.7"}})
+	if runtime.GOOS != "windows" && (err == nil || err.Code != netd.CodeRefused || len(e.starts) != 0) {
+		t.Fatalf("err %v, starts %d", err, len(e.starts))
 	}
 }
 

@@ -46,8 +46,9 @@ const (
 
 // vpnClients are copied into the helper's directory at install when they sit
 // beside Hostbay, with the libraries they load, so the helper starts only
-// copies nobody else can replace.
-var vpnClients = []string{"openvpn", "openconnect"}
+// copies nobody else can replace. openvpn-aws is OpenVPN patched for AWS
+// Client VPN's SSO sign-in; tapctl creates its Windows adapter.
+var vpnClients = []string{"openvpn", "openconnect", "openvpn-aws", "tapctl"}
 
 // clientDir is where install puts the VPN clients: on macOS in bin beside
 // Frameworks, the layout their @executable_path/../Frameworks install names
@@ -388,6 +389,8 @@ func copyClients(dir, appDir, goos string) error {
 	for _, name := range vpnClients {
 		if goos == "windows" {
 			name += ".exe"
+		} else if name == "tapctl" {
+			continue // Windows only
 		}
 		src := filepath.Join(appDir, name)
 		if _, err := os.Stat(src); err == nil {

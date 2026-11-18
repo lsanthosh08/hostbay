@@ -3,6 +3,7 @@ package openvpn
 import (
 	"encoding/json"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -182,5 +183,44 @@ func TestBuildRefusesAProfileOpenVPNCannotTrust(t *testing.T) {
 		if _, err := Build(Profile{Remote: "203.0.113.9", Extra: extra}, unixMgmt); err != nil {
 			t.Errorf("Extra %.20q: %v", extra, err)
 		}
+	}
+}
+
+// An AWS SSO profile signs in through the management interface on every
+// run, never retries a refused sign-in by itself, keeps no password, and
+// never runs OpenVPN's own DNS script, which would run as root.
+func TestBuildAWSSignsInThroughManagement(t *testing.T) {
+	conf, err := Build(Profile{AWS: true, Remote: "203.0.113.7", Port: 443, Extra: "auth-retry interact\nauth-nocache\n" + caBlock}, unixMgmt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ls := lines(conf)
+	for _, want := range []string{"remote 203.0.113.7 443", "auth-user-pass", "auth-retry none", "auth-nocache", "dns-updown disable"} {
+		if !slices.Contains(ls, want) {
+			t.Errorf("configuration lacks %q:\n%s", want, conf)
+		}
+	}
+	// OpenVPN keeps the last of a directive given twice.
+	last := ""
+	for _, l := range ls {
+		if strings.HasPrefix(l, "auth-retry ") {
+			last = l
+		}
+	}
+	if last != "auth-retry none" {
+		t.Errorf("the profile's own auth-retry wins:\n%s", conf)
+	}
+	for _, gone := range []string{"auth-federate", "remote-random-hostname"} {
+		if strings.Contains(conf, gone) {
+			t.Errorf("configuration holds %q", gone)
+		}
+	}
+	// Both runs of one sign-in must reach the same server, so the app gives
+	// an address it resolved once; a name could resolve elsewhere.
+	if _, err := Build(Profile{AWS: true, Remote: "vpn.example.test", Extra: caBlock}, unixMgmt); err == nil || strings.Contains(err.Error(), "BEGIN") {
+		t.Errorf("a host name was accepted: %v", err)
+	}
+	if conf, _ := Build(Profile{Remote: "vpn.example.test", Extra: caBlock}, unixMgmt); strings.Contains(conf, "dns-updown") {
+		t.Errorf("an ordinary profile carries the AWS directives:\n%s", conf)
 	}
 }

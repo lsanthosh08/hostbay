@@ -34,6 +34,14 @@ type Profile struct {
 	Extra string `json:"extra,omitempty"`
 	// Key is the client certificate's private key, PEM.
 	Key string `json:"key,omitempty"`
+	// AWS is an AWS Client VPN SSO sign-in: the helper runs its patched
+	// client, which takes a SAML response as the password, and Remote must
+	// be the address the app resolved, so both runs of one sign-in reach
+	// the same server.
+	AWS bool `json:"aws,omitempty"`
+	// DevNode is the adapter the helper picked on Windows; never sent by
+	// Hostbay.
+	DevNode string `json:"-"`
 }
 
 // Management is where the configuration puts the management interface: a
@@ -89,6 +97,9 @@ func Build(p Profile, m Management) (string, error) {
 	if p.Remote == "" || !hostName.MatchString(p.Remote) && !isAddr(p.Remote) {
 		return "", fmt.Errorf("%q is not a server name or address", p.Remote)
 	}
+	if p.AWS && !isAddr(p.Remote) {
+		return "", fmt.Errorf("an AWS sign-in needs the server's address, not %q", p.Remote)
+	}
 	port := p.Port
 	if port == 0 {
 		port = 1194
@@ -97,6 +108,12 @@ func Build(p Profile, m Management) (string, error) {
 		return "", fmt.Errorf("port %d is not between 1 and 65535", p.Port)
 	}
 	w("dev tun")
+	if p.DevNode != "" {
+		if !hostName.MatchString(strings.ReplaceAll(p.DevNode, " ", "-")) {
+			return "", fmt.Errorf("%q is not an adapter name", p.DevNode)
+		}
+		w("dev-node \"%s\"", p.DevNode)
+	}
 	w("remote %s %d", p.Remote, port)
 	if p.MTU != 0 {
 		if p.MTU < 576 || p.MTU > 9000 {
@@ -107,10 +124,17 @@ func Build(p Profile, m Management) (string, error) {
 	if err := management(m, w); err != nil {
 		return "", err
 	}
-	if p.UserPass {
+	if p.UserPass || p.AWS {
 		w("auth-user-pass") // no file: OpenVPN asks the management interface
 	}
 	w("auth-retry none") // a refused password ends the run; it is sent once
+	if p.AWS {
+		// A SAML response signs in once: OpenVPN must not keep it to resend.
+		w("auth-nocache")
+		// OpenVPN 2.7 runs its compiled-in DNS script as root when the server
+		// pushes DNS; the app sets DNS through its own routing instead.
+		w("dns-updown disable")
+	}
 	if err := routes(p.Routes, w); err != nil {
 		return "", err
 	}

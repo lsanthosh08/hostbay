@@ -33,10 +33,11 @@ import (
 // what the helper accepts in them (3: OpenVPN profiles need a CA or peer
 // fingerprint, and peer-fingerprint is allowed; 4: static-challenge is
 // allowed, for profiles that ask for a one-time code; 5: the automatic proxy
-// can be set and cleared; 6: OpenConnect runs system-wide on macOS too). A
+// can be set and cleared; 6: OpenConnect runs system-wide on macOS too; 7:
+// an OpenVPN profile may ask for the AWS SSO client). A
 // helper and a Hostbay that disagree refuse each other with CodeVersion, and
 // Hostbay offers to reinstall the helper.
-const Version = 6
+const Version = 7
 
 // Message tags.
 const (

@@ -25,8 +25,20 @@ var socketWait = 10 * time.Second
 // returns where Hostbay reaches its management interface: there Hostbay
 // sees its states and gives the password, which never reaches the helper.
 func (m *Manager) openVPN(h string, p *openvpn.Profile, ended func(string)) (netd.Msg, *netd.Error) {
-	if err := netd.CheckClient(m.env.Dir, "openvpn", m.env.Owner); err != nil {
+	client := "openvpn"
+	if p.AWS {
+		client = "openvpn-aws" // patched to take a SAML response as the password
+	}
+	if err := netd.CheckClient(m.env.Dir, client, m.env.Owner); err != nil {
 		return netd.Msg{}, refused(fmt.Sprintf("The helper has no OpenVPN it can trust (%v); reinstall the helper.", err))
+	}
+	if p.AWS && runtime.GOOS == "windows" {
+		// OpenVPN 2.7 has no Wintun: the AWS client runs on an ovpn-dco adapter.
+		name, err := m.dcoAdapter()
+		if err != nil {
+			return netd.Msg{}, failed("preparing the OpenVPN adapter: " + err.Error())
+		}
+		p.DevNode = name
 	}
 	var mg openvpn.Management
 	var reply netd.Msg
@@ -66,7 +78,7 @@ func (m *Manager) openVPN(h string, p *openvpn.Profile, ended func(string)) (net
 		return netd.Msg{}, failed("writing the OpenVPN configuration: " + err.Error())
 	}
 	// Its output is dropped: Hostbay reads states from the management interface.
-	proc, err := m.start(netd.ClientPath(m.env.Dir, "openvpn"), []string{"--config", path}, nil, io.Discard)
+	proc, err := m.start(netd.ClientPath(m.env.Dir, client), []string{"--config", path}, nil, io.Discard)
 	if err != nil {
 		m.cleanup(h)
 		return netd.Msg{}, failed("starting OpenVPN: " + err.Error())

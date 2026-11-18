@@ -120,16 +120,17 @@ func TestWindowsInstallRefusesBadSID(t *testing.T) {
 // (@executable_path/../Frameworks) expect, on Windows beside the helper.
 func TestCopyClientsKeepsTheirLibraries(t *testing.T) {
 	for goos, want := range map[string][]string{
-		"darwin":  {"bin/openvpn", "bin/openconnect", "Frameworks/libgnutls.30.dylib"},
-		"windows": {"openvpn.exe", "openconnect.exe", "wintun.dll", "libopenconnect-5.dll"},
-		"linux":   {"openvpn", "openconnect"},
+		"darwin":  {"bin/openvpn", "bin/openconnect", "bin/openvpn-aws", "Frameworks/libgnutls.30.dylib"},
+		"windows": {"openvpn.exe", "openconnect.exe", "openvpn-aws.exe", "tapctl.exe", "wintun.dll", "libopenconnect-5.dll"},
+		"linux":   {"openvpn", "openconnect", "openvpn-aws"},
 	} {
 		app := t.TempDir()
 		contents := filepath.Join(app, "Contents")
 		appDir := filepath.Join(contents, "MacOS")
 		os.MkdirAll(filepath.Join(contents, "Frameworks"), 0o755)
 		os.MkdirAll(appDir, 0o755)
-		for _, f := range []string{"MacOS/openvpn", "MacOS/openconnect", "MacOS/openvpn.exe", "MacOS/openconnect.exe", "MacOS/wintun.dll",
+		for _, f := range []string{"MacOS/openvpn", "MacOS/openconnect", "MacOS/openvpn-aws", "MacOS/openvpn.exe", "MacOS/openconnect.exe",
+			"MacOS/openvpn-aws.exe", "MacOS/tapctl.exe", "MacOS/wintun.dll",
 			"MacOS/libopenconnect-5.dll", "Frameworks/libgnutls.30.dylib", "Frameworks/README"} {
 			os.WriteFile(filepath.Join(contents, f), []byte(f), 0o644)
 		}
