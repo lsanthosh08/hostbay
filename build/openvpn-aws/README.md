@@ -54,7 +54,7 @@ takes about 75 seconds.
 tarballs, the patch and these build files. A release attaches it as the
 source of the modified OpenVPN.
 
-Windows, from a Developer PowerShell for Visual Studio 2022 (x64) with CMake
+Windows, from a Developer PowerShell for Visual Studio 2022 or newer (x64) with CMake
 3.21 or newer, Git and Python 3 on PATH:
 
     build\openvpn-aws\build.ps1 [-SourceArchive <file.zip>] <output dir>

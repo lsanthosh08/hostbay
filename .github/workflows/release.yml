@@ -113,10 +113,14 @@ jobs:
           test -f bin/openconnect-windows/openconnect.exe
           rm openconnect.zip
 
-      # The same Wails CLI version as the library in go.mod.
+      # The same Wails CLI version as the library in go.mod. On Linux it is
+      # built with the gtk3 tag, as the app is: without it the CLI links GTK4
+      # and WebKitGTK 6.0, which the runner does not have.
       - name: Install Wails CLI
         run: |
-          go install "github.com/wailsapp/wails/v3/cmd/wails3@$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v3)"
+          tags=""
+          if [ "$RUNNER_OS" = Linux ]; then tags="-tags gtk3"; fi
+          go install $tags "github.com/wailsapp/wails/v3/cmd/wails3@$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v3)"
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Install UI dependencies
@@ -147,7 +151,9 @@ jobs:
       - name: Build openvpn-aws
         if: runner.os != 'Windows'
         run: |
-          os=$(case "$RUNNER_OS" in macOS) echo macos;; *) echo linux;; esac)
+          # Not a case inside $( ): macOS's bash 3.2 cannot parse its ")".
+          os=linux
+          if [ "$RUNNER_OS" = macOS ]; then os=macos; fi
           mkdir -p src-release
           sh build/openvpn-aws/build.sh --source-archive "src-release/openvpn-aws-src-$VERSION-$os.tar.gz" bin
 

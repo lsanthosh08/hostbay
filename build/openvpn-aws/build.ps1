@@ -6,7 +6,7 @@
 #
 # Usage: build.ps1 [-SourceArchive <file.zip>] <output dir>
 #
-# Run it from a Developer PowerShell for Visual Studio 2022 (x64) with CMake
+# Run it from a Developer PowerShell for Visual Studio 2022 or newer (x64) with CMake
 # 3.21 or newer, Git and Python 3 on PATH. The OpenVPN tarball is checked
 # against versions.env before it is unpacked. OpenSSL, LZO, LZ4 and the
 # TAP-Windows headers come from vcpkg at the commit versions.env pins.
@@ -95,7 +95,9 @@ try {
     # without it.
     $env:VCPKG_BINARY_SOURCES = 'clear'
     $build = Join-Path $work 'build'
-    Invoke-Checked cmake -S $src -B $build -G 'Visual Studio 17 2022' -A x64 `
+    # No -G: CMake picks the newest Visual Studio installed, which GitHub's
+    # runners move ahead of a pinned version.
+    Invoke-Checked cmake -S $src -B $build -A x64 `
         "-DCMAKE_TOOLCHAIN_FILE=$vcpkg\scripts\buildsystems\vcpkg.cmake" `
         "-DVCPKG_MANIFEST_DIR=$manifest" `
         "-DVCPKG_INSTALLED_DIR=$work\vcpkg_installed" `
