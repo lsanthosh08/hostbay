@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/base64"
+	"errors"
 	"net"
 	"net/http"
 	"net/url"
@@ -308,6 +309,24 @@ func TestAWSSSODisconnectWhileSigningIn(t *testing.T) {
 		t.Fatalf("state %+v, %d runs, %d pages", st, len(a.started()), len(opened))
 	}
 	// The lock went with it: another sign-in may start.
+	release, err := takeAWSSSOLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	release()
+}
+
+// A gateway that does not resolve fails the connect before any run starts,
+// and lets go of the sign-in lock.
+func TestAWSSSOUnresolvedGatewayFails(t *testing.T) {
+	e := newVPNEnv(t, vpntest.OK)
+	a, _ := useAWS(t, e)
+	awsLookup = func(context.Context, string) ([]net.IPAddr, error) { return nil, errors.New("no such host") }
+	v := saveAWS(t, e, false)
+	_, err := e.svc.ConnectVPN(context.Background(), v.ID)
+	if err == nil || !strings.Contains(err.Error(), "could not find its server") || len(a.started()) != 0 {
+		t.Fatalf("err %v, %d runs", err, len(a.started()))
+	}
 	release, err := takeAWSSSOLock()
 	if err != nil {
 		t.Fatal(err)
