@@ -517,6 +517,7 @@ export const en = {
   "vpn.type.array": "Array Networks SSL VPN",
   "vpn.type.zerotier": "ZeroTier",
   "vpn.type.openvpn": "OpenVPN",
+  "vpn.type.awsSso": "AWS Client VPN (SSO)",
   "vpn.type.ipsec": "IKEv2 / L2TP over IPsec",
   "vpn.type.perimeter81": "Check Point SASE (Harmony SASE / Perimeter 81)",
   "vpn.type.other": "Any other connected VPN",

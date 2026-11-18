@@ -160,6 +160,9 @@ func (t *netdTunnel) askCode() (string, error) {
 	}
 }
 
+// helperUnavailable is netd.Unavailable; tests replace it.
+var helperUnavailable = netd.Unavailable
+
 // startTunnel asks hostbay-netd to start v's tunnel. OpenVPN's states and
 // sign-in then come from its management interface, the others' from the
 // helper's tunnel events.
@@ -176,6 +179,10 @@ func (s *VPNService) startTunnel(v *store.VPN, sec store.VPNSecrets, up func(str
 	var c tunnelClient
 	if s.tunnels != nil {
 		c = s.tunnels()
+	}
+	if c == nil && helperUnavailable() != "" {
+		return nil, apperr.New(apperr.VPNFailed, fmt.Sprintf("VPN %s connects system-wide, which this build cannot do: %s", v.Name, helperUnavailable())).
+			With("vpnId", v.ID).With("reason", "unavailable")
 	}
 	if c == nil {
 		// VPNFailed, not HelperMissing, whose UI speaks of Remote Desktop.

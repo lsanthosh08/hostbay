@@ -352,8 +352,8 @@ export function VpnPanelView(p: {
                   />
                 )}
               </div>
-              <div className="pl-4 text-xs text-muted truncate" title={`${vpnStatusText(s)} · ${typeLabel(v.type)}`}>
-                {p.busy?.includes(v.id) ? t("vpn.working") : vpnStatusText(s)} · {typeLabel(v.type)}
+              <div className="pl-4 text-xs text-muted truncate" title={`${vpnStatusText(s)} · ${typeLabel(v.type, v.auth)}`}>
+                {p.busy?.includes(v.id) ? t("vpn.working") : vpnStatusText(s)} · {typeLabel(v.type, v.auth)}
               </div>
               {s?.status === "connected" && (
                 <div className="pl-4 text-xs text-muted flex flex-col allow-select">

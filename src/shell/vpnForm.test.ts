@@ -62,6 +62,18 @@ describe("VPN types", () => {
     expect(authsFor("openvpn")).toContain("certificate");
   });
 
+  // An AWS Client VPN profile is OpenVPN with browser sign-in, which only
+  // import sets: editing it (to add sites, say) must keep that sign-in, not
+  // turn it into a password profile.
+  it("keeps an imported AWS SSO profile's browser sign-in and names it", () => {
+    expect(authsFor("openvpn", "browser")).toEqual(["browser"]);
+    expect(pickAuth("openvpn", "browser")).toBe("browser");
+    expect(authsFor("openvpn", "password")).not.toContain("browser");
+    expect(typeLabel("openvpn", "browser")).toBe("AWS Client VPN (SSO)");
+    expect(typeLabel("openvpn", "password")).toBe("OpenVPN");
+    expect(typeLabel("openvpn")).toBe("OpenVPN");
+  });
+
   it("keeps a sign-in the type offers, else falls back to its first or none", () => {
     expect(pickAuth("anyconnect", "browser")).toBe("browser");
     expect(pickAuth("sslvpn", "certificate")).toBe("password");

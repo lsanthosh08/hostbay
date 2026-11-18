@@ -266,11 +266,19 @@ type Status struct {
 	Current bool `json:"current"`
 }
 
+// Unavailable says why this build cannot install the helper at all, or "".
+func Unavailable() string {
+	if runtime.GOOS == "linux" && os.Getenv("APPIMAGE") != "" {
+		return errAppImage.Reason
+	}
+	return ""
+}
+
 // GetStatus reads the pairing and tries the helper. Hostbay asks before it
 // holds a connection: the helper serves one at a time.
 func GetStatus(ctx context.Context) Status {
-	if runtime.GOOS == "linux" && os.Getenv("APPIMAGE") != "" {
-		return Status{Unavailable: errAppImage.Reason}
+	if why := Unavailable(); why != "" {
+		return Status{Unavailable: why}
 	}
 	var st Status
 	b, err := os.ReadFile(filepath.Join(stateDir(), "config.json"))

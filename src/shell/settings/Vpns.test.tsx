@@ -1,12 +1,16 @@
-import { createElement, type ReactElement } from "react";
+import { createElement, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { Vpn } from "../../api";
 import { en } from "../../i18n/en";
-import { ReachField } from "./Vpns";
+import { ReachField, VpnForm } from "./Vpns";
 
 const platform = vi.hoisted(() => ({ mac: true }));
 vi.mock("../../platform", () => ({ isMac: () => platform.mac }));
+vi.mock("../../state/hosts", () => ({ useHosts: () => ({ hosts: [] }) }));
+// The dialog portals into document, which a server render has none of.
+vi.mock("../../ui/Dialog", () => ({ Dialog: ({ children, footer }: { children: ReactNode; footer?: ReactNode }) => [children, footer] }));
+vi.mock("../../state/vpns", () => ({ useVpns: () => ({ vpns: [] }), reloadVpns: () => {} }));
 
 const od = (over: Partial<Vpn> = {}): Vpn => ({ id: "od", name: "Corp Internal", type: "sslvpn", tier: "app", auth: "password", tags: [], ...over });
 
@@ -48,5 +52,15 @@ describe("VPN form reach", () => {
     platform.mac = true;
     expect(ReachField({ v: od({ type: "wireguard" }), auth: "", set: () => {} })).toBeNull();
     expect(ReachField({ v: od({ tier: "external" }), auth: "", set: () => {} })).toBeNull();
+  });
+});
+
+describe("VPN form for AWS Client VPN SSO", () => {
+  it("shows the browser sign-in hint, with no sign-in picker or password field", () => {
+    const aws: Vpn = { id: "aws", name: "AWS", type: "openvpn", tier: "system", auth: "browser", gateway: "cvpn-endpoint-0.example", tags: [], hasSecret: true };
+    const html = renderToStaticMarkup(createElement(VpnForm, { initial: aws, onClose: () => {}, onSaved: () => {} }));
+    expect(html).toContain(en["vpnForm.browserHint"]);
+    expect(html).not.toContain(en["vpnForm.password"]);
+    expect(html).not.toContain(`>${en["vpnForm.auth"]}<`);
   });
 });

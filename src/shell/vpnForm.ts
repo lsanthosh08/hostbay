@@ -22,10 +22,14 @@ export const VPN_TYPES: { id: string; label: MessageKey; tier: VpnTier }[] = [
 ];
 
 const typeOf = (id: string) => VPN_TYPES.find((x) => x.id === id);
-export const typeLabel = (id: string): string => {
+/** The type's UI name; OpenVPN with browser sign-in is AWS Client VPN's
+ *  SSO, which only import sets up. */
+export const typeLabel = (id: string, auth?: VpnAuth | ""): string => {
+  if (awsSSO(id, auth)) return t("vpn.type.awsSso");
   const ty = typeOf(id);
   return ty ? t(ty.label) : id;
 };
+const awsSSO = (type: string, auth?: VpnAuth | "") => type === "openvpn" && auth === "browser";
 export const tierFor = (id: string) => typeOf(id)?.tier ?? "external";
 
 // The OpenConnect protocols (internal/vpn/openconnect/launch.go).
@@ -58,9 +62,12 @@ export const AUTH_LABEL: Record<VpnAuth, MessageKey> = {
 };
 
 /** The sign-ins a type offers (R20). Browser sign-in only where its engine
- *  handles it: OpenConnect's AnyConnect (browserTypes in launch.go). Hostbay
- *  cannot send OpenConnect a client certificate yet, so it is not offered. */
-export function authsFor(type: string): VpnAuth[] {
+ *  handles it: OpenConnect's AnyConnect (browserTypes in launch.go), and an
+ *  imported AWS SSO OpenVPN profile, which keeps it as its only sign-in.
+ *  Hostbay cannot send OpenConnect a client certificate yet, so it is not
+ *  offered. */
+export function authsFor(type: string, auth?: VpnAuth | ""): VpnAuth[] {
+  if (awsSSO(type, auth)) return ["browser"];
   if (OPENCONNECT.includes(type)) return type === "anyconnect" ? ["password", "otp", "browser"] : ["password", "otp"];
   if (type === "openvpn" || type === "ipsec") return ["password", "certificate"];
   return [];
@@ -68,7 +75,7 @@ export function authsFor(type: string): VpnAuth[] {
 
 /** `auth` if `type` offers it, else the type's first sign-in, or "" when it offers none. */
 export const pickAuth = (type: string, auth?: VpnAuth | "") => {
-  const auths = authsFor(type);
+  const auths = authsFor(type, auth);
   return auth && auths.includes(auth) ? auth : (auths[0] ?? "");
 };
 

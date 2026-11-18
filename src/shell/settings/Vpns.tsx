@@ -99,7 +99,7 @@ export function Vpns() {
                 <span className="font-medium">{v.name}</span>
                 <span className="text-muted allow-select">
                   {" "}
-                  {typeLabel(v.type)}
+                  {typeLabel(v.type, v.auth)}
                   {v.gateway ? ` · ${v.gateway}` : ""}
                 </span>
                 {n > 0 && <span className="block text-xs text-muted">{t("proxyForm.usedBy", { n })}</span>}
@@ -293,13 +293,15 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
   // An external profile's own app holds its keys and sign-in.
   const external = v.tier === "external";
   const wg = v.type === "wireguard" && !external;
-  const auths = external ? [] : authsFor(v.type);
+  const auths = external ? [] : authsFor(v.type, v.auth);
   // A sign-in the type no longer offers (an imported certificate one) shows as its first.
   const auth = external ? "" : pickAuth(v.type, v.auth);
   const keep = v.hasSecret ? t("hostForm.passwordKeep") : "";
   // OpenVPN needs the server's certificate, which only a .ovpn file carries.
   const ovpn = v.type === "openvpn" && !external;
   const ovpnNew = ovpn && !v.id;
+  // AWS Client VPN's SSO signs in only in the browser, with no user name.
+  const awsSso = ovpn && auth === "browser";
   // Two profiles for one client cannot be told apart by name (R24).
   const sharesClient =
     external && !!v.client && !v.iface && saved.some((o) => o.id !== v.id && o.tier === "external" && o.client?.toLowerCase() === v.client?.toLowerCase());
@@ -520,7 +522,8 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
             )}
           </>
         )}
-        {auths.length > 0 && !ovpnNew && (
+        {awsSso && <p className="text-xs text-muted">{t("vpnForm.browserHint")}</p>}
+        {auths.length > 0 && !ovpnNew && !awsSso && (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label={t("vpnForm.auth")}>

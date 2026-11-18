@@ -308,6 +308,20 @@ func TestSystemWideNeedsTheHelper(t *testing.T) {
 	}
 }
 
+// From a build that cannot install the helper (the Linux AppImage) the
+// error says why and what to install instead, not to install the helper.
+func TestSystemWideFromTheAppImageSaysWhy(t *testing.T) {
+	e := newVPNEnv(t, vpntest.OK)
+	v := saveOpenVPN(t, e.svc)
+	orig := helperUnavailable
+	t.Cleanup(func() { helperUnavailable = orig })
+	helperUnavailable = func() string { return "System-wide routing cannot run from the AppImage; install Hostbay from the deb or rpm package." }
+	_, err := e.svc.ConnectVPN(context.Background(), v.ID)
+	if ae := vpnCode(t, err, apperr.VPNFailed, v.ID); ae.Details["reason"] != "unavailable" || !strings.Contains(ae.Message, "deb or rpm") {
+		t.Fatalf("err %+v", ae)
+	}
+}
+
 // A system-wide WireGuard profile is up when the helper says its first
 // handshake came, on the helper's interface, and stays up while external
 // profiles are relabeled; it drops when the tunnel ends or the helper goes.

@@ -45,7 +45,7 @@ export function VpnDraftView({ draft, value, tried, onChange }: { draft: VpnDraf
       </Field>
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm allow-select">
         <dt className="text-muted">{t("vpnForm.type")}</dt>
-        <dd>{typeLabel(p.type)}</dd>
+        <dd>{typeLabel(p.type, p.auth)}</dd>
         {p.gateway && (
           <>
             <dt className="text-muted">{t("vpnImport.gateway")}</dt>
