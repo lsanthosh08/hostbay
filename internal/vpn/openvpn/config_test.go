@@ -189,6 +189,23 @@ func TestBuildRefusesAProfileOpenVPNCannotTrust(t *testing.T) {
 // An AWS SSO profile signs in through the management interface on every
 // run, never retries a refused sign-in by itself, keeps no password, and
 // never runs OpenVPN's own DNS script, which would run as root.
+// On Windows the helper names the ovpn-dco adapter the run uses; a name
+// that could break out of its quotes is refused.
+func TestBuildDevNode(t *testing.T) {
+	conf, err := Build(Profile{AWS: true, Remote: "203.0.113.7", DevNode: "Hostbay AWS VPN", Extra: caBlock}, unixMgmt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(lines(conf), `dev-node "Hostbay AWS VPN"`) {
+		t.Errorf("configuration lacks the adapter:\n%s", conf)
+	}
+	for _, bad := range []string{`Hostbay" up "x`, "Hostbay\nup x", "-Hostbay"} {
+		if _, err := Build(Profile{AWS: true, Remote: "203.0.113.7", DevNode: bad, Extra: caBlock}, unixMgmt); err == nil {
+			t.Errorf("adapter %q was accepted", bad)
+		}
+	}
+}
+
 func TestBuildAWSSignsInThroughManagement(t *testing.T) {
 	conf, err := Build(Profile{AWS: true, Remote: "203.0.113.7", Port: 443, Extra: "auth-retry interact\nauth-nocache\n" + caBlock}, unixMgmt)
 	if err != nil {
