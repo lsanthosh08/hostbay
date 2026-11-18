@@ -1,13 +1,13 @@
 name: CI
 
-# Runs on every pull request and on pushes to main: builds the UI (its dist/
-# is embedded by main.go), then vets and tests the Go code and the Rust RDP
-# helper on all three OSes. A Linux job runs the Docker integration tests
-# and reports the binary size.
+# Runs on every pull request, or when started by hand from the Actions tab;
+# a push to main does not start it, only a release tag starts a build
+# (release.yml). It builds the UI (its dist/ is embedded by main.go), then
+# vets and tests the Go code and the Rust RDP helper on all three OSes. A
+# Linux job runs the Docker integration tests and reports the binary size.
 on:
   pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   test:
