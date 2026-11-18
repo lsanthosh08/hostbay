@@ -35,6 +35,10 @@ var (
 // to both.
 const handoffEnv = "HOSTBAY_VPN_HANDOFF"
 
+// handoffAckWait bounds how long the tun-fd child waits for the helper to
+// acknowledge the descriptor before it exits anyway.
+const handoffAckWait = 5 * time.Second
+
 // handoff is one message from a child: the tunnel's settings, sent with
 // its packet socket, or the browser sign-in URL.
 type handoff struct {
@@ -314,7 +318,16 @@ func Child(arg string) error {
 				env[k] = v
 			}
 		}
-		return send(uc, handoff{Env: env}, vpnfd)
+		if err := send(uc, handoff{Env: env}, vpnfd); err != nil {
+			return err
+		}
+		// Exiting closes this copy of VPNFD. Were it the last one outside
+		// the message, macOS could flush the socket before the helper takes
+		// it, and the tunnel would read nothing but EOF, so wait for the
+		// helper to say it has it.
+		uc.SetReadDeadline(time.Now().Add(handoffAckWait))
+		uc.Read(make([]byte, 1))
+		return nil
 	case strings.HasPrefix(arg, "https://") || strings.HasPrefix(arg, "http://"):
 		return send(uc, handoff{URL: arg}, -1)
 	}
@@ -352,6 +365,8 @@ func receive(c *net.UnixConn, got func(handoff, *os.File)) {
 	buf, oob := make([]byte, 64<<10), make([]byte, syscall.CmsgSpace(16*4))
 	for {
 		n, oobn, _, _, err := c.ReadMsgUnix(buf, oob)
+		// A failed read can report -1 for both lengths (a reset socket).
+		n, oobn = max(n, 0), max(oobn, 0)
 		if msgs, perr := syscall.ParseSocketControlMessage(oob[:oobn]); perr == nil {
 			for _, m := range msgs {
 				fds, _ := syscall.ParseUnixRights(&m)
@@ -376,6 +391,8 @@ func receive(c *net.UnixConn, got func(handoff, *os.File)) {
 			var f *os.File
 			if h.Env != nil && len(files) > 0 {
 				f, files = files[0], files[1:]
+				// The sender waits for this before closing its copy (Child).
+				c.Write([]byte{'\n'})
 			}
 			got(h, f)
 		}

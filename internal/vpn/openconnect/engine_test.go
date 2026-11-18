@@ -343,12 +343,23 @@ func TestHandoffCarriesTheDescriptor(t *testing.T) {
 	if err := send(child, handoff{Env: map[string]string{"INTERNAL_IP4_ADDRESS": "10.9.0.2"}}, dgram[1]); err != nil {
 		t.Fatal(err)
 	}
-	syscall.Close(dgram[1]) // the child exits; the parent's copy keeps the socket open
-	child.Close()
+	// The child exits once the parent acknowledges the descriptor; only the
+	// parent's copy then keeps the socket open.
+	acked := make(chan error, 1)
+	go func() {
+		child.SetReadDeadline(time.Now().Add(5 * time.Second))
+		_, err := child.Read(make([]byte, 1))
+		syscall.Close(dgram[1])
+		child.Close()
+		acked <- err
+	}()
 
 	var got *os.File
 	var env map[string]string
 	receive(parent, func(h handoff, f *os.File) { got, env = f, h.Env })
+	if err := <-acked; err != nil {
+		t.Fatalf("no acknowledgement of the descriptor: %v", err)
+	}
 	if got == nil || env["INTERNAL_IP4_ADDRESS"] != "10.9.0.2" {
 		t.Fatalf("got %v %v", got, env)
 	}
@@ -373,4 +384,21 @@ func unixConn(t *testing.T, fd int) *net.UnixConn {
 		t.Fatal(err)
 	}
 	return c.(*net.UnixConn)
+}
+
+// A socket that ends in an error rather than a clean close (here a reset:
+// the peer closes with data it never read) ends receive without a panic.
+func TestReceiveEndsOnAResetSocket(t *testing.T) {
+	stream, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, parent := unixConn(t, stream[0]), unixConn(t, stream[1])
+	parent.Write([]byte("unread\n"))
+	child.Close()
+	calls := 0
+	receive(parent, func(handoff, *os.File) { calls++ })
+	if calls != 0 {
+		t.Fatalf("%d messages from a socket that sent none", calls)
+	}
 }
