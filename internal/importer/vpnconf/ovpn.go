@@ -39,7 +39,7 @@ func ovpn(b *importer.Builder, name, text, dir string) {
 	p.Port = 1194
 	var sec store.VPNSecrets
 	var kept, ignored, routes []string
-	full, userpass, cert, remotes := false, false, false, 0
+	full, userpass, cert, federate, remotes := false, false, false, false, 0
 
 	block := func(tag, content string) {
 		switch tag {
@@ -117,6 +117,12 @@ func ovpn(b *importer.Builder, name, text, dir string) {
 		case d == "auth-user-pass":
 			// A credentials file is never read: the password is asked for.
 			userpass = true
+		case d == "auth-federate":
+			// AWS Client VPN's SSO: the sign-in happens in the browser, and
+			// Hostbay writes the directives that drive it at connect.
+			federate = true
+		case d == "remote-random-hostname":
+			p.RandomHost = true
 		case ovpnBlocks[d] && len(args) > 0:
 			if args[0] == "[inline]" {
 				continue // the block follows
@@ -146,6 +152,10 @@ func ovpn(b *importer.Builder, name, text, dir string) {
 	}
 	p.Routes = routes
 	switch {
+	case federate:
+		// A browser sign-in after a drop needs no one at the keyboard to
+		// start it, so the tunnel comes back by itself.
+		p.Auth, p.AutoReconnect = "browser", true
 	case userpass:
 		p.Auth = "password"
 	case cert || sec.PrivateKey != "":

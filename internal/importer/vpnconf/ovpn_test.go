@@ -112,6 +112,39 @@ func TestOVPNWithoutACAWarnsAtImport(t *testing.T) {
 	}
 }
 
+// An AWS Client VPN file with auth-federate signs in through the browser:
+// it imports as browser sign-in with automatic reconnect, keeps the host
+// name and the random-hostname flag, and asks for no password.
+func TestOVPNImportsAWSSSOAsBrowserSignIn(t *testing.T) {
+	st, v, _ := importertest.Store(t)
+	rep := importertest.Import(t, st, v, parse(t, "aws.ovpn"))
+	p := importertest.VPN(t, st, "aws")
+	if p.Type != "openvpn" || p.Auth != "browser" || !p.AutoReconnect || !p.RandomHost || p.Port != 443 ||
+		p.Gateway != "cvpn-endpoint-0123456789abcdef0.prod.clientvpn.ap-southeast-1.amazonaws.com" {
+		t.Fatalf("profile = %+v", p)
+	}
+	if askPassword(rep, "aws") {
+		t.Error("a browser sign-in asks for a password")
+	}
+	ign := importertest.Ignored(rep, "aws")
+	for _, gone := range []string{"auth-federate", "remote-random-hostname"} {
+		if slices.Contains(ign, gone) {
+			t.Errorf("%q listed as ignored: %q", gone, ign)
+		}
+	}
+	sec := importertest.VPNSecrets(t, v, p)
+	for _, gone := range []string{"auth-federate", "remote-random-hostname"} {
+		if strings.Contains(sec.OpenVPN, gone) {
+			t.Errorf("kept config holds %q", gone)
+		}
+	}
+	// An ordinary file is unchanged by this.
+	importertest.Import(t, st, v, parse(t, "office.ovpn"))
+	if o := importertest.VPN(t, st, "office"); o.Auth != "password" || o.AutoReconnect || o.RandomHost {
+		t.Fatalf("office = %+v", o)
+	}
+}
+
 func askPassword(rep importer.Report, name string) bool {
 	for _, p := range rep.VPNs {
 		if p.Name == name {

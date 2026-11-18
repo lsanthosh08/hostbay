@@ -48,6 +48,9 @@ type VPN struct {
 	AutoApply   *bool  `json:"autoApply,omitempty"`   // apply the routes on connect
 	RoutingMode string `json:"routingMode,omitempty"` // how the routes are applied; "" is per destination
 	Client      string `json:"client,omitempty"`      // external: the installed client the profile names (R3)
+	// RandomHost: an AWS Client VPN gateway, reached at a random subdomain
+	// of Gateway so each connect may land on a different server.
+	RandomHost bool `json:"randomHost,omitempty"`
 
 	// Secret is every profile secret as one VPNSecrets JSON object, sealed
 	// ("enc:v1:...").
