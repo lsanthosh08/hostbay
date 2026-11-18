@@ -163,6 +163,13 @@ func TestLocalSessionIsNotRemote(t *testing.T) {
 }
 
 func TestLocalRefusesARemoteEndpoint(t *testing.T) {
+	// A docker on PATH, so the refusal comes from the endpoint check rather
+	// than from a runner (GitHub's macOS one) that has no Docker.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "docker"), []byte(fakeDocker), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+":/usr/bin:/bin")
 	conns, _ := newConnService(t)
 	a := NewAdminService(conns.mgr, conns)
 	t.Setenv("DOCKER_HOST", "ssh://dev@build.example.com")
