@@ -293,7 +293,11 @@ func (t *netdTunnel) manage(r netd.Msg, user, pass string) {
 				t.challenge(e.SID, e.URL)
 			}
 		case openvpn.Failed:
+			// End now: the helper's own ended event ("OpenVPN stopped.") can
+			// arrive before the socket closes and would hide why it failed.
 			reason = e.Reason
+			giveUp.Stop()
+			t.end(reason)
 		case openvpn.Exiting:
 			// It only repeats the cause as a raw token ("auth-failure").
 			if reason == "OpenVPN stopped." {

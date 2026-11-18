@@ -37,13 +37,17 @@ type fakeAWS struct {
 	refuse bool
 	mute   bool
 
-	mu     sync.Mutex
-	fatal  bool // signed-in runs fail on their own, as a lost adapter does
-	runs   int
-	starts []netd.Msg
-	pass   chan string   // each run's password, as OpenVPN reads it
-	later  chan string   // a connected run's commands
-	drop   chan struct{} // drops the connected run, as a network change does
+	mu    sync.Mutex
+	fatal bool // signed-in runs fail on their own, as a lost adapter does
+	// helperFirst: signed-in runs are refused, and the helper reports the
+	// process gone before OpenVPN's management interface closes.
+	helperFirst bool
+	f           *fakeTunnels
+	runs        int
+	starts      []netd.Msg
+	pass        chan string   // each run's password, as OpenVPN reads it
+	later       chan string   // a connected run's commands
+	drop        chan struct{} // drops the connected run, as a network change does
 }
 
 func useAWS(t *testing.T, e *vpnEnv) (*fakeAWS, *fakeTunnels) {
@@ -51,6 +55,7 @@ func useAWS(t *testing.T, e *vpnEnv) (*fakeAWS, *fakeTunnels) {
 	a := &fakeAWS{t: t, pass: make(chan string, 64), later: make(chan string, 64), drop: make(chan struct{}, 1)}
 	f := useTunnels(e.svc)
 	f.reply = a.reply
+	a.f = f
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -125,6 +130,10 @@ func (a *fakeAWS) reply(m netd.Msg) (netd.Msg, error) {
 			say(">PASSWORD:Verification Failed: 'Auth'")
 		case a.failing():
 			say(">FATAL:Cannot open TUN/TAP dev")
+		case a.refusedHelperFirst():
+			say(">PASSWORD:Verification Failed: 'Auth'")
+			time.Sleep(100 * time.Millisecond) // the refusal has been read
+			a.f.event(netd.Msg{Tunnel: m.Tunnel, State: netd.TunnelEnded, Reason: "OpenVPN stopped."})
 		default:
 			say(">STATE:1700000001,CONNECTED,SUCCESS,127.0.0.1,203.0.113.7,443,,")
 			ended := make(chan struct{})
@@ -151,6 +160,12 @@ func (a *fakeAWS) failing() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.fatal
+}
+
+func (a *fakeAWS) refusedHelperFirst() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.helperFirst
 }
 
 func (a *fakeAWS) started() []netd.Msg {
@@ -554,6 +569,26 @@ func TestAWSSSOOtherFailuresAreNotFailedSignIns(t *testing.T) {
 	st := waitStatus(t, e, v.ID, VPNFailed)
 	time.Sleep(200 * time.Millisecond)
 	if strings.Contains(st.Reason, "sign-ins") || opened() <= 1+awsSignInTries {
+		t.Fatalf("reason %q, browser opened %d times", st.Reason, opened())
+	}
+}
+
+// A refusal still counts when the helper reports OpenVPN gone before its
+// management interface closes, and its reason is the one shown.
+func TestAWSSSORefusalCountsWhenTheHelperEndsFirst(t *testing.T) {
+	e := newVPNEnv(t, vpntest.OK)
+	a, _ := useAWS(t, e)
+	fastRetry(t)
+	opened := browserSeq(t, e, true, true, true, true, true, true, true, true, true)
+	v := saveAWS(t, e, false)
+	connected(t, e, v)
+	a.mu.Lock()
+	a.helperFirst = true
+	a.mu.Unlock()
+	a.drop <- struct{}{}
+	st := waitStatus(t, e, v.ID, VPNFailed)
+	time.Sleep(200 * time.Millisecond)
+	if !strings.Contains(st.Reason, "3 sign-ins") || !strings.Contains(st.Reason, "refused") || opened() != 1+awsSignInTries {
 		t.Fatalf("reason %q, browser opened %d times", st.Reason, opened())
 	}
 }
