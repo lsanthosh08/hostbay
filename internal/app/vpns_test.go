@@ -298,13 +298,18 @@ func TestDroppedVPNReconnectsOnlyWithAutoReconnect(t *testing.T) {
 		if _, err := e.svc.ConnectVPN(context.Background(), v.ID); err != nil {
 			t.Fatal(err)
 		}
-		e.waitFor(t, v.ID, VPNDropped)
-		e.waitFor(t, v.ID, VPNConnected)
+		// The whole sequence, not each state in turn: with a 10ms retry the
+		// drop can pass between two looks at the latest state.
+		want := "connecting,connected,dropped,connecting,connected"
+		deadline := time.Now().Add(5 * time.Second)
+		for strings.Join(e.statuses(v.ID), ",") != want && time.Now().Before(deadline) {
+			time.Sleep(10 * time.Millisecond)
+		}
+		if got := strings.Join(e.statuses(v.ID), ","); got != want {
+			t.Fatalf("events %s", got)
+		}
 		if n := len(e.fake.Starts(t)); n != 2 {
 			t.Fatalf("%d helper starts, want 2", n)
-		}
-		if got := strings.Join(e.statuses(v.ID), ","); got != "connecting,connected,dropped,connecting,connected" {
-			t.Fatalf("events %s", got)
 		}
 	})
 	t.Run("off", func(t *testing.T) {
