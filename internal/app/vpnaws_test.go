@@ -38,6 +38,7 @@ type fakeAWS struct {
 	mute   bool
 
 	mu     sync.Mutex
+	fatal  bool // signed-in runs fail on their own, as a lost adapter does
 	runs   int
 	starts []netd.Msg
 	pass   chan string   // each run's password, as OpenVPN reads it
@@ -122,6 +123,8 @@ func (a *fakeAWS) reply(m netd.Msg) (netd.Msg, error) {
 			say(">PASSWORD:Verification Failed: 'Auth' ['CRV1:R:sid-" + strconv.Itoa(n) + ":Ti9B:" + awsTestURL + "']")
 		case a.refuse:
 			say(">PASSWORD:Verification Failed: 'Auth'")
+		case a.failing():
+			say(">FATAL:Cannot open TUN/TAP dev")
 		default:
 			say(">STATE:1700000001,CONNECTED,SUCCESS,127.0.0.1,203.0.113.7,443,,")
 			ended := make(chan struct{})
@@ -142,6 +145,12 @@ func (a *fakeAWS) reply(m netd.Msg) (netd.Msg, error) {
 		}
 	}()
 	return netd.Msg{Mgmt: sock}, nil
+}
+
+func (a *fakeAWS) failing() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.fatal
 }
 
 func (a *fakeAWS) started() []netd.Msg {
@@ -525,6 +534,27 @@ func TestAWSSSOOwnConnectTimeoutDoesNotRetry(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	if opened() != 1 {
 		t.Fatalf("browser opened %d times", opened())
+	}
+}
+
+// A signed-in run that fails for another reason than the server refusing
+// it is not a failed sign-in: reconnects go on to the limit every profile
+// has, and the reason says nothing of sign-ins.
+func TestAWSSSOOtherFailuresAreNotFailedSignIns(t *testing.T) {
+	e := newVPNEnv(t, vpntest.OK)
+	a, _ := useAWS(t, e)
+	fastRetry(t)
+	opened := browserSeq(t, e, true, true, true, true, true, true, true, true, true)
+	v := saveAWS(t, e, false)
+	connected(t, e, v)
+	a.mu.Lock()
+	a.fatal = true
+	a.mu.Unlock()
+	a.drop <- struct{}{}
+	st := waitStatus(t, e, v.ID, VPNFailed)
+	time.Sleep(200 * time.Millisecond)
+	if strings.Contains(st.Reason, "sign-ins") || opened() <= 1+awsSignInTries {
+		t.Fatalf("reason %q, browser opened %d times", st.Reason, opened())
 	}
 }
 

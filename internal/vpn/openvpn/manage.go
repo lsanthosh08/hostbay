@@ -19,6 +19,10 @@ const (
 	Challenge  = "challenge" // the server wants a browser sign-in at URL first (CRV1)
 )
 
+// Refused is the Failed reason when the server refuses the user name and
+// password, which callers tell apart from a run that failed on its own.
+const Refused = "The VPN server refused the user name or password."
+
 // lineMax is the longest line OpenVPN's management interface reads; a
 // password that does not fit goes in as base64 lines.
 const lineMax = 1024
@@ -102,7 +106,7 @@ func ManageOTP(rw io.ReadWriter, user, pass, mgmtPass string, otp func() (string
 		case strings.HasPrefix(line, ">PASSWORD:Verification Failed") && strings.Contains(line, "['CRV1:"):
 			on(challenge(line))
 		case strings.HasPrefix(line, ">PASSWORD:Verification Failed"):
-			on(Event{State: Failed, Reason: "The VPN server refused the user name or password."})
+			on(Event{State: Failed, Reason: Refused})
 		case strings.HasPrefix(line, ">FATAL:"):
 			on(Event{State: Failed, Reason: "OpenVPN: " + strings.TrimPrefix(line, ">FATAL:")})
 		case strings.HasPrefix(line, ">STATE:"):

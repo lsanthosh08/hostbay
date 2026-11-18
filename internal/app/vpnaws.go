@@ -142,7 +142,9 @@ func (s *VPNService) awsSignIn(c tunnelClient, r *awsRun, p *openvpn.Profile, si
 	second, err := startNetd(c, netd.Msg{T: netd.OpenVPNStart, Tunnel: rand.Text()[:16], OpenVPN: p},
 		func(iface string, addrs []string) { r.release(); up(iface, addrs) },
 		func(m proto.Msg) {
-			if m.State == proto.Failed { // ended before it was up: the server refused the sign-in
+			// Only the server refusing it fails a sign-in; a run that fails on
+			// its own goes through the ordinary reconnect limit.
+			if m.State == proto.Failed && m.Reason == openvpn.Refused {
 				r.mu.Lock()
 				r.signInFailed = true
 				r.mu.Unlock()
