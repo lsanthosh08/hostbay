@@ -1,0 +1,80 @@
+diff -ruN a/src/openvpn/common.h b/src/openvpn/common.h
+--- a/src/openvpn/common.h
++++ b/src/openvpn/common.h
+@@ -67,7 +67,9 @@
+  * maximum size of a single TLS message (cleartext).
+  * This parameter must be >= PUSH_BUNDLE_SIZE
+  */
+-#define TLS_CHANNEL_BUF_SIZE 2048
++/* Hostbay: raised for AWS Client VPN so the key method 2 message can carry
++ * a SAML response as the password. */
++#define TLS_CHANNEL_BUF_SIZE (1 << 18)
+ 
+ /* TLS control buffer minimum size
+  *
+diff -ruN a/src/openvpn/misc.h b/src/openvpn/misc.h
+--- a/src/openvpn/misc.h
++++ b/src/openvpn/misc.h
+@@ -61,10 +61,12 @@
+     bool protected;
+ 
+ /* max length of username/password */
++/* Hostbay: raised in both branches for AWS Client VPN, whose SAML
++ * response is sent as the password and runs to tens of kilobytes. */
+ #ifdef ENABLE_PKCS11
+-#define USER_PASS_LEN 4096
++#define USER_PASS_LEN (1 << 17)
+ #else
+-#define USER_PASS_LEN 128
++#define USER_PASS_LEN (1 << 17)
+ #endif
+     /* Note that username and password are expected to be null-terminated */
+     char username[USER_PASS_LEN];
+diff -ruN a/src/openvpn/ssl.c b/src/openvpn/ssl.c
+--- a/src/openvpn/ssl.c
++++ b/src/openvpn/ssl.c
+@@ -1831,12 +1831,16 @@
+ 
+ /*
+  * Read/write strings from/to a struct buffer with a u16 length prefix.
++ *
++ * Hostbay: strings are written with a u32 length prefix, as AWS Client VPN
++ * expects from its clients, so a password may exceed 64 KB. Reading keeps
++ * the u16 prefix the server sends.
+  */
+ 
+ static bool
+ write_empty_string(struct buffer *buf)
+ {
+-    if (!buf_write_u16(buf, 0))
++    if (!buf_write_u32(buf, 0))
+     {
+         return false;
+     }
+@@ -1847,12 +1851,12 @@
+ write_string(struct buffer *buf, const char *str, const int maxlen)
+ {
+     const size_t len = strlen(str) + 1;
+-    const size_t real_maxlen = (maxlen >= 0 && maxlen <= UINT16_MAX) ? (size_t)maxlen : UINT16_MAX;
++    const size_t real_maxlen = (maxlen >= 0) ? (size_t)maxlen : UINT32_MAX;
+     if (len > real_maxlen)
+     {
+         return false;
+     }
+-    if (!buf_write_u16(buf, (uint16_t)len))
++    if (!buf_write_u32(buf, (uint32_t)len))
+     {
+         return false;
+     }
+@@ -2222,6 +2226,11 @@
+          * are a P2P client running in tls-server mode */
+         p2p_mode_ncp(multi, session);
+     }
++
++    /* Hostbay: AWS Client VPN reads the message length from the leading
++     * uint32, in host byte order, as AWS's own client writes it. */
++    uint32_t length = (uint32_t)BLEN(buf);
++    memcpy(buf->data, &length, sizeof(length));
+ 
+     return true;
+ 
