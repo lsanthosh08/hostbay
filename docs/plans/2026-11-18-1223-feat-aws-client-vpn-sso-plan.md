@@ -149,12 +149,12 @@ Product Contract preservation: changed R11 (Linux limited to the .deb and .rpm i
 - KTD3. **The SAML password goes in through OpenVPN's multi-line base64 management input.** OpenVPN 2.7.2 and later accept `password "Auth"`, base64 lines of up to 1024 bytes, then `END`, after the client sends `version 6`. It avoids a password file the helper would have to write and keeps the SAML response out of the helper (R6).
 - KTD4. **One connect attempt runs OpenVPN twice.** Run one sends user `N/A` and password `ACS::35001`. The server replies AUTH_FAILED carrying `CRV1:R:<sid>:<b64 user>:<url>`, and with `auth-retry none` the process ends. Run two is a new helper tunnel to the same server IP with password `CRV1::<sid>::<url-escaped SAMLResponse>`. The browser wait sits between the runs, outside the 90-second `openvpnConnectWait` (`internal/app/vpnsystem.go:66`), under its own 5-minute timer (R8). Governs R3, R4, R8.
 - KTD5. **Hostbay resolves the server once per sign-in.** For `remote-random-hostname`, the app prefixes the endpoint with random hex as AWS's client does, resolves it once, and passes the address as `Remote` to both runs. `Build` already accepts an IP `Remote` (`internal/vpn/openvpn/config.go:89-90`). Governs R3.
-- KTD6. **An AWS SSO profile is `Type: openvpn` with `Auth: browser`.** Import sets that pair when the file carries `auth-federate`, and sets `AutoReconnect` on so R9 runs through the existing retry loop. `SecretAAD` binds `Type` but not `Auth` (`internal/store/vpns.go:178-180`), so saved secrets keep opening. The UI's browser-auth paths already hide the password field. Governs R1, R9. (session-settled: user-directed — inherits the decision to sign in again automatically, chosen over a Reconnect button the user clicks.)
+- KTD6. **An AWS SSO profile is `Type: openvpn` with `Auth: browser`.** Import sets that pair when the file carries `auth-federate`, and sets `AutoReconnect` on so R9 runs through the existing retry loop. `SecretAAD` binds `Type` but not `Auth` (`internal/store/vpns.go:178-180`), so saved secrets keep opening. The profile editor offers only password and certificate for OpenVPN today (`src/shell/vpnForm.ts:63-67`), so U9 makes it keep browser sign-in for these profiles. Governs R1, R9. (session-settled: user-directed — inherits the decision to sign in again automatically, chosen over a Reconnect button the user clicks.)
 - KTD7. **On Windows, the installer adds ovpn-dco-win and the helper creates the adapter.** OpenVPN 2.7 dropped Wintun. NSIS installs the upstream-signed driver with `pnputil`. Before each run the helper ensures an `ovpn-dco` adapter exists with `tapctl` and passes `dev-node`, so `openvpnserv.exe` is not needed. Governs R11.
 - KTD8. **The sign-in listener is a separate loopback server with its own guard.** It binds `127.0.0.1:35001` only while a sign-in waits. It accepts a POST with `Host` `127.0.0.1:35001` and a non-empty `SAMLResponse`, with a 256 KB body cap. It accepts an `Origin` header, because the IdP's form post carries one; `pacGuard` (`internal/app/pac.go:193`) refuses those, so it is not reused. A process-wide lock gives one sign-in at a time. Governs R5, R6, R16.
-- KTD9. **The port holder is looked up best effort without new dependencies.** On macOS and Linux it parses `lsof -nP -iTCP:35001 -sTCP:LISTEN -Fpc`. On Windows it uses `GetExtendedTcpTable` and the owning process image through `golang.org/x/sys/windows`, already a dependency. When the lookup fails, the message says the port is in use without a name. Governs R7.
+- KTD9. **The port holder is looked up best effort without new dependencies.** On macOS and Linux it parses `lsof -nP -iTCP:35001 -sTCP:LISTEN -Fpc` when `lsof` is installed, which some Linux systems lack. On Windows it uses `GetExtendedTcpTable` and the owning process image through `golang.org/x/sys/windows`, already a dependency. When the lookup fails, the message says the port is in use without a name. Governs R7.
 - KTD10. **The helper protocol moves to version 7.** `openvpn.Profile` gains a flag that selects `openvpn-aws` and an AWS-shaped config. `netd.Version` is bumped so an older helper prompts a reinstall (`internal/netd/api.go:32-39`), which also copies the new client in (`internal/netd/install.go:368`). Governs R13.
-- KTD11. **Releases attach the OpenVPN source bundle.** Each release that ships `openvpn-aws` attaches one archive: the upstream tarball, the patch, the build scripts and the pinned dependency versions. NOTICE replaces "unmodified" for this binary with a modified-OpenVPN entry pointing at that archive. Governs R14.
+- KTD11. **Releases attach the OpenVPN source bundle.** Each release that ships `openvpn-aws` attaches, per platform, an archive holding the upstream OpenVPN tarball, the verified source tarball of every statically linked library (OpenSSL, LZO, LZ4, and libcap-ng on Linux), the patch and the build scripts. NOTICE replaces "unmodified" for this binary with a modified-OpenVPN entry pointing at that archive. Governs R14.
 
 ### High-Level Technical Design
 
@@ -193,24 +193,34 @@ stateDiagram-v2
   [*] --> Disconnected
   Disconnected --> Connecting: Connect, or auto retry
   Connecting --> SigningIn: CRV1 challenge
-  Connecting --> Failed: port busy, lock held, run 1 error
+  Connecting --> Failed: run 1 error
+  Connecting --> Stopped: port busy or sign-in lock held, no retry
   SigningIn --> Connecting2: SAMLResponse received
-  SigningIn --> Failed: 5 minute timeout or Disconnect
+  SigningIn --> Failed: 5 minute timeout
+  SigningIn --> Disconnected: Disconnect
   Connecting2 --> Connected: CONNECTED
   Connecting2 --> Failed: server refuses
   Connected --> Dropped: process ends or server asks again
-  Dropped --> Connecting: under 3 failed sign-ins
-  Failed --> Connecting: auto retry, under 3 failed sign-ins
-  Failed --> Stopped: 3 failed sign-ins in a row
+  Dropped --> Connecting: retry within vpnRetryTries
+  Failed --> Connecting: automatic re-sign-in only, under 3 failed sign-ins
+  Failed --> Stopped: user's own connect, or 3 failed sign-ins in a row
   Stopped --> Connecting: user clicks Reconnect
   Connected --> Disconnected: Disconnect
 ```
+
+### System-Wide Impact
+
+- **Helper reinstall for everyone.** KTD10's version bump makes every existing install prompt for one admin reinstall on the next system-wide VPN connect, AWS user or not.
+- **MCP `connect_vpn`.** An agent connecting an AWS SSO profile gets the existing `signing_in` state with `need` set to browser sign-in (`internal/mcp/vpn.go:61,87`). The browser opens on the user's machine, so the agent tells the user and polls `vpn_status`, as it does for AnyConnect browser sign-in today. No MCP change is needed.
+- **Tray and VPN panel.** Both already show "Waiting for sign-in in the browser" with a re-open button for browser sign-in (`internal/app/tray.go:59-65`, `src/components/VpnPanel.tsx:133-152`); U7 reuses that state.
+- **Routing.** A connected AWS SSO tunnel labels its interface like any system-tier profile (`internal/app/routing.go:423`), so Sites and networks apply with auto-apply on.
 
 ### Assumptions
 
 - The AWS server accepts the multi-line base64 password from a patched 2.7.9 the same way it accepted the AWS 2.6.12 patch's single-line form.
 - Homebrew-style OpenSSL 3, linked statically, accepts AWS's certificate chain without the OpenSSL patch the aws-vpn-client project ships.
 - OpenVPN 2.7.9's `tapctl` can create an `ovpn-dco` adapter when the helper runs as SYSTEM.
+- AWS pushes an `auth-token`, or does not renegotiate within a session, so a renegotiation under `auth-nocache` does not ask for the password again. If it does, each renegotiation (OpenVPN's default is hourly) ends the run and R9 opens a new sign-in.
 
 ### Risks
 
@@ -230,8 +240,8 @@ stateDiagram-v2
 - **Dependencies:** none.
 - **Files:**
   - `build/openvpn-aws/openvpn-2.7.9-aws.patch` (new)
-  - `build/openvpn-aws/versions.env` (new: OpenVPN, OpenSSL, LZO, LZ4 versions and SHA-256s)
-  - `build/openvpn-aws/build.sh` (new: macOS and Linux, static link)
+  - `build/openvpn-aws/versions.env` (new: OpenVPN, OpenSSL, LZO, LZ4 and, for Linux, libcap-ng versions and SHA-256s)
+  - `build/openvpn-aws/build.sh` (new: macOS and Linux, static link; on macOS builds arm64 and x86_64 and joins them with `lipo -create`, since the app ships as `macos-universal`)
   - `build/openvpn-aws/build.ps1` (new: Windows, MSVC with vcpkg `x64-windows-static`, also outputs `tapctl.exe`)
   - `build/openvpn-aws/README.md` (new: how to rebuild and rebase the patch)
 - **Approach:**
@@ -244,7 +254,7 @@ stateDiagram-v2
 - **Test scenarios:**
   - The built binary runs `--version` and reports 2.7.9.
   - A tarball whose SHA-256 differs from `versions.env` stops the build before unpacking.
-  - On macOS, `otool -L` on the binary lists only system libraries; on Linux, `ldd` lists only glibc libraries.
+  - On macOS, `otool -L` on the binary lists only system libraries and `lipo -archs` lists both `arm64` and `x86_64`; on Linux, `ldd` lists only glibc libraries.
 - **Verification:** each platform's script produces a binary that passes the smoke checks, and the patch applies cleanly to the pinned tarball.
 
 ### U2. Release packaging, driver install and licence notices
@@ -253,7 +263,7 @@ stateDiagram-v2
 - **Requirements:** R11, R13, R14; KTD1, KTD7, KTD11.
 - **Dependencies:** U1.
 - **Files:**
-  - `.github/workflows/release.yml` (build `openvpn-aws` per runner; attach `openvpn-aws-src-<version>.tar.gz`)
+  - `.github/workflows/release.yml` (build `openvpn-aws` per runner; each runner uploads its source archive as its own artifact, `openvpn-aws-src-<version>-<os>.tar.gz`, outside the `hostbay-*` pattern; the release job adds them to `release/` after the sign job and before `SHA256SUMS`)
   - `build/darwin/Taskfile.yml` (copy the static binary to `Contents/MacOS/openvpn-aws`, ad-hoc sign, notices folder)
   - `build/windows/nsis/project.nsi` (install `openvpn-aws.exe`, `tapctl.exe`, the ovpn-dco-win driver files; run `pnputil /add-driver ovpn-dco.inf /install`; remove on uninstall)
   - `build/linux/nfpm/nfpm.yaml` (ship `/usr/local/bin/openvpn-aws` in deb and rpm)
@@ -261,14 +271,14 @@ stateDiagram-v2
 - **Approach:**
   1. Fetch the ovpn-dco-win release zip by pinned SHA-256, as Wintun is fetched today.
   2. Keep the existing Homebrew `openvpn` bundling unchanged (R12).
-  3. Write the source archive in the same job that builds, so it always matches the shipped binaries.
+  3. Write the source archive in the same job that builds, so it always matches the shipped binaries. It stays out of the signed manifest because `cmd/sign-manifest` refuses any file not named as a Hostbay release asset.
 - **Execution note:** packaging; verify with a release dry run on each runner and by installing the Windows package on a test machine.
 - **Patterns to follow:** `bin/openconnect-windows` staging and `File /nonfatal` in `project.nsi:102-105`; Wintun's licence-beside-DLL entry in `NOTICE:147-151`.
 - **Test scenarios:**
   - Test expectation: none -- packaging and notices; covered by the release dry run and the install check in Verification.
 - **Verification:**
   - The release dry run produces a macOS app containing `Contents/MacOS/openvpn-aws`, a Windows installer containing `openvpn-aws.exe`, `tapctl.exe` and the driver, and deb and rpm packages containing `/usr/local/bin/openvpn-aws`.
-  - The release lists `openvpn-aws-src-<version>.tar.gz`.
+  - The release lists one `openvpn-aws-src-<version>-<os>.tar.gz` per platform, `SHA256SUMS` covers them, and manifest signing still succeeds with a test key.
   - After installing on Windows, `pnputil /enum-drivers` lists ovpn-dco.
 
 ### U3. Helper: second client, AWS config and Windows adapter
@@ -285,7 +295,7 @@ stateDiagram-v2
   - `internal/vpn/openvpn/config.go` (AWS flag on `Profile`; `Build` writes the AWS config)
   - Tests: `internal/netd/tunnel/tunnel_test.go`, `internal/netd/install_test.go`, `internal/netd/server_test.go`, `internal/vpn/openvpn/config_test.go`
 - **Approach:**
-  1. With the AWS flag, `Build` requires an IP `Remote`, drops `auth-federate` and `remote-random-hostname`, and writes `auth-user-pass`, `auth-retry none` and `auth-nocache`.
+  1. With the AWS flag, `Build` requires an IP `Remote`, drops `auth-federate` and `remote-random-hostname`, and writes `auth-user-pass`, `auth-retry none`, `auth-nocache` and `dns-updown disable`. The last keeps OpenVPN 2.7 from running its compiled-in DNS script as root when AWS pushes DNS, a script the helper never ownership-checks.
   2. The rest of the allowlist is unchanged.
   3. `CheckClient` and `ClientPath` take the client name the flag selects; ownership checks stay as they are.
   4. The ordinary OpenVPN path keeps `openvpn` (R12).
@@ -293,7 +303,7 @@ stateDiagram-v2
 - **Test scenarios:**
   - An AWS-flagged start runs the `openvpn-aws` path with `--config`; an unflagged start runs `openvpn`. Covers AE4.
   - An AWS-flagged profile with a host name instead of an IP `Remote` is refused with a reason that names no secret.
-  - The AWS config contains `auth-user-pass`, `auth-retry none` and `auth-nocache`, and no `auth-federate` or `remote-random-hostname`.
+  - The AWS config contains `auth-user-pass`, `auth-retry none`, `auth-nocache` and `dns-updown disable`, and no `auth-federate` or `remote-random-hostname`.
   - `openvpn-aws` owned by a non-root user is refused, as `openvpn` is today.
   - `copyClients` copies `openvpn-aws` on every OS and `tapctl.exe` on Windows.
   - A Version 6 client gets the version-mismatch reply.
@@ -377,7 +387,7 @@ stateDiagram-v2
 
 - **Goal:** one connect attempt runs both OpenVPN runs around the browser sign-in.
 - **Requirements:** R2, R3, R4, R6, R8, R16; KTD4, KTD5, F1.
-- **Dependencies:** U3, U5, U6.
+- **Dependencies:** U3, U4, U5, U6.
 - **Files:**
   - `internal/app/vpnsystem.go` (AWS branch in `launchSystem` and `manage`)
   - `internal/app/vpnrun.go` (signing-in state with the SSO URL, as browser sign-in does today)
@@ -407,17 +417,21 @@ stateDiagram-v2
   - `internal/app/vpnrun.go` (`run()` retry rule and the failed sign-in count)
   - `internal/app/vpnrun_test.go` or `internal/app/vpnsystem_test.go`
 - **Approach:**
-  1. For AWS SSO, a failed sign-in (timeout, refused run two) counts toward R15; a port-busy or lock-held failure does not.
-  2. Under 3 it retries with the existing backoff, and a pre-up sign-in failure also retries.
-  3. At 3 it stops with a reason, and the existing Reconnect button restarts it with the count at zero.
-  4. The count resets on Connected.
-  5. The sign-in lock (U6) keeps a retry from opening a second window. Covers AE2.
+  1. A sign-in that fails on the user's own connect, before the tunnel was ever up, ends the attempt with its reason and does not retry (R8, AE5), as `run()` treats any pre-up failure today.
+  2. During automatic re-sign-in after a drop, a failed sign-in (timeout, refused run two) counts toward R15 and retries with the existing backoff while the count is under 3.
+  3. A port-busy or lock-held failure never counts and never retries; it ends with its message (R7, R16).
+  4. At 3 it stops with a reason, and the existing Reconnect button restarts it with the count at zero.
+  5. The count resets on Connected.
+  6. AWS SSO profiles keep the existing `vpnRetryTries` and `vpnStableUp` rule as well as the R15 count, so a tunnel that comes up and drops within `vpnStableUp` six times in a row stops like any other profile. This bounds windows when each sign-in succeeds and then drops.
+  7. The sign-in lock (U6) keeps a retry from opening a second window. Covers AE2.
 - **Patterns to follow:** the backoff and tries tests at `internal/app/vpnsystem_test.go:678` and `:752`; `vpnRetry*` overrides.
 - **Test scenarios:**
   - A connected AWS SSO tunnel that drops starts a new attempt and opens the browser without a click.
   - Three timed-out sign-ins in a row stop retrying with a reason, and the browser is not opened a fourth time. Covers AE3.
   - Two failed sign-ins then a success resets the count, so the next drop retries again.
-  - A drop while another profile holds the sign-in lock does not open a second window. Covers AE2.
+  - A drop while another profile holds the sign-in lock does not open a second window, and that profile ends with the in-progress message without retrying. Covers AE2.
+  - A sign-in that times out on the user's own connect leaves the profile disconnected with the not-completed reason and does not reopen the browser. Covers AE5.
+  - Six sign-ins that each connect and drop within 2 minutes stop retrying, and the browser is not opened a seventh time.
   - An AWS SSO profile with auto-reconnect turned off by the user does not retry.
 - **Verification:** the reconnect tests pass and the existing `vpnRetryTries` behaviour for other profiles is unchanged.
 
@@ -434,10 +448,13 @@ stateDiagram-v2
   - `src/shell/vpnForm.test.ts`
 - **Approach:**
   1. Map `openvpn` plus `browser` to the AWS SSO label.
-  2. The AppImage case comes from the existing `errAppImage` helper error, shown with a message to use the .deb or .rpm build.
+  2. `authsFor` and `pickAuth` keep `browser` for an `openvpn` profile whose saved sign-in is `browser`, so editing and saving it (for example to add Sites) does not turn it into a password profile.
+  3. Hide the sign-in picker and password field for that profile.
+  4. The AppImage case comes from the existing `errAppImage` helper error, shown with a message to use the .deb or .rpm build.
 - **Patterns to follow:** `authsFor` in `src/shell/vpnForm.ts:63-67`; the browser hint at `Vpns.tsx:585-587`.
 - **Test scenarios:**
   - An `openvpn` profile with `browser` sign-in shows the AWS SSO label; one with `password` shows OpenVPN.
+  - Editing an AWS SSO profile's Sites and saving it keeps `auth: "browser"` and shows no password field.
   - Connecting from the AppImage shows the .deb/.rpm message instead of a generic helper error.
 - **Verification:** the frontend tests and the type check pass, and an imported AWS profile shows the label in the app.
 
@@ -453,7 +470,7 @@ stateDiagram-v2
 | Patched build smoke | each platform's `openvpn-aws --version` reports 2.7.9; macOS and Linux link checks list only system libraries | U1, U2 |
 | Release dry run | the release workflow on each runner produces the packages and the source archive listed in U2 | U2 |
 | Windows install | installing the package on a Windows test machine lists ovpn-dco under `pnputil /enum-drivers` | U2 |
-| Live sign-in | with a real AWS SSO `.ovpn`: import, connect, sign in, reach a host behind the VPN; drop the network and see the automatic re-sign-in | whole plan, once the user has an `.ovpn` |
+| Live sign-in | with a real AWS SSO `.ovpn`: import, connect, sign in, reach a host behind the VPN; stay connected for over 2 hours with no new sign-in; drop the network and see the automatic re-sign-in | whole plan, once the user has an `.ovpn` |
 
 ---
 
