@@ -171,9 +171,9 @@ func TestStartMsgSendsEachEngineExactlyItsFields(t *testing.T) {
 func TestNodeHostnameIsADNSLabel(t *testing.T) {
 	for in, want := range map[string]string{
 		"Alexs-MacBook-Pro.local": "alexs-macbook-pro-hostbay",
-		"desk_01":                     "desk-01-hostbay",
-		"":                            "hostbay",
-		strings.Repeat("a", 80):       strings.Repeat("a", 55) + "-hostbay",
+		"desk_01":                 "desk-01-hostbay",
+		"":                        "hostbay",
+		strings.Repeat("a", 80):   strings.Repeat("a", 55) + "-hostbay",
 	} {
 		if got := nodeHostname(in); got != want {
 			t.Fatalf("nodeHostname(%q) = %q, want %q", in, got, want)
