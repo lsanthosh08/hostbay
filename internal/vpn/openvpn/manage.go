@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"strings"
 )
 
@@ -13,15 +14,22 @@ import (
 const (
 	Connecting = "connecting"
 	Connected  = "connected"
-	Exiting    = "exiting" // OpenVPN is ending; Reason says why
-	Failed     = "failed"  // the sign-in or the run failed; Reason says why
+	Exiting    = "exiting"   // OpenVPN is ending; Reason says why
+	Failed     = "failed"    // the sign-in or the run failed; Reason says why
+	Challenge  = "challenge" // the server wants a browser sign-in at URL first (CRV1)
 )
+
+// lineMax is the longest line OpenVPN's management interface reads; a
+// password that does not fit goes in as base64 lines.
+const lineMax = 1024
 
 // Event is what the management interface reported.
 type Event struct {
 	State  string
 	Local  string // Connected: the tunnel's own address
 	Reason string
+	SID    string // Challenge: the session the browser sign-in answers
+	URL    string // Challenge: the http or https sign-in address
 }
 
 // Manage speaks to OpenVPN's management interface on rw until it closes:
@@ -29,8 +37,9 @@ type Event struct {
 // notifications on, releases the hold Build's configuration starts in, and
 // answers the first request for the user name and password with user and
 // pass; a second request is refused and ends the run, so a wrong password
-// is sent once. Each change is passed to on. Neither credential is ever
-// logged or put in an error.
+// is sent once. A pass too long for one management line, such as a SAML
+// response, goes in as base64 lines. Each change is passed to on. Neither
+// credential is ever logged or put in an error.
 func Manage(rw io.ReadWriter, user, pass, mgmtPass string, on func(Event)) error {
 	return ManageOTP(rw, user, pass, mgmtPass, nil, on)
 }
@@ -58,6 +67,7 @@ func ManageOTP(rw io.ReadWriter, user, pass, mgmtPass string, otp func() (string
 	}
 	answered := false
 	sc := bufio.NewScanner(rw)
+	sc.Buffer(nil, 1<<20) // a CRV1 challenge carries the whole SAML request in its URL
 	for sc.Scan() {
 		line := strings.TrimPrefix(strings.TrimRight(sc.Text(), "\r"), "ENTER PASSWORD:")
 		var err error
@@ -82,10 +92,15 @@ func ManageOTP(rw io.ReadWriter, user, pass, mgmtPass string, otp func() (string
 				fmt.Sprintf(`password "Auth" %s`, quote("SCRV1:"+b64.EncodeToString([]byte(pass))+":"+b64.EncodeToString([]byte(code)))))
 		case strings.HasPrefix(line, ">PASSWORD:Need 'Auth'") && !answered:
 			answered = true
-			err = send(fmt.Sprintf(`username "Auth" %s`, quote(user)), fmt.Sprintf(`password "Auth" %s`, quote(pass)))
+			err = send(fmt.Sprintf(`username "Auth" %s`, quote(user)))
+			if err == nil {
+				err = send(passwordLines(pass)...)
+			}
 		case strings.HasPrefix(line, ">PASSWORD:Need "):
 			on(Event{State: Failed, Reason: "The VPN asked again for a sign-in Hostbay cannot give."})
 			err = send("signal SIGTERM")
+		case strings.HasPrefix(line, ">PASSWORD:Verification Failed") && strings.Contains(line, "['CRV1:"):
+			on(challenge(line))
 		case strings.HasPrefix(line, ">PASSWORD:Verification Failed"):
 			on(Event{State: Failed, Reason: "The VPN server refused the user name or password."})
 		case strings.HasPrefix(line, ">FATAL:"):
@@ -100,6 +115,41 @@ func ManageOTP(rw io.ReadWriter, user, pass, mgmtPass string, otp func() (string
 		}
 	}
 	return sc.Err()
+}
+
+// passwordLines is the management command giving pass: one quoted line, or,
+// when that would not fit, version 6's base64 form ending in END.
+func passwordLines(pass string) []string {
+	line := `password "Auth" ` + quote(pass)
+	if len(line) < lineMax {
+		return []string{line}
+	}
+	b64 := base64.StdEncoding.EncodeToString([]byte(pass))
+	lines := []string{"version 6", `password "Auth"`}
+	for len(b64) > lineMax {
+		lines, b64 = append(lines, b64[:lineMax]), b64[lineMax:]
+	}
+	return append(lines, b64, "END")
+}
+
+// challenge reads a refusal carrying ['CRV1:flags:sid:user:url']. Only an
+// http or https address is passed on, since it is opened in the browser.
+func challenge(line string) Event {
+	crv := line[strings.Index(line, "['CRV1:")+2:]
+	crv = strings.TrimSuffix(crv, "']")
+	f := strings.SplitN(crv, ":", 5)
+	if len(f) == 5 && f[2] != "" {
+		if u, err := url.Parse(f[4]); err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != "" {
+			return Event{State: Challenge, SID: f[2], URL: f[4]}
+		}
+	}
+	return Event{State: Failed, Reason: "The VPN server asked for a browser sign-in at an address Hostbay will not open."}
+}
+
+// CRV1Password is the password answering a challenge for session sid with
+// the identity provider's SAML response.
+func CRV1Password(sid, samlResponse string) string {
+	return "CRV1::" + sid + "::" + url.QueryEscape(samlResponse)
 }
 
 // stateEvent reads a state line's fields: time, state, detail, local

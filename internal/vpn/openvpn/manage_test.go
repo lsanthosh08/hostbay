@@ -178,3 +178,66 @@ func TestManageStaticChallengeWithoutAWayToAskFails(t *testing.T) {
 func Manage2(rw net.Conn, asked chan struct{}) {
 	ManageOTP(rw, "alice", "s3cret", "", func() (string, error) { asked <- struct{}{}; return "123456", nil }, func(Event) {})
 }
+
+// AWS Client VPN refuses the first sign-in with a CRV1 challenge naming the
+// browser sign-in address; that is a challenge, not a refused password.
+func TestManageReportsACRV1Challenge(t *testing.T) {
+	f, events, _ := manage(t, "N/A", "ACS::35001", "")
+	f.expect(t, "state on")
+	f.say(t, ">PASSWORD:Need 'Auth' username/password")
+	f.expect(t, `username "Auth" "N/A"`, `password "Auth" "ACS::35001"`)
+	f.say(t, ">PASSWORD:Verification Failed: 'Auth' ['CRV1:R:instance-1/123/abc:b'Ti9B':https://idp.example/sso?SAMLRequest=x%3D&RelayState=y']")
+	e := next(t, events)
+	if e.State != Challenge || e.SID != "instance-1/123/abc" || e.URL != "https://idp.example/sso?SAMLRequest=x%3D&RelayState=y" {
+		t.Fatalf("event %+v, want the challenge", e)
+	}
+}
+
+func TestManageRefusesAChallengeThatIsNotAWebAddress(t *testing.T) {
+	f, events, _ := manage(t, "N/A", "ACS::35001", "")
+	f.expect(t, "state on")
+	f.say(t, ">PASSWORD:Verification Failed: 'Auth' ['CRV1:R:sid:dXNlcg==:file:///etc/passwd']")
+	if e := next(t, events); e.State != Failed || e.URL != "" || strings.Contains(e.Reason, "passwd") {
+		t.Fatalf("event %+v, want a failure naming no address", e)
+	}
+}
+
+// A SAML response is far longer than one management line: it goes in as
+// base64 lines of at most 1024 bytes after version 6, and nothing reported
+// carries any of it.
+func TestManageSendsALongPasswordInBase64Lines(t *testing.T) {
+	pass := "CRV1::sid::" + strings.Repeat("PHNhbWw%2B", 1300)
+	f, events, _ := manage(t, "N/A", pass, "")
+	f.expect(t, "state on")
+	f.say(t, ">PASSWORD:Need 'Auth' username/password")
+	f.expect(t, `username "Auth" "N/A"`, "version 6", `password "Auth"`)
+	var b64 strings.Builder
+	for {
+		select {
+		case l := <-f.cmds:
+			if l == "END" {
+				got, err := base64.StdEncoding.DecodeString(b64.String())
+				if err != nil || string(got) != pass {
+					t.Fatalf("decoded %d bytes, err %v", len(got), err)
+				}
+				f.say(t, ">PASSWORD:Verification Failed: 'Auth'")
+				if e := next(t, events); e.State != Failed || strings.Contains(e.Reason, "PHNhbW") {
+					t.Fatalf("event %+v", e)
+				}
+				return
+			}
+			if len(l) > 1024 {
+				t.Fatalf("line of %d bytes", len(l))
+			}
+			b64.WriteString(l)
+		case <-time.After(5 * time.Second):
+			t.Fatal("no END")
+		}
+	}
+}
+
+func TestCRV1PasswordEscapesTheResponse(t *testing.T) {
+	if got := CRV1Password("instance-1/9", "a+b/c="); got != "CRV1::instance-1/9::a%2Bb%2Fc%3D" {
+		t.Fatalf("password %q", got)
+	}
+}
