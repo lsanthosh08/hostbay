@@ -93,6 +93,9 @@ func (s *VPNService) startAWS(c tunnelClient, v *store.VPN, p *openvpn.Profile, 
 		// The helper's ended event can come before the management interface
 		// has delivered the challenge, so wait for both.
 		<-first.Done()
+		// It may have ended on openvpnConnectWait with OpenVPN still
+		// retrying, and manage returns only once OpenVPN exits.
+		first.Close()
 		<-first.managed
 		if chal.sid == "" {
 			r.end(firstEnd.Reason, false)

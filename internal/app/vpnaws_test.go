@@ -29,10 +29,12 @@ const (
 
 // fakeAWS plays each OpenVPN run of an AWS sign-in on a management socket
 // of its own: the placeholder sign-in gets a CRV1 challenge, any other
-// connects, or with refuse set is refused.
+// connects, or with refuse set is refused. With mute set no run ever hears
+// from the server, as when it cannot be reached.
 type fakeAWS struct {
 	t      *testing.T
 	refuse bool
+	mute   bool
 
 	mu     sync.Mutex
 	runs   int
@@ -109,6 +111,12 @@ func (a *fakeAWS) reply(m netd.Msg) (netd.Msg, error) {
 		}
 		a.pass <- pw
 		switch {
+		case a.mute:
+			for sc.Scan() { // OpenVPN keeps retrying until it is told to stop
+				if sc.Text() == "signal SIGTERM" {
+					return
+				}
+			}
 		case pw == "ACS::35001":
 			say(">PASSWORD:Verification Failed: 'Auth' ['CRV1:R:sid-" + strconv.Itoa(n) + ":Ti9B:" + awsTestURL + "']")
 		case a.refuse:
@@ -300,6 +308,29 @@ func TestAWSSSODisconnectWhileSigningIn(t *testing.T) {
 		t.Fatalf("state %+v, %d runs, %d pages", st, len(a.started()), len(opened))
 	}
 	// The lock went with it: another sign-in may start.
+	release, err := takeAWSSSOLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	release()
+}
+
+// A first run that never reaches the server fails after openvpnConnectWait
+// instead of staying "connecting", and lets go of the sign-in lock.
+func TestAWSSSOUnreachableServerFails(t *testing.T) {
+	old := openvpnConnectWait
+	openvpnConnectWait = 200 * time.Millisecond
+	t.Cleanup(func() { openvpnConnectWait = old })
+	e := newVPNEnv(t, vpntest.OK)
+	a, _ := useAWS(t, e)
+	a.mute = true
+	opened := browser(t, e, true, 0)
+	v := saveAWS(t, e, false)
+	connectAsync(e, v.ID)
+	st := waitStatus(t, e, v.ID, VPNFailed)
+	if !strings.Contains(st.Reason, "did not connect") || len(opened) != 0 {
+		t.Fatalf("reason %q, %d pages", st.Reason, len(opened))
+	}
 	release, err := takeAWSSSOLock()
 	if err != nil {
 		t.Fatal(err)
