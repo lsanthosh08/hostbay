@@ -30,6 +30,9 @@ var (
 	// or changed password would otherwise be sent every minute until the
 	// account locks.
 	vpnRetryTries = 6
+	// awsSignInTries is how many automatic AWS SSO sign-ins in a row may go
+	// uncompleted or be refused before Hostbay stops opening the browser.
+	awsSignInTries = 3
 )
 
 // vpnRun is one connected profile, across reconnects.
@@ -205,18 +208,22 @@ func refusedStart(err error) bool {
 	if errors.As(err, &ne) { // the helper's own refusal, a profile Build will not accept
 		return ne.Code == netd.CodeRefused || ne.Code == netd.CodeInvalid
 	}
-	return errors.As(err, &ae) && ae.Code == apperr.VPNFailed && (ae.Details["reason"] == "conflict" || ae.Details["reason"] == "invalid")
+	// Another AWS sign-in waiting in the browser is the user's to finish.
+	return errors.As(err, &ae) && ae.Code == apperr.VPNFailed &&
+		(ae.Details["reason"] == "conflict" || ae.Details["reason"] == "invalid" || ae.Details["reason"] == awsSSOReasonBusy)
 }
 
 // run brings the profile up and keeps it up: a dropped profile reconnects,
 // with backoff, while its auto-reconnect setting is on (R18).
 func (s *VPNService) run(id string, r *vpnRun) {
 	wait, wasUp, tries := vpnRetryMin, false, 0
+	signIns := 0 // AWS SSO sign-ins in a row that did not complete
 	for {
 		end, err := s.attempt(id, r)
 		var m proto.Msg
 		var upFor time.Duration
 		var sf *ssoFailure
+		signInFailed, busy := false, false
 		if errors.As(err, &sf) {
 			m, err = sf.msg, nil // a coded failure, as a helper's would be
 		} else if err == nil {
@@ -224,6 +231,9 @@ func (s *VPNService) run(id string, r *vpnRun) {
 			case m = <-end:
 				s.mu.Lock()
 				att := r.att
+				if ar, ok := att.sys.(*awsRun); ok {
+					signInFailed, busy = ar.outcome()
+				}
 				if st := s.states[id]; st.Status == VPNConnected {
 					upFor = time.Since(time.UnixMilli(st.Since))
 				}
@@ -239,14 +249,22 @@ func (s *VPNService) run(id string, r *vpnRun) {
 		}
 		tries++
 		wasUp = wasUp || up
-		// A coded failure (an untrusted certificate, an openconnect too old)
-		// or a refused start needs the user: retrying cannot fix it.
-		needsUser := m.Code != "" || refusedStart(err)
+		if up {
+			signIns = 0
+		}
+		if signInFailed {
+			signIns++
+		}
+		// A coded failure (an untrusted certificate, an openconnect too old),
+		// a refused start or a sign-in port another app holds needs the user:
+		// retrying cannot fix it.
+		needsUser := m.Code != "" || refusedStart(err) || busy
 
 		d, _ := s.st.Data()
 		again := wasUp && !needsUser && d != nil && d.VPN(id) != nil && d.VPN(id).AutoReconnect
 		gaveUp := again && tries >= vpnRetryTries
-		if gaveUp {
+		signInsUp := again && signIns >= awsSignInTries
+		if gaveUp || signInsUp {
 			again = false
 		}
 		s.mu.Lock()
@@ -264,7 +282,11 @@ func (s *VPNService) run(id string, r *vpnRun) {
 		if wasUp && !needsUser {
 			st.Status, st.err = VPNDropped, nil
 		}
-		if gaveUp {
+		switch {
+		case signInsUp:
+			st.Status = VPNFailed
+			st.Reason = fmt.Sprintf("Hostbay stopped signing in after %d sign-ins in a row did not complete. Connect again to sign in. %s", signIns, st.Reason)
+		case gaveUp:
 			st.Status = VPNFailed
 			st.Reason = fmt.Sprintf("Hostbay stopped reconnecting after %d tries. Check the sign-in, then connect again. %s", tries, st.Reason)
 		}

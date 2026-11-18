@@ -28,8 +28,8 @@ const (
 )
 
 // fakeAWS plays each OpenVPN run of an AWS sign-in on a management socket
-// of its own: odd runs refuse with a CRV1 challenge, even runs connect,
-// or with refuse set are refused.
+// of its own: the placeholder sign-in gets a CRV1 challenge, any other
+// connects, or with refuse set is refused.
 type fakeAWS struct {
 	t      *testing.T
 	refuse bool
@@ -37,13 +37,14 @@ type fakeAWS struct {
 	mu     sync.Mutex
 	runs   int
 	starts []netd.Msg
-	pass   chan string // each run's password, as OpenVPN reads it
-	later  chan string // a connected run's commands
+	pass   chan string   // each run's password, as OpenVPN reads it
+	later  chan string   // a connected run's commands
+	drop   chan struct{} // drops the connected run, as a network change does
 }
 
 func useAWS(t *testing.T, e *vpnEnv) (*fakeAWS, *fakeTunnels) {
 	t.Helper()
-	a := &fakeAWS{t: t, pass: make(chan string, 16), later: make(chan string, 16)}
+	a := &fakeAWS{t: t, pass: make(chan string, 64), later: make(chan string, 64), drop: make(chan struct{}, 1)}
 	f := useTunnels(e.svc)
 	f.reply = a.reply
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -108,12 +109,21 @@ func (a *fakeAWS) reply(m netd.Msg) (netd.Msg, error) {
 		}
 		a.pass <- pw
 		switch {
-		case n%2 == 1:
+		case pw == "ACS::35001":
 			say(">PASSWORD:Verification Failed: 'Auth' ['CRV1:R:sid-" + strconv.Itoa(n) + ":Ti9B:" + awsTestURL + "']")
 		case a.refuse:
 			say(">PASSWORD:Verification Failed: 'Auth'")
 		default:
 			say(">STATE:1700000001,CONNECTED,SUCCESS,127.0.0.1,203.0.113.7,443,,")
+			ended := make(chan struct{})
+			defer close(ended)
+			go func() {
+				select {
+				case <-a.drop:
+					c.Close()
+				case <-ended:
+				}
+			}()
 			for sc.Scan() {
 				a.later <- sc.Text()
 				if sc.Text() == "signal SIGTERM" {
@@ -313,5 +323,198 @@ func TestAWSSSORefusedSignInFails(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	if len(a.started()) != 2 || len(opened) != 1 {
 		t.Fatalf("%d runs, %d pages", len(a.started()), len(opened))
+	}
+}
+
+// browserSeq plays a browser that signs in on the nth page opened only
+// when signs[n] is true.
+func browserSeq(t *testing.T, e *vpnEnv, signs ...bool) func() int {
+	var mu sync.Mutex
+	n := 0
+	e.svc.openURL = func(string) {
+		mu.Lock()
+		sign := n < len(signs) && signs[n]
+		n++
+		mu.Unlock()
+		if sign {
+			go postSAML(t)
+		}
+	}
+	return func() int { mu.Lock(); defer mu.Unlock(); return n }
+}
+
+// fastRetry makes reconnects and sign-in waits quick.
+func fastRetry(t *testing.T) {
+	oMin, oMax, oWait := vpnRetryMin, vpnRetryMax, awsSSOWait
+	vpnRetryMin, vpnRetryMax, awsSSOWait = 10*time.Millisecond, 20*time.Millisecond, 100*time.Millisecond
+	t.Cleanup(func() { vpnRetryMin, vpnRetryMax, awsSSOWait = oMin, oMax, oWait })
+}
+
+// connected connects v through a completed sign-in.
+func connected(t *testing.T, e *vpnEnv, v VPN) {
+	t.Helper()
+	connectAsync(e, v.ID)
+	waitStatus(t, e, v.ID, VPNConnected)
+}
+
+// A dropped tunnel signs in again by itself: the browser opens with no
+// click, and the tunnel comes back.
+func TestAWSSSODropSignsInAgain(t *testing.T) {
+	e := newVPNEnv(t, vpntest.OK)
+	a, _ := useAWS(t, e)
+	fastRetry(t)
+	opened := browserSeq(t, e, true, true)
+	v := saveAWS(t, e, false)
+	connected(t, e, v)
+	a.drop <- struct{}{}
+	waitFor(t, func() bool { return opened() == 2 && stateOf(e.svc, v.ID).Status == VPNConnected })
+	if n := len(a.started()); n != 4 {
+		t.Fatalf("%d runs", n)
+	}
+}
+
+// Three automatic sign-ins in a row that are not completed stop the
+// retries, and the browser is not opened a fourth time.
+func TestAWSSSOStopsAfterThreeFailedSignIns(t *testing.T) {
+	e := newVPNEnv(t, vpntest.OK)
+	a, _ := useAWS(t, e)
+	fastRetry(t)
+	opened := browserSeq(t, e, true)
+	v := saveAWS(t, e, false)
+	connected(t, e, v)
+	a.drop <- struct{}{}
+	st := waitStatus(t, e, v.ID, VPNFailed)
+	if !strings.Contains(st.Reason, "3 sign-ins") {
+		t.Fatalf("reason %q", st.Reason)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if n := opened(); n != 4 {
+		t.Fatalf("browser opened %d times", n)
+	}
+}
+
+// A completed sign-in starts the count over.
+func TestAWSSSOCompletedSignInResetsTheCount(t *testing.T) {
+	e := newVPNEnv(t, vpntest.OK)
+	a, _ := useAWS(t, e)
+	fastRetry(t)
+	old := vpnStableUp
+	vpnStableUp = 0 // each drop here comes at once; only the sign-in count is under test
+	t.Cleanup(func() { vpnStableUp = old })
+	opened := browserSeq(t, e, true, false, false, true, false, false, true)
+	v := saveAWS(t, e, false)
+	connected(t, e, v)
+	a.drop <- struct{}{}
+	waitFor(t, func() bool { return opened() == 4 && stateOf(e.svc, v.ID).Status == VPNConnected })
+	a.drop <- struct{}{}
+	waitFor(t, func() bool { return opened() == 7 && stateOf(e.svc, v.ID).Status == VPNConnected })
+}
+
+// While another sign-in waits in the browser, a drop opens no second
+// window: the profile stops with the in-progress message.
+func TestAWSSSODropWhileAnotherSignInWaits(t *testing.T) {
+	e := newVPNEnv(t, vpntest.OK)
+	a, _ := useAWS(t, e)
+	fastRetry(t)
+	opened := browserSeq(t, e, true, true)
+	v := saveAWS(t, e, false)
+	connected(t, e, v)
+	release, err := takeAWSSSOLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	a.drop <- struct{}{}
+	st := waitStatus(t, e, v.ID, VPNFailed)
+	if !strings.Contains(st.Reason, "in progress") || strings.Contains(st.Reason, "tries") { // ended at once, not by the retry limit
+		t.Fatalf("reason %q", st.Reason)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if opened() != 1 || len(a.started()) != 2 || stateOf(e.svc, v.ID).Status != VPNFailed {
+		t.Fatalf("%d pages, %d runs, state %+v", opened(), len(a.started()), stateOf(e.svc, v.ID))
+	}
+}
+
+// A sign-in port another app holds stops the retries with its message.
+func TestAWSSSODropWhilePortHeld(t *testing.T) {
+	e := newVPNEnv(t, vpntest.OK)
+	a, _ := useAWS(t, e)
+	fastRetry(t)
+	opened := browserSeq(t, e, true, true)
+	v := saveAWS(t, e, false)
+	connected(t, e, v)
+	ln, err := net.Listen("tcp", awsSSOAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	a.drop <- struct{}{}
+	st := waitStatus(t, e, v.ID, VPNFailed)
+	if !strings.Contains(st.Reason, "in use") {
+		t.Fatalf("reason %q", st.Reason)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if opened() != 1 || len(a.started()) != 3 {
+		t.Fatalf("%d pages, %d runs", opened(), len(a.started()))
+	}
+}
+
+// On the user's own connect a sign-in not completed ends it: no retry, and
+// the browser opens once.
+func TestAWSSSOOwnConnectTimeoutDoesNotRetry(t *testing.T) {
+	e := newVPNEnv(t, vpntest.OK)
+	useAWS(t, e)
+	fastRetry(t)
+	opened := browserSeq(t, e)
+	v := saveAWS(t, e, false)
+	connectAsync(e, v.ID)
+	st := waitStatus(t, e, v.ID, VPNFailed)
+	if !strings.Contains(st.Reason, "not completed") {
+		t.Fatalf("reason %q", st.Reason)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if opened() != 1 {
+		t.Fatalf("browser opened %d times", opened())
+	}
+}
+
+// Sign-ins that each connect and drop at once still stop at the reconnect
+// limit every profile has.
+func TestAWSSSOQuickDropsStopAtTheRetryLimit(t *testing.T) {
+	e := newVPNEnv(t, vpntest.OK)
+	a, _ := useAWS(t, e)
+	fastRetry(t)
+	opened := browserSeq(t, e, true, true, true, true, true, true, true, true)
+	v := saveAWS(t, e, false)
+	connected(t, e, v)
+	for i := 0; i < 6; i++ {
+		waitStatus(t, e, v.ID, VPNConnected)
+		a.drop <- struct{}{}
+		waitFor(t, func() bool { return stateOf(e.svc, v.ID).Status != VPNConnected })
+	}
+	waitStatus(t, e, v.ID, VPNFailed)
+	time.Sleep(200 * time.Millisecond)
+	if opened() != 6 {
+		t.Fatalf("browser opened %d times", opened())
+	}
+}
+
+// With automatic reconnect off, a drop just ends.
+func TestAWSSSODropWithoutAutoReconnect(t *testing.T) {
+	e := newVPNEnv(t, vpntest.OK)
+	a, _ := useAWS(t, e)
+	fastRetry(t)
+	opened := browserSeq(t, e, true, true)
+	v := saveAWS(t, e, false)
+	v.AutoReconnect = false
+	if _, err := e.svc.SaveVPN(v); err != nil {
+		t.Fatal(err)
+	}
+	connected(t, e, v)
+	a.drop <- struct{}{}
+	waitStatus(t, e, v.ID, VPNDropped)
+	time.Sleep(200 * time.Millisecond)
+	if opened() != 1 || stateOf(e.svc, v.ID).Status != VPNDropped {
+		t.Fatalf("%d pages, state %+v", opened(), stateOf(e.svc, v.ID))
 	}
 }
