@@ -2,7 +2,9 @@ package tunnel
 
 import (
 	"fmt"
+	"maps"
 	"os/exec"
+	"slices"
 	"strings"
 
 	"hostbay/internal/netd"
@@ -25,8 +27,14 @@ var runTapctl = func(path string, env []string, args ...string) (string, error) 
 	return string(out), nil
 }
 
-// dcoAdapter returns the adapter's name, creating it when it is missing.
-func (m *Manager) dcoAdapter() (string, error) {
+// dcoAdapter returns the adapter's name for tunnel h, creating it when it
+// is missing. h holds it until cleanup.
+func (m *Manager) dcoAdapter(h string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if slices.Contains(slices.Collect(maps.Values(m.ifaces)), dcoName) {
+		return "", errDCOBusy
+	}
 	if err := netd.CheckClient(m.env.Dir, "tapctl", m.env.Owner); err != nil {
 		return "", fmt.Errorf("the helper has no tapctl it can trust (%v); reinstall the helper", err)
 	}
@@ -38,11 +46,13 @@ func (m *Manager) dcoAdapter() (string, error) {
 	// Each line is the adapter's GUID, a tab and its name.
 	for _, l := range strings.Split(out, "\n") {
 		if _, name, ok := strings.Cut(strings.TrimSpace(l), "\t"); ok && strings.TrimSpace(name) == dcoName {
+			m.ifaces[h] = dcoName
 			return dcoName, nil
 		}
 	}
 	if _, err := runTapctl(path, m.childEnv, "create", "--hwid", "ovpn-dco", "--name", dcoName); err != nil {
 		return "", err
 	}
+	m.ifaces[h] = dcoName
 	return dcoName, nil
 }

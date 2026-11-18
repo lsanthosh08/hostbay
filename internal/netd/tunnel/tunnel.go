@@ -68,6 +68,7 @@ type Manager struct {
 	// ifaces holds the interface each OpenConnect tunnel was given, from
 	// its start until it ends: openconnect creates a macOS utun only once
 	// it has signed in, so the system does not show it taken before then.
+	// On Windows it also holds the ovpn-dco adapter an AWS SSO tunnel runs on.
 	ifaces map[string]string
 }
 
@@ -169,8 +170,11 @@ func (m *Manager) add(h string, stop func()) func() {
 	}
 }
 
-// cleanup removes a tunnel's files.
+// cleanup removes a tunnel's files and frees the adapter it held.
 func (m *Manager) cleanup(h string) {
+	m.mu.Lock()
+	delete(m.ifaces, h)
+	m.mu.Unlock()
 	for _, ext := range []string{".conf", ".sock", ".pw"} {
 		os.Remove(filepath.Join(m.run, h+ext))
 	}

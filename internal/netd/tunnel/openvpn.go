@@ -2,6 +2,7 @@ package tunnel
 
 import (
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -20,6 +21,10 @@ import (
 // opens before anything else.
 var socketWait = 10 * time.Second
 
+// errDCOBusy (Windows): OpenVPN opens its adapter for itself alone, and the helper
+// keeps one, so a second AWS SSO tunnel cannot run beside the first.
+var errDCOBusy = errors.New("Another AWS Client VPN (SSO) profile is connected, and Windows runs one at a time. Disconnect it first.")
+
 // openVPN writes the profile's configuration (openvpn.Build, which refuses
 // anything off its allowlist), starts the helper's OpenVPN on it and
 // returns where Hostbay reaches its management interface: there Hostbay
@@ -34,7 +39,10 @@ func (m *Manager) openVPN(h string, p *openvpn.Profile, ended func(string)) (net
 	}
 	if p.AWS && runtime.GOOS == "windows" {
 		// OpenVPN 2.7 has no Wintun: the AWS client runs on an ovpn-dco adapter.
-		name, err := m.dcoAdapter()
+		name, err := m.dcoAdapter(h)
+		if errors.Is(err, errDCOBusy) {
+			return netd.Msg{}, refused(err.Error())
+		}
 		if err != nil {
 			return netd.Msg{}, failed("preparing the OpenVPN adapter: " + err.Error())
 		}
@@ -46,6 +54,7 @@ func (m *Manager) openVPN(h string, p *openvpn.Profile, ended func(string)) (net
 	if runtime.GOOS == "windows" {
 		ln, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
+			m.cleanup(h)
 			return netd.Msg{}, failed("finding a port for OpenVPN: " + err.Error())
 		}
 		addr := ln.Addr().String()
@@ -53,6 +62,7 @@ func (m *Manager) openVPN(h string, p *openvpn.Profile, ended func(string)) (net
 		pass := rand.Text()
 		pf := filepath.Join(m.run, h+".pw")
 		if err := writePrivate(pf, pass+"\n"); err != nil {
+			m.cleanup(h)
 			return netd.Msg{}, failed("writing OpenVPN's password file: " + err.Error())
 		}
 		mg, reply = openvpn.Management{Addr: addr, PassFile: pf}, netd.Msg{Mgmt: addr, MgmtPass: pass}

@@ -3,4 +3,4 @@
 package tunnel
 
 // dcoAdapter is Windows only.
-func (m *Manager) dcoAdapter() (string, error) { return "", nil }
+func (m *Manager) dcoAdapter(string) (string, error) { return "", nil }
