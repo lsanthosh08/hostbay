@@ -60,7 +60,7 @@ export function About() {
           )}
         </div>
       ) : (
-        status?.lastCheck && <p className="text-sm text-muted">{t("about.upToDate")}</p>
+        status?.lastCheck && !status.error && <p className="text-sm text-muted">{t("about.upToDate")}</p>
       )}
       {(error || status?.error) && <p className="text-sm text-danger">{error || status?.error}</p>}
       <Button className="w-fit" icon={busy ? undefined : RefreshIcon} disabled={busy} onClick={() => call(() => api.checkForUpdate(false))}>

@@ -18,6 +18,7 @@ type fakeUpdates struct {
 	err               error
 	checks, downloads int
 	installed, quits  int
+	events            []UpdateStatus
 }
 
 func newUpdateService(dir string, f *fakeUpdates) *UpdateService {
@@ -37,6 +38,11 @@ func newUpdateService(dir string, f *fakeUpdates) *UpdateService {
 		return nil
 	}
 	s.quit = func() { f.quits++ }
+	s.emit = func(name string, data any) {
+		if name == UpdateAvailableEvent {
+			f.events = append(f.events, data.(UpdateStatus))
+		}
+	}
 	return s
 }
 
@@ -119,5 +125,24 @@ func TestUpdateForADebInstallOnlyLinksTheRelease(t *testing.T) {
 	}
 	if _, err := s.Install(context.Background()); err == nil || f.downloads != 0 {
 		t.Fatalf("Install = %v after %d downloads", err, f.downloads)
+	}
+}
+
+func TestUpdateAutoCheckAnnouncesANewVersion(t *testing.T) {
+	f := &fakeUpdates{}
+	s := newUpdateService(t.TempDir(), f)
+	s.autoCheck(context.Background())
+	if len(f.events) != 0 {
+		t.Fatalf("no new version, but announced %+v", f.events)
+	}
+	f.release = &update.Release{Version: "9.0.0", PageURL: "https://github.com/x/releases/tag/v9.0.0"}
+	s.Check(context.Background(), false)
+	if len(f.events) != 0 {
+		t.Fatalf("a check from About announced %+v", f.events)
+	}
+	s = newUpdateService(t.TempDir(), f)
+	s.autoCheck(context.Background())
+	if len(f.events) != 1 || f.events[0].Available != "9.0.0" || f.events[0].Current != Version {
+		t.Fatalf("events = %+v", f.events)
 	}
 }

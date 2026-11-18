@@ -22,6 +22,10 @@ const updateEvery = 24 * time.Hour
 // time, the last check, so restarts do not check more than daily.
 const updateCheckedFile = "update-checked"
 
+// UpdateAvailableEvent carries an UpdateStatus when the background check
+// finds a verified newer release, so the UI can offer to install it.
+const UpdateAvailableEvent = "update-available"
+
 // UpdateStatus is what the About screen shows.
 type UpdateStatus struct {
 	Current string `json:"current"`
@@ -42,12 +46,13 @@ type UpdateStatus struct {
 // installs one when the user asks (R55, KTD21).
 type UpdateService struct {
 	dir string
-	// check, download, install and quit reach GitHub, the installer and the
-	// app; tests replace them.
+	// check, download, install, quit and emit reach GitHub, the installer
+	// and the app; tests replace them.
 	check    func(ctx context.Context, prerelease bool) (*update.Release, error)
 	download func(ctx context.Context, r *update.Release, dir string) (string, error)
 	install  func(path string, a update.Asset) error
 	quit     func()
+	emit     func(name string, data any)
 
 	run     gosync.Mutex // one check or install at a time
 	mu      gosync.Mutex // guards status and release
@@ -62,6 +67,7 @@ func NewUpdateService(dir string) *UpdateService {
 	return &UpdateService{
 		dir: dir, check: u.Check, download: u.Download, install: update.Install,
 		quit:   func() { application.Get().Quit() },
+		emit:   emitEvent,
 		status: UpdateStatus{Current: Version, Signed: update.Signed()},
 	}
 }
@@ -144,7 +150,9 @@ func (s *UpdateService) autoCheck(ctx context.Context) {
 	if fi, err := os.Stat(s.checkedFile()); err == nil && time.Since(fi.ModTime()) < updateEvery {
 		return
 	}
-	s.Check(ctx, false)
+	if st, err := s.Check(ctx, false); err == nil && st.Available != "" {
+		s.emit(UpdateAvailableEvent, st)
+	}
 }
 
 // ServiceStartup checks at launch and then hourly, each time only if the

@@ -1031,6 +1031,8 @@ export const en = {
   "about.installed": "Installed. Restart Hostbay to finish.",
   "about.releasePage": "Open release page",
   "about.upToDate": "Hostbay is up to date.",
+  "about.later": "Later",
+  "about.downloading": "Downloading Hostbay {version}…",
   "action.transfers": "Show transfers",
   "files.title": "Files",
   "files.local": "This computer",

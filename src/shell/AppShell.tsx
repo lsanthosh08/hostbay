@@ -34,6 +34,7 @@ import { createSlots } from "./slots";
 import { StartPage } from "./StartPage";
 import { StatusBar, useSyncState } from "./StatusBar";
 import { useHelperPrompt } from "./useHelperPrompt";
+import { useUpdatePrompt } from "./useUpdatePrompt";
 
 /** Keys typed here belong to the terminal or the field, not to shortcuts
  *  (xterm and Monaco both take keys through a textarea; a focused canvas is
@@ -50,6 +51,7 @@ export function AppShell() {
   const { toggle: toggleTheme } = useTheme();
   const { push } = useToast();
   useHelperPrompt();
+  useUpdatePrompt();
   const { prompt } = usePrompt();
   const { workspaces, reloadWorkspaces } = useHosts();
   const { setOpen: setTransfersOpen } = useTransferActions();

@@ -1246,6 +1246,7 @@ export type UpdateStatus = {
 export const updateStatus = () => UpdateService.Status() as Promise<UpdateStatus>;
 export const checkForUpdate = (prerelease: boolean) => UpdateService.Check(prerelease) as Promise<UpdateStatus>;
 export const installUpdate = () => UpdateService.Install() as Promise<UpdateStatus>;
+export const onUpdateAvailable = (cb: (s: UpdateStatus) => void) => on<UpdateStatus>("update-available", cb);
 
 // ---- AI agent (R60, KTD31-KTD34) ----
 // The provider key goes to Go once, in aiSaveProvider or aiTestProvider,
