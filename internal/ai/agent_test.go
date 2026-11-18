@@ -272,7 +272,22 @@ func TestAgentPinnedTerminalClosingStopsIt(t *testing.T) {
 	h.agent.Exec.Approvals.Answer(h.card().ID, true)
 	waitUntil(t, func() bool { return nonceIn.MatchString(sh.got()) })
 	h.terms.reg.Close(id)
-	h.idle()
+	// Stop's idle comes from the turn's goroutine and targetClosed from the
+	// closing one, in either order; wait for both.
+	waitUntil(t, func() bool {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		closed, idle := false, false
+		for _, e := range h.events {
+			switch e.Type {
+			case "targetClosed":
+				closed = true
+			case "state":
+				idle = e.State == "idle"
+			}
+		}
+		return closed && idle
+	})
 	if h.saw("targetClosed") == nil || osh.got() != "" {
 		t.Fatalf("closed event missing or the other shell got %q", osh.got())
 	}
