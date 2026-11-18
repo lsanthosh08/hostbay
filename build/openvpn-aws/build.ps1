@@ -65,7 +65,10 @@ try {
     Invoke-Checked git init -q $vcpkg
     Invoke-Checked git -C $vcpkg fetch -q --depth 1 https://github.com/microsoft/vcpkg.git $v['VCPKG_COMMIT']
     Invoke-Checked git -C $vcpkg checkout -q FETCH_HEAD
-    Invoke-Checked (Join-Path $vcpkg 'bootstrap-vcpkg.bat') -disableMetrics
+    # The batch file garbles a -disableMetrics argument on its way to
+    # bootstrap.ps1, so metrics are turned off through the environment.
+    $env:VCPKG_DISABLE_METRICS = '1'
+    Invoke-Checked (Join-Path $vcpkg 'bootstrap-vcpkg.bat')
 
     # OpenVPN's own manifest (contrib/vcpkg-manifests/windows) also pulls in
     # pkcs11-helper and cmocka, which this build leaves out.
@@ -109,6 +112,16 @@ try {
         '-DENABLE_PKCS11=OFF' `
         '-DBUILD_TESTING=OFF' `
         '-DUSE_WERROR=OFF'
+    # ssl_openssl.c includes <openssl/applink.c> when built with MSVC, but
+    # vcpkg installs that file only with a DLL build of OpenSSL; it comes
+    # from the OpenSSL source vcpkg just built.
+    $inc = Join-Path $work 'vcpkg_installed\x64-windows-static\include\openssl'
+    if (-not (Test-Path (Join-Path $inc 'applink.c'))) {
+        $applink = Get-ChildItem -Recurse -File -Filter applink.c (Join-Path $vcpkg 'buildtrees\openssl') |
+            Where-Object { $_.Directory.Name -eq 'ms' } | Select-Object -First 1
+        if (-not $applink) { throw "OpenSSL's ms\applink.c is not in vcpkg's build tree" }
+        Copy-Item $applink.FullName $inc
+    }
     Invoke-Checked cmake --build $build --config Release --target openvpn tapctl
 
     Copy-Item (Join-Path $build 'Release\openvpn.exe') (Join-Path $OutDir 'openvpn-aws.exe')
