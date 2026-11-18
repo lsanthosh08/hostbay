@@ -315,7 +315,9 @@ func TestSystemWideFromTheAppImageSaysWhy(t *testing.T) {
 	v := saveOpenVPN(t, e.svc)
 	orig := helperUnavailable
 	t.Cleanup(func() { helperUnavailable = orig })
-	helperUnavailable = func() string { return "System-wide routing cannot run from the AppImage; install Hostbay from the deb or rpm package." }
+	helperUnavailable = func() string {
+		return "System-wide routing cannot run from the AppImage; install Hostbay from the deb or rpm package."
+	}
 	_, err := e.svc.ConnectVPN(context.Background(), v.ID)
 	if ae := vpnCode(t, err, apperr.VPNFailed, v.ID); ae.Details["reason"] != "unavailable" || !strings.Contains(ae.Message, "deb or rpm") {
 		t.Fatalf("err %+v", ae)
