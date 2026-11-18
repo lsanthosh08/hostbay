@@ -103,6 +103,26 @@ Section
     # DLLs and wintun.dll. Release CI stages them in bin\openconnect-windows
     # (.github/workflows/release.yml); a build without them installs without OpenConnect.
     File /nonfatal "..\..\..\bin\openconnect-windows\*"
+    # AWS Client VPN SSO profiles run openvpn-aws.exe, which hostbay-netd copies
+    # at install with tapctl.exe to create its ovpn-dco adapter. Release CI
+    # builds them into bin\openvpn-aws-windows (build/openvpn-aws/build.ps1).
+    File /nonfatal "..\..\..\bin\openvpn-aws-windows\openvpn-aws.exe"
+    File /nonfatal "..\..\..\bin\openvpn-aws-windows\tapctl.exe"
+    # OpenVPN 2.7 has no Wintun, so openvpn-aws needs the ovpn-dco driver: the
+    # build for this Windows, upstream-signed, staged in bin\ovpn-dco-windows.
+    SetOutPath "$INSTDIR\ovpn-dco"
+    File /nonfatal /r "..\..\..\bin\ovpn-dco-windows\*"
+    SetOutPath $INSTDIR
+    StrCpy $0 "$INSTDIR\ovpn-dco\win10\ovpn-dco.inf"
+    ${If} ${AtLeastBuild} 22000
+        StrCpy $0 "$INSTDIR\ovpn-dco\win11\ovpn-dco.inf"
+    ${EndIf}
+    ${If} ${FileExists} $0
+        # A 32-bit installer would otherwise reach the 32-bit System32, which has no pnputil.
+        ${DisableX64FSRedirection}
+        ExecWait '"$SYSDIR\pnputil.exe" /add-driver "$0" /install'
+        ${EnableX64FSRedirection}
+    ${EndIf}
 
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
@@ -117,6 +137,12 @@ Section "uninstall"
     !insertmacro wails.setShellContext
 
     RMDir /r "$AppData\${PRODUCT_EXECUTABLE}" # Remove the WebView2 DataPath
+
+    # The adapter hostbay-netd created for AWS SSO profiles. The ovpn-dco driver
+    # stays: OpenVPN's own installers share it.
+    ${If} ${FileExists} "$INSTDIR\tapctl.exe"
+        ExecWait '"$INSTDIR\tapctl.exe" delete "Hostbay AWS VPN"'
+    ${EndIf}
 
     RMDir /r $INSTDIR
 

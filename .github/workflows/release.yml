@@ -73,6 +73,20 @@ jobs:
           cp wintun-zip/wintun/LICENSE.txt bin/openconnect-windows/wintun-LICENSE.txt
           rm -rf wintun.zip wintun-zip
 
+      # OpenVPN 2.7 has no Wintun: openvpn-aws runs on the ovpn-dco driver,
+      # which the installer adds. Pinned to the release zip's SHA-256 as GitHub
+      # publishes it; the zip holds signed builds for Windows 10 and 11.
+      - name: Fetch ovpn-dco-win
+        if: runner.os == 'Windows'
+        run: |
+          curl -fsSL -o ovpn-dco.zip https://github.com/OpenVPN/ovpn-dco-win/releases/download/2.8.14/ovpn-dco-win-2.8.14-amd64.zip
+          echo "425487f4c7d28911b66edab8a7f8f01bd67f4aad999d4a585ea0779b7299f074  ovpn-dco.zip" | sha256sum -c -
+          mkdir -p bin/ovpn-dco-windows
+          python -m zipfile -e ovpn-dco.zip bin/ovpn-dco-windows
+          test -f bin/ovpn-dco-windows/win10/ovpn-dco.inf && test -f bin/ovpn-dco-windows/win11/ovpn-dco.inf
+          curl -fsSL -o bin/ovpn-dco-windows/LICENSE.txt https://raw.githubusercontent.com/OpenVPN/ovpn-dco-win/2.8.14/COPYRIGHT.MIT
+          rm ovpn-dco.zip
+
       # OpenConnect publishes Windows builds only as unversioned artifacts of
       # its master branch, which cannot be pinned. To ship it, a maintainer
       # makes a zip of openconnect.exe and its DLLs (from a tested
@@ -125,6 +139,36 @@ jobs:
           perl -pi -e "s/^var Version = \".*\"/var Version = \"$VERSION\"/" internal/app/app.go
           grep -q "^var Version = \"$VERSION\"$" internal/app/app.go
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      # openvpn-aws is OpenVPN patched for AWS Client VPN's SSO sign-in
+      # (build/openvpn-aws). The same step writes the archive of its source,
+      # which the release attaches for the GPL: built here, it always matches
+      # the binary shipped.
+      - name: Build openvpn-aws
+        if: runner.os != 'Windows'
+        run: |
+          os=$(case "$RUNNER_OS" in macOS) echo macos;; *) echo linux;; esac)
+          mkdir -p src-release
+          sh build/openvpn-aws/build.sh --source-archive "src-release/openvpn-aws-src-$VERSION-$os.tar.gz" bin
+
+      # build.ps1 needs the MSVC developer environment, which vcvars64 sets.
+      - name: Build openvpn-aws (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          cmd /c "`"$vs\VC\Auxiliary\Build\vcvars64.bat`" && set" | ForEach-Object {
+            if ($_ -match '^([^=]+)=(.*)$') { Set-Item "env:$($Matches[1])" $Matches[2] }
+          }
+          New-Item -ItemType Directory -Force src-release | Out-Null
+          & build/openvpn-aws/build.ps1 -SourceArchive "src-release/openvpn-aws-src-$env:VERSION-windows.zip" bin/openvpn-aws-windows
+          if (-not (Test-Path bin/openvpn-aws-windows/openvpn-aws.exe)) { throw "openvpn-aws.exe was not built" }
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: openvpn-aws-src-${{ runner.os }}
+          path: src-release/*
+          if-no-files-found: error
 
       - name: Package
         run: wails3 task package
@@ -215,6 +259,14 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: hostbay-*
+          merge-multiple: true
+          path: release
+
+      # The modified OpenVPN's source, one archive per OS. It stays out of the
+      # signed manifest, which lists only installers.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: openvpn-aws-src-*
           merge-multiple: true
           path: release
 

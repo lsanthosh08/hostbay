@@ -260,6 +260,18 @@ tasks:
             echo "openvpn not found: building without bundled OpenVPN (brew install openvpn to bundle it)"
           fi
         platforms: [darwin]
+      # openvpn-aws for AWS Client VPN SSO profiles, which hostbay-netd copies at
+      # install: static, so it brings no libraries. Built by
+      # build/openvpn-aws/build.sh into bin; skipped with a message without it.
+      - cmd: |
+          if [ -f "{{.BIN_DIR}}/openvpn-aws" ]; then
+            cp "{{.BIN_DIR}}/openvpn-aws" "{{.BIN_DIR}}/{{.APP_BUNDLE}}.app/Contents/MacOS"
+            mkdir -p "{{.BIN_DIR}}/{{.APP_BUNDLE}}.app/Contents/Resources/openvpn-aws"
+            cp build/openvpn-aws/versions.env build/openvpn-aws/openvpn-2.7.9-aws.patch "{{.BIN_DIR}}/{{.APP_BUNDLE}}.app/Contents/Resources/openvpn-aws"
+          else
+            echo "openvpn-aws not found: building without AWS Client VPN SSO (sh build/openvpn-aws/build.sh bin to add it)"
+          fi
+        platforms: [darwin]
       # hostbay-sso opens the sign-in window for gateways that offer no browser mode. It is
       # an app of its own inside Hostbay, so the App Transport Security exception its
       # Info.plist carries covers that window only, and it has its own Frameworks for

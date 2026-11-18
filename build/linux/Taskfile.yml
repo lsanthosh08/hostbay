@@ -149,6 +149,7 @@ tasks:
       - task: :build:rdp-helper
       - task: :build:netd
         vars: { GOOS: linux }
+      - task: build:openvpn-aws
       - task: :build:vpn
         vars: { GOOS: linux }
     cmds:
@@ -162,6 +163,7 @@ tasks:
       - task: :build:rdp-helper
       - task: :build:netd
         vars: { GOOS: linux }
+      - task: build:openvpn-aws
       - task: :build:vpn
         vars: { GOOS: linux }
     cmds:
@@ -178,6 +180,13 @@ tasks:
     cmds:
       - task: generate:dotdesktop
       - task: generate:aur
+
+  build:openvpn-aws:
+    summary: Builds openvpn-aws, OpenVPN patched for AWS Client VPN's SSO sign-in, which the deb and rpm ship
+    status:
+      - test -f bin/openvpn-aws
+    cmds:
+      - sh build/openvpn-aws/build.sh bin
 
   generate:deb:
     summary: Creates a deb package

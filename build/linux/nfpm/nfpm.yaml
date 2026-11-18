@@ -30,6 +30,14 @@ contents:
   - src: "./bin/hostbay-netd"
     dst: "/usr/local/bin/hostbay-netd"
     packager: rpm
+  # OpenVPN patched for AWS Client VPN's SSO sign-in (build/openvpn-aws), which
+  # hostbay-netd copies at install; only the helper runs it.
+  - src: "./bin/openvpn-aws"
+    dst: "/usr/local/bin/openvpn-aws"
+    packager: deb
+  - src: "./bin/openvpn-aws"
+    dst: "/usr/local/bin/openvpn-aws"
+    packager: rpm
   # internal/vpn.HelperPath looks for the VPN helper beside the hostbay binary.
   - src: "./bin/hostbay-vpn"
     dst: "/usr/local/bin/hostbay-vpn"

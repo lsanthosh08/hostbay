@@ -144,6 +144,25 @@ Contents/Resources/openvpn. Hostbay only starts it through hostbay-netd. The
 written source offer above covers openvpn and these libraries in the same
 way.
 
+AWS Client VPN profiles that sign in through the browser run openvpn-aws, a
+modified OpenVPN 2.7.9 (GNU General Public License, version 2, with its linking
+exception for OpenSSL). Hostbay changed it to accept the long password AWS's
+single sign-on sends: larger password and TLS control buffers and 32-bit string
+lengths in the key exchange, each change marked "Hostbay" in the source. It is
+statically linked with OpenSSL (Apache License 2.0), LZO (GPL-2.0), LZ4 (BSD
+2-Clause) and, on Linux, libcap-ng (LGPL-2.1 or later). The macOS app ships it
+in Hostbay.app/Contents/MacOS, the Windows installer beside hostbay.exe, and
+the deb and rpm packages in /usr/local/bin. Each release that ships it attaches
+openvpn-aws-src-<version>-<os> archives holding the complete corresponding
+source: the upstream OpenVPN tarball, the source of every library linked in,
+Hostbay's patch and the scripts that build it (build/openvpn-aws). The written
+source offer above covers it too.
+
+The Windows installer ships the ovpn-dco driver from ovpn-dco-win 2.8.14
+(https://github.com/OpenVPN/ovpn-dco-win), Copyright OpenVPN Inc., unmodified
+and signed by its publisher, for openvpn-aws's tunnels. It is licensed under
+the MIT License, installed beside it as ovpn-dco\LICENSE.txt.
+
 The Windows installer ships wintun.dll from Wintun 0.14.1
 (https://www.wintun.net), Copyright WireGuard LLC, unmodified,
 for system-wide VPN tunnels. It is distributed under the Prebuilt Binaries
