@@ -159,14 +159,13 @@ func (s *VPNService) awsSignIn(c tunnelClient, r *awsRun, p *openvpn.Profile, si
 	default:
 	}
 	<-second.Done()
-	r.endOnce.Do(func() { r.release(); close(r.done) }) // the run reported its own end
+	r.finish(nil) // the run reported its own end
 }
 
 // end reports the connect's end once: failed, since no run of it came up,
 // unless it was closed. signIn marks a sign-in that did not complete.
 func (r *awsRun) end(reason string, signIn bool) {
-	r.endOnce.Do(func() {
-		r.release()
+	r.finish(func() {
 		select {
 		case <-r.closing:
 		default:
@@ -174,6 +173,17 @@ func (r *awsRun) end(reason string, signIn bool) {
 			r.signInFailed = r.signInFailed || signIn
 			r.mu.Unlock()
 			ended(r.rep, false, reason)
+		}
+	})
+}
+
+// finish ends the connect once: it releases the sign-in lock, runs report
+// when given, and closes done.
+func (r *awsRun) finish(report func()) {
+	r.endOnce.Do(func() {
+		r.release()
+		if report != nil {
+			report()
 		}
 		close(r.done)
 	})
@@ -237,11 +247,12 @@ func awsReason(err error) string {
 	return ""
 }
 
-// withVPNID adds the profile to an apperr.Error, as the UI looks it up.
+// withVPNID adds the profile to the apperr.Error in err, as the UI looks
+// it up, and returns err.
 func withVPNID(err error, id string) error {
 	var ae *apperr.Error
 	if errors.As(err, &ae) {
-		return ae.With("vpnId", id)
+		ae.With("vpnId", id)
 	}
 	return err
 }

@@ -22,6 +22,7 @@ import {
   FULL_TUNNEL,
   VPN_TYPES,
   authsFor,
+  awsSSO,
   defaultPort,
   hasRouting,
   isFullTunnel,
@@ -301,7 +302,7 @@ export function VpnForm({ initial, onClose, onSaved }: { initial: Vpn; onClose: 
   const ovpn = v.type === "openvpn" && !external;
   const ovpnNew = ovpn && !v.id;
   // AWS Client VPN's SSO signs in only in the browser, with no user name.
-  const awsSso = ovpn && auth === "browser";
+  const awsSso = !external && awsSSO(v.type, auth);
   // Two profiles for one client cannot be told apart by name (R24).
   const sharesClient =
     external && !!v.client && !v.iface && saved.some((o) => o.id !== v.id && o.tier === "external" && o.client?.toLowerCase() === v.client?.toLowerCase());

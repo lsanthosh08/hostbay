@@ -405,11 +405,7 @@ func (s *VPNService) openSecrets(v *store.VPN) (store.VPNSecrets, error) {
 	}
 	b, err := s.vault.Open(v.Secret, v.SecretAAD())
 	if err != nil {
-		var ae *apperr.Error
-		if errors.As(err, &ae) {
-			ae.With("vpnId", v.ID)
-		}
-		return sec, err
+		return sec, withVPNID(err, v.ID)
 	}
 	return sec, json.Unmarshal(b, &sec)
 }

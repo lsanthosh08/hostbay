@@ -29,7 +29,8 @@ export const typeLabel = (id: string, auth?: VpnAuth | ""): string => {
   const ty = typeOf(id);
   return ty ? t(ty.label) : id;
 };
-const awsSSO = (type: string, auth?: VpnAuth | "") => type === "openvpn" && auth === "browser";
+/** OpenVPN with browser sign-in: AWS Client VPN's SSO. */
+export const awsSSO = (type: string, auth?: VpnAuth | "") => type === "openvpn" && auth === "browser";
 export const tierFor = (id: string) => typeOf(id)?.tier ?? "external";
 
 // The OpenConnect protocols (internal/vpn/openconnect/launch.go).
