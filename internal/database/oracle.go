@@ -51,6 +51,9 @@ func (c oraConnector) Connect(ctx context.Context) (driver.Conn, error) {
 		return nil, err
 	}
 	if err := conn.OpenWithContext(ctx); err != nil {
+		// go-ora returns a failure after the TNS connect, such as a refused
+		// sign-in, with its socket still open.
+		_ = conn.Close()
 		return nil, err
 	}
 	return conn, nil
