@@ -15,7 +15,7 @@ import { usePrompt } from "../ui/prompt";
 import { SegmentedControl } from "../ui/SegmentedControl";
 import { Select } from "../ui/Select";
 import { useAsyncToast, useToast } from "../ui/toast";
-import { asksPasswordAgain, formHost, passwordForKind, SQL_SERVERS, unencrypted, validateHost, type HostField } from "./hostForm";
+import { asksPasswordAgain, formHost, KIND_GROUPS, kindPatch, SQL_SERVERS, unencrypted, validateHost, type HostField } from "./hostForm";
 import { SSH_ALGORITHMS } from "./sshAlgorithms";
 import { PostLoginEditor } from "./PostLoginEditor";
 import { VpnField } from "./VpnField";
@@ -23,10 +23,6 @@ import { TERMINAL_KINDS } from "./settings/Logging";
 
 const KEY_FILTERS = [{ name: "Keys", extensions: ["pem", "ppk", "key", ""] }];
 
-const KINDS: HostKind[] = [
-  "ssh", "rdp", "vnc", "spice", "telnet", "mosh", "tcp", "ftp", "smb", "webdav", "s3",
-  "postgres", "mysql", "mssql", "oracle", "rqlite", "sqlite", "kubernetes", "redis", "mongodb", "elasticsearch",
-];
 const KIND_LABEL = {
   ssh: t("hostForm.kind.ssh"),
   rdp: t("hostForm.kind.rdp"),
@@ -51,19 +47,6 @@ const KIND_LABEL = {
   elasticsearch: t("hostForm.kind.elasticsearch"),
 };
 
-/** The port a host gets when its type changes to `k`. FTP, SMB, VNC,
- *  SPICE and the database servers take 0, their protocol's default (SQLite and rqlite have none); WebDAV and S3 keep theirs untouched, because
- *  the saved password is sealed to it (store.Host.SecretAAD). */
-function portFor(k: HostKind, h: Host): number {
-  if (k === h.kind) return h.port;
-  if (k === "telnet") return 23;
-  // A raw TCP service has no usual port: a new host asks for one.
-  if (k === "tcp") return h.id ? h.port : Number.NaN;
-  if (k === "ftp" || k === "smb" || k === "vnc" || k === "spice" || isDatabaseHost({ kind: k })) return 0;
-  if (k === "webdav" || k === "s3") return h.port;
-  return h.port === 23 || !h.port || !h.id ? 22 : h.port;
-}
-
 // What Test connection says for each step it can stop at (ConnTest.step).
 const TEST_TEXT: Record<api.ConnTest["step"], MessageKey> = {
   ok: "hostForm.test.ok",
@@ -87,10 +70,17 @@ const DB_PORT: Partial<Record<HostKind, string>> = { postgres: "5432", mysql: "3
 const TESTABLE: HostKind[] = ["ssh", "mosh", "telnet", "tcp", "postgres", "mysql", "mssql", "oracle", "rqlite"];
 
 /** One titled group of the editor's fields. */
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Section({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
   return (
     <section className="flex flex-col gap-3">
-      <h3 className="text-sm font-semibold">{title}</h3>
+      {action ? (
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-sm font-semibold">{title}</h3>
+          {action}
+        </div>
+      ) : (
+        <h3 className="text-sm font-semibold">{title}</h3>
+      )}
       {children}
     </section>
   );
@@ -316,44 +306,10 @@ export function HostEditor({
           save();
         }}
       >
-        <Section title={t("hostForm.connection")}>
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            {/* The radio group names itself; this caption only shows the name. */}
-            <div>
-              <p className="text-xs text-muted mb-1" aria-hidden>
-                {t("hostForm.type")}
-              </p>
-              <SegmentedControl
-                label={t("hostForm.type")}
-                value={kind}
-                className="flex-wrap"
-                options={KINDS.map((k) => ({
-                  value: k,
-                  label: KIND_LABEL[k],
-                  // Mosh's UDP cannot pass through SSH jump hosts (R19) or a proxy.
-                  disabled: k === "mosh" && (!!h.jumpHostId || !!h.proxyId),
-                  title:
-                    k === "mosh" && h.jumpHostId
-                      ? t("hostForm.moshJump")
-                      : k === "mosh" && h.proxyId
-                        ? t("hostForm.error.proxyMosh")
-                        : undefined,
-                }))}
-                onChange={(k) =>
-                  set({
-                    kind: k,
-                    // A sensible default port and auth per type.
-                    port: portFor(k, h),
-                    rdpPort: k === "rdp" ? h.rdpPort ?? 3389 : h.rdpPort,
-                    authType: k === "rdp" ? "password" : h.authType ?? "key",
-                    // Each kind has its own security modes; start at its default.
-                    tls: k === kind ? h.tls : null,
-                    password: passwordForKind(h, k),
-                  })
-                }
-              />
-            </div>
-            {kind === "rdp" ? (
+        <Section
+          title={t("hostForm.connection")}
+          action={
+            kind === "rdp" ? (
               <Button variant="ghost" type="button" onClick={importRdp}>
                 {t("hostForm.importRdp")}
               </Button>
@@ -361,7 +317,32 @@ export function HostEditor({
               <Button variant="ghost" type="button" onClick={onImportSshConfig}>
                 {t("action.importSshConfig")}
               </Button>
-            ) : null}
+            ) : undefined
+          }
+        >
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label={t("hostForm.alias")} error={err("alias")}>
+              <Input className="w-full" value={h.alias} aria-invalid={!!err("alias")} onChange={(e) => set({ alias: e.target.value })} />
+            </Field>
+            <Field label={t("hostForm.type")}>
+              <Select className="w-full" value={kind} onChange={(e) => set(kindPatch(h, e.target.value as HostKind))}>
+                {KIND_GROUPS.map((g) => (
+                  <optgroup key={g.label} label={t(g.label)}>
+                    {g.kinds.map((k) => (
+                      // Mosh's UDP cannot pass through SSH jump hosts (R19) or a proxy.
+                      <option
+                        key={k}
+                        value={k}
+                        disabled={k === "mosh" && (!!h.jumpHostId || !!h.proxyId)}
+                        title={k === "mosh" && h.jumpHostId ? t("hostForm.moshJump") : k === "mosh" && h.proxyId ? t("hostForm.error.proxyMosh") : undefined}
+                      >
+                        {KIND_LABEL[k]}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </Select>
+            </Field>
           </div>
           {kind === "telnet" && <p className="text-xs text-warning">{t("hostForm.telnetWarning")}</p>}
           {kind === "tcp" && <p className="text-xs text-warning">{t("hostForm.tcpWarning")}</p>}
@@ -501,9 +482,6 @@ export function HostEditor({
           )}
           {asksPasswordAgain(initial, h) && <p className="text-xs text-warning">{t("hostForm.passwordAgain")}</p>}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label={t("hostForm.alias")} error={err("alias")}>
-              <Input className="w-full" value={h.alias} aria-invalid={!!err("alias")} onChange={(e) => set({ alias: e.target.value })} />
-            </Field>
             {/* Raw TCP signs in to nothing, SPICE with no user, and SQLite at all. */}
             {kind !== "tcp" && !spice && !sqlite && !k8s && (
               <Field label={userLabel} hint={vnc ? t("hostForm.vncUserHint") : undefined} error={err("user")}>

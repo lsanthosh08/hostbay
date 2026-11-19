@@ -234,6 +234,44 @@ export function unencrypted(h: Host): boolean {
   return false;
 }
 
+/** The kinds the editor's Type dropdown offers, in its groups. */
+export const KIND_GROUPS: readonly { label: MessageKey; kinds: readonly HostKind[] }[] = [
+  { label: "hostForm.kindGroup.shell", kinds: ["ssh", "mosh", "telnet", "tcp"] },
+  { label: "hostForm.kindGroup.desktop", kinds: ["rdp", "vnc", "spice"] },
+  { label: "hostForm.kindGroup.files", kinds: ["ftp", "smb", "webdav", "s3"] },
+  { label: "hostForm.kindGroup.databases", kinds: ["postgres", "mysql", "mssql", "oracle", "sqlite", "rqlite", "redis", "mongodb", "elasticsearch"] },
+  { label: "hostForm.kindGroup.clusters", kinds: ["kubernetes"] },
+];
+
+/** The port a host gets when its type changes to `k`. FTP, SMB, VNC,
+ *  SPICE and the database servers take 0, their protocol's default (SQLite and rqlite have none); WebDAV and S3 keep theirs untouched, because
+ *  the saved password is sealed to it (store.Host.SecretAAD). */
+export function portFor(k: HostKind, h: Host): number {
+  if (k === h.kind) return h.port;
+  if (k === "telnet") return 23;
+  // A raw TCP service has no usual port: a new host asks for one.
+  if (k === "tcp") return h.id ? h.port : Number.NaN;
+  if (k === "ftp" || k === "smb" || k === "vnc" || k === "spice" || isDatabaseHost({ kind: k })) return 0;
+  if (k === "webdav" || k === "s3") return h.port;
+  return h.port === 23 || !h.port || !h.id ? 22 : h.port;
+}
+
+/** What changes on `h` when its type becomes `k`: the port, auth and
+ *  security mode that depend on the kind. Every other field, the name, host
+ *  name, user and tags among them, stays as typed. */
+export function kindPatch(h: Host, k: HostKind): Partial<Host> {
+  return {
+    kind: k,
+    // A sensible default port and auth per type.
+    port: portFor(k, h),
+    rdpPort: k === "rdp" ? h.rdpPort ?? 3389 : h.rdpPort,
+    authType: k === "rdp" ? "password" : h.authType ?? "key",
+    // Each kind has its own security modes; start at its default.
+    tls: k === hostKind(h) ? h.tls : null,
+    password: passwordForKind(h, k),
+  };
+}
+
 /** The typed password to keep when the editor's kind changes to `kind`:
  *  none, so one typed for one server (a PostgreSQL password) never reaches
  *  another kind's (as a cluster's bearer token). */

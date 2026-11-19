@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { Host } from "../api";
-import { asksPasswordAgain, formHost, missingVpn, passwordForKind, proxyAsksPasswordAgain, unencrypted, validateHost, validateProxy } from "./hostForm";
+import type { Host, HostKind } from "../api";
+import { en } from "../i18n/en";
+import { asksPasswordAgain, formHost, KIND_GROUPS, kindPatch, missingVpn, passwordForKind, proxyAsksPasswordAgain, unencrypted, validateHost, validateProxy } from "./hostForm";
 
 const host = (over: Partial<Host> = {}): Host => ({
   id: "web",
@@ -483,5 +484,47 @@ describe("host VPN", () => {
     expect(missingVpn(host({ vpnId: "held" }), vpns)).toBe(true);
     expect(missingVpn(host({ vpnId: "v1" }), vpns)).toBe(false);
     expect(missingVpn(host(), vpns)).toBe(false);
+  });
+});
+
+describe("host type dropdown", () => {
+  const offered = KIND_GROUPS.flatMap((g) => g.kinds);
+  // The kinds the editor has always offered (and the Go side knows).
+  const ALL: HostKind[] = [
+    "ssh", "rdp", "vnc", "spice", "telnet", "mosh", "tcp", "ftp", "smb", "webdav", "s3",
+    "postgres", "mysql", "mssql", "oracle", "rqlite", "sqlite", "kubernetes", "redis", "mongodb", "elasticsearch",
+  ];
+
+  it("offers every kind once, under a titled group", () => {
+    expect([...offered].sort()).toEqual([...ALL].sort());
+    for (const g of KIND_GROUPS) expect(en[g.label]).toBeTruthy();
+    for (const k of ALL) expect(en[`hostForm.kind.${k}` as keyof typeof en]).toBeTruthy();
+  });
+
+  it("applies the kind's default port", () => {
+    const apply = (k: HostKind, over: Partial<Host> = {}) => ({ ...host(over), ...kindPatch(host(over), k) }).port;
+    expect(apply("telnet")).toBe(23);
+    expect(apply("ftp")).toBe(0);
+    expect(apply("vnc")).toBe(0);
+    expect(apply("postgres")).toBe(0);
+    expect(apply("webdav")).toBe(22); // kept: the saved password is sealed to it
+    expect(apply("tcp", { id: "" })).toBeNaN(); // a new TCP host asks for a port
+    expect(apply("ssh", { kind: "telnet", port: 23 })).toBe(22);
+    expect(apply("ssh", { port: 2222 })).toBe(2222);
+  });
+
+  it("keeps what the user typed in fields both kinds share", () => {
+    const h = host({ alias: "box", hostname: "box.example", user: "ops", tags: ["a"], folderId: "f1", jumpHostId: "j", password: "pw" });
+    const next = { ...h, ...kindPatch(h, "telnet") };
+    expect(next).toMatchObject({ alias: "box", hostname: "box.example", user: "ops", tags: ["a"], folderId: "f1", jumpHostId: "j", kind: "telnet" });
+    // A password typed for one server never reaches another kind.
+    expect(next.password).toBe("");
+    expect(kindPatch(h, "ssh").password).toBe("pw");
+  });
+
+  it("starts each kind at its own security mode and RDP's defaults", () => {
+    const h = host({ tls: "none" });
+    expect(kindPatch(h, "ftp").tls).toBeNull();
+    expect(kindPatch(h, "rdp")).toMatchObject({ authType: "password", rdpPort: 3389 });
   });
 });
