@@ -1435,6 +1435,8 @@ export const en = {
   "workspace.title": "Workspaces",
   "workspace.name": "Workspace name",
   "workspace.saved": "Saved workspace {name}.",
+  "workspace.replaceConfirm": "A workspace named {name} exists. Replace its layout with this one?",
+  "workspace.replace": "Replace",
   "workspace.nothing": "Only saved hosts go in a workspace, and this tab has none.",
   "workspace.missing": "Deleted hosts left out of {name}: {n}",
   "workspace.allMissing": "Every host in {name} has been deleted.",

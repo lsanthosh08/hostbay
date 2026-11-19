@@ -52,7 +52,7 @@ export function AppShell() {
   const { push } = useToast();
   useHelperPrompt();
   useUpdatePrompt();
-  const { prompt } = usePrompt();
+  const { prompt, confirm } = usePrompt();
   const { workspaces, reloadWorkspaces } = useHosts();
   const { setOpen: setTransfersOpen } = useTransferActions();
   const { open: transfersOpen } = useTransfersPanel();
@@ -83,13 +83,15 @@ export function AppShell() {
     const tree = layout?.tree ?? active?.sessionId;
     const saved = tree && toSaved(tree, hostOf);
     if (!saved) return push("error", t("workspace.nothing"));
-    const name = await prompt(t("workspace.name"), layout?.name ?? active?.host.alias ?? "");
-    if (!name?.trim()) return;
-    const same = workspaces.find((w) => w.name === name.trim());
+    const name = (await prompt(t("workspace.name"), layout?.name ?? active?.host.alias ?? ""))?.trim();
+    if (!name) return;
+    const same = workspaces.find((w) => w.name === name);
+    // Saving the open workspace again updates it; taking another one's name replaces that one.
+    if (same && same.name !== layout?.name && !(await confirm(t("workspace.replaceConfirm", { name }), { confirmLabel: t("workspace.replace") }))) return;
     try {
       await api.saveWorkspace({ id: same?.id ?? "", name, layout: saved });
       reloadWorkspaces();
-      push("success", t("workspace.saved", { name: name.trim() }));
+      push("success", t("workspace.saved", { name }));
     } catch (e) {
       push("error", api.errorInfo(e).message);
     }
