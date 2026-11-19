@@ -39,8 +39,16 @@ export function ApprovalTray() {
         );
       setPending(l);
     };
-    api.onAIApprovals(show).then((f) => (gone ? f() : (off = f)));
-    api.aiApprovals().then(show).catch(() => {});
+    // The first read can land after an event that already carried a newer
+    // tray; it is dropped then, or it would bring back answered requests.
+    let heard = false;
+    api
+      .onAIApprovals((l) => {
+        heard = true;
+        show(l);
+      })
+      .then((f) => (gone ? f() : (off = f)));
+    api.aiApprovals().then((l) => heard || show(l)).catch(() => {});
     return () => {
       gone = true;
       off?.();
