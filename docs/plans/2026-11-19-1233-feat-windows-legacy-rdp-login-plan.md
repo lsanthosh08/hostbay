@@ -101,7 +101,7 @@ The user's failing case is the second one. Evidence for what "auto" did before t
 - KTD5. **No Standard RDP Security.** IronRDP `baa9a65` supports it only at `ENCRYPTION_LEVEL_NONE` (`lib.rs` doc on `enable_standard_rdp_security`, `connection.rs` "RDP Security Commencement"). Windows never negotiates that level, and adding RC4 means writing protocol cryptography.
 - KTD6. **One account-name rule.** A name containing `\` splits on the first `\`. A name with `@` and no `\` stays whole as a UPN, with no domain, which matches sspi's `AuthIdentityBuffers` encoding. Otherwise the name is the account alone. `.\user` keeps `.` as its domain. sssd's default regex accepts `user@domain`, so xrdp hosts keep working.
 - KTD7. **`.rdp` parsing in `src/shell/rdpFile.ts`, with decoding in Go.** `ReadTextFile` decodes a UTF-16LE BOM and strips a UTF-8 BOM before the text crosses into the page. `importRdp` is its only caller.
-- KTD8. **Fallback lives in the helper's `run` loop.** On a `fallback` failure with security "auto", it reconnects once with "tls". The full `connect` runs again, so the certificate check (`Out::Cert`, then `await_trust`) repeats; Go's handshake loop already accepts several `cert` messages. NTSTATUS codes that trigger the fallback: `PASSWORD_EXPIRED`, `PASSWORD_MUST_CHANGE`, `ACCOUNT_RESTRICTION`, `LOGON_TYPE_NOT_GRANTED`. Each of these means the password was right, so the fallback never repeats a wrong one.
+- KTD8. **Fallback lives in the helper's `run` loop.** On a `fallback` failure with security "auto", it reconnects once with "tls". The full `connect` runs again, so the certificate check (`Out::Cert`, then `await_trust`) repeats; Go's handshake loop already accepts several `cert` messages. NTSTATUS codes that trigger the fallback: `PASSWORD_EXPIRED`, `PASSWORD_MUST_CHANGE`, `ACCOUNT_RESTRICTION`, `LOGON_TYPE_NOT_GRANTED`. Windows documents each of these as a refusal after the password was checked, but that is not verified against a real server. What keeps the fallback safe either way is the one-attempt cap: in the worst case it costs one extra failed logon. The fallback triggers only on servers that send a CredSSP `errorCode`; servers that just drop the connection get the message without a fallback. When the fallback attempt also fails, `run` reports the original NLA failure first, with the fallback's error kept after it. For example, a server that requires NLA answers the fallback with `HYBRID_REQUIRED_BY_SERVER`, and the user still learns that the password expired.
 - KTD9. **Deactivation-Reactivation.**
   1. On `DeactivateAll`, drive `conn_result.activation_factory.create()` with `read_by_hint`, retrying on the 12 ms read timeout up to a deadline.
   2. When it reaches `Finalized`, call `stage.reactivate(..)` and rebuild the image at the new size.
@@ -111,6 +111,8 @@ The user's failing case is the second one. Evidence for what "auto" did before t
 ---
 
 ## Implementation Units
+
+Build order: U2 and U7 first, because they fix the user's reported case (a server with NLA off). Then U3, U4, U5 and U6, then U1 and U8. While U7's reactivation runs, input from Hostbay is dropped. The sequence has a deadline, and a timeout ends the session with a clear message.
 
 ### U1. Security choice labels and hints
 
@@ -155,7 +157,7 @@ The user's failing case is the second one. Evidence for what "auto" did before t
   - It also covers `LOGON_FAILURE`, `HYBRID_REQUIRED_BY_SERVER` (the server needs NLA), and `SSL_REQUIRED_BY_SERVER` (the server has no NLA; points to "Automatic").
   - `SSL_NOT_ALLOWED_BY_SERVER`: the server is set to the legacy RDP Security Layer, and its administrator can set Negotiate or SSL.
   - A pre-negotiation reply means the server is too old for TLS.
-  - A TLS protocol-version or handshake-failure alert means the server offers only old TLS versions or cipher suites.
+  - Old TLS: `rustls::Error::PeerIncompatible(ServerDoesNotSupportTls12Or13)` (rustls rejects the old ServerHello itself), or a received `ProtocolVersion` or `HandshakeFailure` alert. It means the server offers only old TLS versions or cipher suites.
 - **Test scenarios:**
   - Each mapping above, built from the real library error types.
   - The pre-negotiation case, driven through a real `ClientConnector`.
@@ -178,6 +180,7 @@ The user's failing case is the second one. Evidence for what "auto" did before t
   - auto + `LOGON_FAILURE` gives none.
   - auto + an ambiguous CredSSP drop gives none.
   - auto after one fallback gives none.
+  - auto + `PASSWORD_EXPIRED`, then a fallback refused with `HYBRID_REQUIRED_BY_SERVER`, reports the password-expired message first.
   - nla + `PASSWORD_EXPIRED` gives none.
   - tls gives none.
   - Negotiation flags per mode: nla offers CredSSP only, tls offers TLS only, auto offers both, and no mode enables Standard RDP Security (extends `nla_mode_never_offers_plain_tls`).
@@ -191,7 +194,7 @@ The user's failing case is the second one. Evidence for what "auto" did before t
   - `internal/rdp/supervisor.go` and `internal/rdp/supervisor_test.go`
   - `src/api.ts`, `src/tabs/RdpTab.tsx`, `src/i18n/en.ts`
 - **Approach:** implement KTD10.
-  - The helper records `connector.should_perform_credssp()` before finalize.
+  - The helper reads `connector.should_perform_credssp()` after `mark_as_upgraded` and before `connect_finalize` consumes the connector. Before `mark_as_upgraded` it is false for every session.
   - Go keeps the flag from the first `size` and adds it to every `MsgSize`.
 - **Test scenarios:**
   - The helper's `size` serializes `noNla`.
