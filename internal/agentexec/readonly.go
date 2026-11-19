@@ -97,6 +97,7 @@ func sensitiveArg(a string) bool {
 type progSpec struct {
 	anyOpt    bool     // every option is read-only: no list needed
 	short     string   // allowed short option letters
+	dashWords []string // single-dash words allowed whole, letters unchecked (ip -br)
 	long      []string // allowed long option names, without the dashes
 	verbs     []string // the first word must be one of these, exactly
 	noOperand bool     // no word but options
@@ -122,6 +123,7 @@ func (p progSpec) allows(args []string) bool {
 				return false
 			}
 			seenNeed = seenNeed || name == p.need
+		case len(a) > 1 && a[0] == '-' && slices.Contains(p.dashWords, a[1:]):
 		case len(a) > 1 && a[0] == '-':
 			for _, r := range a[1:] {
 				if !p.anyOpt && !strings.ContainsRune(p.short, r) && (r < '0' || r > '9') {
@@ -165,8 +167,9 @@ var readOnlyProgs = map[string]progSpec{
 	"date": {plus: true, short: "uRI", long: []string{"utc", "universal", "rfc-email", "iso-8601"}},
 	"ps":   {operands: []string{"aux", "ax"}, short: "eAf"},
 	// ss -D writes a file, -K kills sockets.
-	"ss":         shortOnly("tuxlnaperHoOs46"),
-	"ip":         {verbs: []string{"addr", "address", "link", "route", "neigh"}, short: "s46br", long: []string{"brief", "stats", "color"}, operands: []string{"addr", "address", "link", "route", "neigh", "show", "list"}},
+	"ss": shortOnly("tuxlnaperHoOs46"),
+	// ip -b is -batch <file>, which runs the ip commands in it; -br is brief.
+	"ip":         {verbs: []string{"addr", "address", "link", "route", "neigh"}, short: "s46r", dashWords: []string{"br", "brief"}, long: []string{"brief", "stats", "color"}, operands: []string{"addr", "address", "link", "route", "neigh", "show", "list"}},
 	"systemctl":  {verbs: []string{"status", "is-active", "is-enabled", "is-failed", "list-units", "list-unit-files", "list-timers"}, short: "la", long: []string{"no-pager", "full", "all", "failed"}},
 	"journalctl": {short: "unpbrqSU", long: []string{"no-pager", "unit", "lines", "priority", "boot", "reverse", "since", "until", "quiet", "utc"}},
 	"docker":     {verbs: []string{"ps", "images", "version", "info", "logs"}, short: "aqlsnt", long: []string{"all", "quiet", "latest", "size", "no-trunc", "tail", "since", "until", "timestamps", "format", "filter"}},
