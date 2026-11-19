@@ -184,3 +184,39 @@ func TestMongoSaveIsConditionalOnTheShownVersion(t *testing.T) {
 		t.Fatal("the version does not follow the document's content")
 	}
 }
+
+// A collection browse parses its JSON filter and sort in Go into the
+// command's own fields, so a filter cannot add to the command; bad JSON
+// and column filters are refused.
+func TestMongoBrowseCommand(t *testing.T) {
+	path := []string{"shop", "orders"}
+	cmd, err := mongoBrowse(path, Browse{Query: `{"status": "open", "find": "users"}`, Order: `{"total": -1}`}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := bson.MarshalExtJSON(cmd, false, false)
+	if want := `{"find":"orders","filter":{"status":"open","find":"users"},"sort":{"total":-1}}`; string(got) != want {
+		t.Fatalf("find = %s, want %s", got, want)
+	}
+	cmd, _ = mongoBrowse(path, Browse{Sort: "total", Desc: true}, false)
+	if got, _ := bson.MarshalExtJSON(cmd, false, false); string(got) != `{"find":"orders","filter":{},"sort":{"total":-1}}` {
+		t.Fatalf("header sort = %s", got)
+	}
+	cmd, _ = mongoBrowse(path, Browse{Query: `{"_id": {"$oid": "5f0000000000000000000001"}}`}, true)
+	if got, _ := bson.MarshalExtJSON(cmd, false, false); string(got) != `{"count":"orders","query":{"_id":{"$oid":"5f0000000000000000000001"}}}` {
+		t.Fatalf("count = %s", got)
+	}
+	for _, b := range []Browse{
+		{Query: `{"status": `},
+		{Query: `["status"]`},
+		{Order: `nope`},
+		{Filters: []Filter{{Column: "status", Op: "equals", Value: "open"}}},
+	} {
+		if _, err := mongoBrowse(path, b, false); Category(err) != "syntax" {
+			t.Errorf("%+v: err = %v", b, err)
+		}
+	}
+	if _, err := mongoBrowse([]string{"shop"}, Browse{}, false); err == nil {
+		t.Error("a database browsed as a collection")
+	}
+}

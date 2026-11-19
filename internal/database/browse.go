@@ -21,11 +21,22 @@ type Filter struct {
 var FilterOps = []string{"contains", "equals", "null", "notNull"}
 
 // Browse sorts and filters a table opened from the tree. Every filter
-// must hold. The zero Browse shows the table as it is.
+// must hold. The zero Browse shows the table as it is. A document
+// engine (JSONBrowser) takes Query and Order, a filter and a sort
+// written as JSON documents, in place of Filters.
 type Browse struct {
 	Sort    string   `json:"sort,omitempty"`
 	Desc    bool     `json:"desc,omitempty"`
 	Filters []Filter `json:"filters,omitempty"`
+	Query   string   `json:"query,omitempty"`
+	Order   string   `json:"order,omitempty"`
+}
+
+// JSONBrowser is a Browser whose filter and sort are JSON documents
+// (Browse.Query and Browse.Order), parsed in Go, not column filters.
+type JSONBrowser interface {
+	Browser
+	jsonBrowse()
 }
 
 // Browser is the optional capability of browsing a table sorted and
@@ -119,6 +130,9 @@ func (e *sqlEngine) browseWhere(b Browse, cols []string, first int) (where, orde
 func (e *sqlEngine) browse(ctx context.Context, path []string, b Browse, count bool) (string, []any, error) {
 	if !e.d.tablePath(path) {
 		return "", nil, errors.New("that is not a table")
+	}
+	if b.Query != "" || b.Order != "" {
+		return "", nil, &Error{Category: "syntax", Err: errors.New("filter a table by its columns")}
 	}
 	var cols []string
 	if len(b.Filters) > 0 || b.Sort != "" {

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"slices"
 	"strconv"
@@ -327,6 +328,90 @@ func (e *mongoEngine) SelectTable(path []string) string {
 	db, _ := json.Marshal(path[0])
 	coll, _ := json.Marshal(path[1])
 	return `{"$db": ` + string(db) + `, "find": ` + string(coll) + `}`
+}
+
+// mongoDoc parses one JSON document of a browse, or nil when text is
+// blank. Extended JSON types ({"$oid": …}, {"$date": …}) parse to values.
+func mongoDoc(what, text string) (bson.D, error) {
+	if strings.TrimSpace(text) == "" {
+		return nil, nil
+	}
+	var d bson.D
+	if err := bson.UnmarshalExtJSON([]byte(text), false, &d); err != nil {
+		return nil, &Error{Category: "syntax", Err: fmt.Errorf("the %s must be a JSON object, such as {\"name\": \"ann\"}: %v", what, err)}
+	}
+	return d, nil
+}
+
+// mongoBrowse is the find, or with count the count, of a collection
+// browse: Query as its filter and Order (else Sort, a header click) as
+// its sort, each parsed in Go into the command, never pasted into its
+// text. Column filters are the SQL engines'.
+func mongoBrowse(path []string, b Browse, count bool) (bson.D, error) {
+	if len(path) != 2 {
+		return nil, errors.New("that is not a collection")
+	}
+	if len(b.Filters) > 0 {
+		return nil, &Error{Category: "syntax", Err: errors.New("filter a collection with a JSON filter")}
+	}
+	filter, err := mongoDoc("filter", b.Query)
+	if err != nil {
+		return nil, err
+	}
+	if filter == nil {
+		filter = bson.D{}
+	}
+	if count {
+		return bson.D{{Key: "count", Value: path[1]}, {Key: "query", Value: filter}}, nil
+	}
+	cmd := bson.D{{Key: "find", Value: path[1]}, {Key: "filter", Value: filter}}
+	sort, err := mongoDoc("sort", b.Order)
+	if err != nil {
+		return nil, err
+	}
+	if sort == nil && b.Sort != "" {
+		dir := 1
+		if b.Desc {
+			dir = -1
+		}
+		sort = bson.D{{Key: b.Sort, Value: dir}}
+	}
+	if sort != nil {
+		cmd = append(cmd, bson.E{Key: "sort", Value: sort})
+	}
+	return cmd, nil
+}
+
+func (e *mongoEngine) jsonBrowse() {}
+
+// BrowseTable finds a collection's documents by a JSON filter and sort,
+// as a find typed in the editor would, paged through its cursor.
+func (e *mongoEngine) BrowseTable(ctx context.Context, path []string, b Browse) (Results, error) {
+	cmd, err := mongoBrowse(path, b, false)
+	if err != nil {
+		return nil, err
+	}
+	text, err := bson.MarshalExtJSON(append(bson.D{{Key: "$db", Value: path[0]}}, cmd...), true, false)
+	if err != nil {
+		return nil, err
+	}
+	return e.Query(ctx, string(text))
+}
+
+func (e *mongoEngine) CountRows(ctx context.Context, path []string, b Browse) (int64, error) {
+	cmd, err := mongoBrowse(path, b, true)
+	if err != nil {
+		return 0, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, CatalogTimeout)
+	defer cancel()
+	var reply struct {
+		N int64 `bson:"n"`
+	}
+	if err := e.c.Database(path[0]).RunCommand(ctx, cmd).Decode(&reply); err != nil {
+		return 0, mongoError(err)
+	}
+	return reply.N, nil
 }
 
 // mongoTarget checks a document's collection path and _id.

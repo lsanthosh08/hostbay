@@ -466,6 +466,13 @@ func (s *DatabaseService) DatabaseQuery(dbID, text string) (string, error) {
 	return s.reg.Start(d.ctx, dbID, func(ctx context.Context) (database.Results, error) { return d.engine.Query(ctx, text) }), nil
 }
 
+// browsing reports an engine that browses tables itself (not SQL, whose
+// Exporter does), so an export of what it shows must too.
+func browsing(e database.Engine) bool {
+	_, ok := e.(database.Browser)
+	return ok
+}
+
 // DatabaseExplain shows the plan of one statement without running it, on
 // an engine with the "explain" capability (R10). Go builds the statement
 // (KTD8), and text that writes passes the same read-only gate as a
@@ -747,6 +754,9 @@ func (s *DatabaseService) DatabaseExport(ctx context.Context, dbID string, req D
 		res, err = ex.ExportTable(ctx, req.Path, req.Browse)
 	case isSQL:
 		res, err = ex.ExportQuery(ctx, req.Text)
+	case table && browsing(d.engine):
+		// A filtered collection exports what it shows, not every document.
+		res, err = d.engine.(database.Browser).BrowseTable(ctx, req.Path, req.Browse)
 	case table:
 		ed, ok := d.engine.(interface{ SelectTable([]string) string })
 		if !ok {

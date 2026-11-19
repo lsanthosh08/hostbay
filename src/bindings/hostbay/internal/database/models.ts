@@ -3,12 +3,16 @@
 
 /**
  * Browse sorts and filters a table opened from the tree. Every filter
- * must hold. The zero Browse shows the table as it is.
+ * must hold. The zero Browse shows the table as it is. A document
+ * engine (JSONBrowser) takes Query and Order, a filter and a sort
+ * written as JSON documents, in place of Filters.
  */
 export interface Browse {
     "sort"?: string;
     "desc"?: boolean;
     "filters"?: Filter[] | null;
+    "query"?: string;
+    "order"?: string;
 }
 
 /**

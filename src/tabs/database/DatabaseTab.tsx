@@ -311,6 +311,7 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
             onRefresh={rerun}
             count={shown.count}
             onCount={() => count(shown)}
+            json={caps.includes("browseJSON")}
             onInsert={canWrite && shown.table && !readOnly ? () => setInserting(true) : undefined}
           />
         )}
@@ -321,7 +322,7 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
               sets={shown.sets}
               done={shown.done}
               sort={shown.path && canBrowse ? (shown.browse ?? {}) : undefined}
-              onSort={shown.path && canBrowse ? (column) => openTable(shown.path!, nextSort(shown.browse ?? {}, column)) : undefined}
+              onSort={shown.path && canBrowse ? (column) => openTable(shown.path!, { ...nextSort(shown.browse ?? {}, column), order: undefined }) : undefined}
               table={readOnly ? null : shown.table}
               onSaveCell={(result, row, col) =>
                 toast(() => api.databaseSaveCell(shown.queryId, result, row, col)).then((saved) => saved && push("success", t("database.saved")))

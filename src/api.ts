@@ -756,7 +756,8 @@ export type DbTable = { path: string[]; key: string[]; edit?: string[]; noNull?:
 // the table's catalog and passes values as parameters, never as SQL.
 export type DbFilterOp = "contains" | "equals" | "null" | "notNull";
 export type DbFilter = { column: string; op: DbFilterOp; value: string };
-export type DbBrowse = { sort?: string; desc?: boolean; filters?: DbFilter[] };
+// A document engine (browseJSON) takes query and order, a JSON filter and sort, in place of filters.
+export type DbBrowse = { sort?: string; desc?: boolean; filters?: DbFilter[]; query?: string; order?: string };
 export type QueryState = { queryId: string; state: "running" | "done" | "error" | "cancelled" | "expired"; rows: number; message?: string; rerun?: boolean };
 export const databaseConnect = (hostId: string) =>
   unlocking(() => DatabaseService.DatabaseConnect(hostId) as Promise<DatabaseInfo>);
