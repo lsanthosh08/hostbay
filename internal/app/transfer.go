@@ -297,13 +297,34 @@ func (s *TransferService) TransferMkdir(ctx context.Context, sourceID, dir, name
 	return src.Mkdir(ctx, dir, name)
 }
 
-// TransferRename renames or moves a file or folder within one source.
+// TransferRename renames or moves a file or folder within one source. It
+// never replaces what is at to.
 func (s *TransferService) TransferRename(ctx context.Context, sourceID, from, to string) error {
 	src, _, err := s.source(sourceID)
 	if err != nil {
 		return err
 	}
+	_, err = src.Stat(ctx, to)
+	if err := noReplace(err, from, to); err != nil {
+		return err
+	}
 	return src.Rename(ctx, from, to)
+}
+
+// noReplace turns a Stat of a rename's target into the rename's refusal:
+// most sources' own rename (a local rename, mv, FTP, S3's copy) would
+// replace the file there without asking. A rename that changes only case
+// passes: on a case-insensitive disk its target is the file itself.
+func noReplace(statErr error, from, to string) error {
+	switch {
+	case strings.EqualFold(from, to):
+		return nil
+	case statErr == nil:
+		return fmt.Errorf("%s already exists; choose another name", to)
+	case errors.Is(statErr, os.ErrNotExist):
+		return nil
+	}
+	return statErr
 }
 
 // TransferRemove deletes a file or an empty folder.

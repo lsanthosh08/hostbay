@@ -83,7 +83,8 @@ export function TransferRemove(sourceID: string, p: string, isDir: boolean): $Ca
 }
 
 /**
- * TransferRename renames or moves a file or folder within one source.
+ * TransferRename renames or moves a file or folder within one source. It
+ * never replaces what is at to.
  */
 export function TransferRename(sourceID: string, $from: string, to: string): $CancellablePromise<void> {
     return $Call.ByID(3410364234, sourceID, $from, to);

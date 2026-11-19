@@ -412,3 +412,29 @@ func TestFileHostWithAJumpHostNeverDialsDirectly(t *testing.T) {
 		t.Fatalf("the server was dialled directly %d times", n)
 	}
 }
+
+// Renaming onto a name that exists is refused on every source: most of
+// their own renames (a local rename, mv, FTP, S3's copy) would replace the
+// other file without asking.
+func TestTransferRenameNeverReplacesAFile(t *testing.T) {
+	ts := NewTransferService(NewFilesService(sshx.NewManager(&sshx.Dialer{})), nil, nil)
+	dir := filepath.ToSlash(t.TempDir())
+	a, b := dir+"/a.txt", dir+"/b.txt"
+	for p, s := range map[string]string{a: "a", b: "b"} {
+		if err := os.WriteFile(filepath.FromSlash(p), []byte(s), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := ts.TransferRename(context.Background(), LocalSource, a, b); err == nil {
+		t.Fatal("rename replaced an existing file")
+	}
+	if got, _ := os.ReadFile(filepath.FromSlash(b)); string(got) != "b" {
+		t.Fatalf("target now holds %q", got)
+	}
+	if err := ts.TransferRename(context.Background(), LocalSource, a, dir+"/A.txt"); err != nil {
+		t.Fatalf("a rename that changes only case: %v", err)
+	}
+	if err := ts.TransferRename(context.Background(), LocalSource, dir+"/A.txt", dir+"/c.txt"); err != nil {
+		t.Fatalf("rename to a free name: %v", err)
+	}
+}

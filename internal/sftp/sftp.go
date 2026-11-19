@@ -118,7 +118,7 @@ type Conn struct {
 }
 
 // Shell returns a Conn for a server without SFTP. Only the methods that run
-// shell commands work on it: Copy, Chmod, and Remove with sudo.
+// shell commands work on it: Copy, Chmod, CreateFile, and Remove with sudo.
 func Shell(c *ssh.Client) *Conn { return &Conn{ssh: c} }
 
 // List returns dir's entries, folders first, then by case-insensitive name.
@@ -277,12 +277,43 @@ func (c *Conn) put(p string, r io.Reader) error {
 	return f.Close()
 }
 
+// CreateFile makes p as an empty file and refuses one that exists, so a
+// new file never empties an old one a stale listing missed. Without sudo
+// it creates over SFTP and, as Write does, retries as root only when that
+// is refused for permission. On a Shell conn it runs sh, as root with sudo.
+func (c *Conn) CreateFile(p string, sudo bool, password string) error {
+	if !sudo && c.sftp != nil {
+		f, err := c.sftp.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL)
+		if err == nil {
+			return f.Close()
+		}
+		if !errors.Is(err, os.ErrPermission) {
+			// SFTP v3 has no "exists" status: say so when that is why.
+			if _, serr := c.sftp.Lstat(p); serr == nil {
+				return fmt.Errorf("%s already exists", p)
+			}
+			return err
+		}
+	}
+	// With noclobber set, sh's > refuses a file that exists.
+	return c.shell("create", sudo || c.sftp != nil, password, "sh", "-c", `set -C && : > "$1"`, "sh", p)
+}
+
 func (c *Conn) Mkdir(p string) error         { return c.sftp.Mkdir(p) }
 func (c *Conn) Rename(from, to string) error { return c.sftp.Rename(from, to) }
 
-// Remove deletes a file or an empty folder over SFTP; with sudo, or when
-// SFTP is refused for permission, it runs rm (-rf for a folder) as root.
+// Remove deletes a file or an empty folder over SFTP; with sudo it runs rm
+// (-rf for a folder) as root. When SFTP is refused for permission it
+// retries as root with rm -f or rmdir, so the retry removes no more than
+// the refused request would have.
 func (c *Conn) Remove(p string, isDir, sudo bool, password string) error {
+	args := []string{"rm", "-f", "--", p}
+	switch {
+	case isDir && sudo:
+		args = []string{"rm", "-rf", "--", p}
+	case isDir:
+		args = []string{"rmdir", "--", p}
+	}
 	if !sudo {
 		remove := c.sftp.Remove
 		if isDir {
@@ -292,11 +323,7 @@ func (c *Conn) Remove(p string, isDir, sudo bool, password string) error {
 			return err
 		}
 	}
-	flag := "-f"
-	if isDir {
-		flag = "-rf"
-	}
-	return c.shell("remove", true, password, "rm", flag, "--", p)
+	return c.shell("remove", true, password, args...)
 }
 
 // Copy runs cp -a, which SFTP has no request for.
@@ -341,7 +368,12 @@ func (c *Conn) Download(remote, local string) error {
 		err = cerr
 	}
 	if err == nil {
-		err = os.Chmod(tmp.Name(), 0o644) // CreateTemp makes it 0600
+		// CreateTemp makes it 0600; open it up to 0644, but never to more
+		// users than could read the remote file.
+		var fi os.FileInfo
+		if fi, err = src.Stat(); err == nil {
+			err = os.Chmod(tmp.Name(), 0o600|0o644&fi.Mode().Perm())
+		}
 	}
 	if err != nil {
 		return err

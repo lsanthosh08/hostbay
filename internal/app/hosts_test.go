@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"github.com/zalando/go-keyring"
 
 	"hostbay/internal/apperr"
+	"hostbay/internal/backup"
 	"hostbay/internal/secrets"
 	"hostbay/internal/store"
 	"hostbay/internal/vpn/detect"
@@ -239,5 +241,36 @@ func TestImportFromToolAddsOnceAndSealsPasswords(t *testing.T) {
 	raw, _ := os.ReadFile(filepath.Join(dir, "hosts.json"))
 	if strings.Contains(string(raw), "Win-Pass-2!") {
 		t.Fatal("hosts.json holds an imported password in clear")
+	}
+}
+
+// A restored post-login rule that types a host's saved password needs the
+// verification saving one asks for: the page can write the file it then
+// restores, and the rule attaches to a host already saved here.
+func TestRestoringARuleThatSendsThePasswordNeedsVerification(t *testing.T) {
+	for _, res := range []secrets.Result{secrets.Cancelled, secrets.Passed} {
+		s, creds, dir := newHostService(t, fakeVerifier(res))
+		var hostID string
+		if err := creds.st.Edit(func(d *store.Data) error {
+			hostID = d.AddHost(store.Host{Meta: store.Meta{ID: store.NewID()}, Alias: "web", Hostname: "web.example", Port: 22, User: "root"}).ID
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		b, _ := json.Marshal(backup.Bundle{SchemaVersion: 4, PostLogin: []store.PostLoginRule{{Meta: store.Meta{ID: store.NewID()}, HostID: hostID,
+			Steps: []store.PostLoginStep{{Expect: "$", Kind: store.ReplyPassword}}}}})
+		path := filepath.Join(dir, "restore.json")
+		if err := os.WriteFile(path, b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, err := s.ImportStore(context.Background(), path, nil)
+		d, _ := creds.st.Data()
+		got := len(d.PostLoginRules(hostID))
+		if res == secrets.Cancelled && (err == nil || got != 0) {
+			t.Fatalf("restored a rule sending the password without verification: err %v, %d rules", err, got)
+		}
+		if res == secrets.Passed && (err != nil || got != 1) {
+			t.Fatalf("verified restore: err %v, %d rules", err, got)
+		}
 	}
 }

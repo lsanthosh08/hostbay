@@ -24,6 +24,15 @@ export function SftpCopy(sessionID: string, $from: string, to: string, sudo: boo
     return $Call.ByID(4136906089, sessionID, $from, to, sudo);
 }
 
+/**
+ * SftpCreateFile makes an empty file at path and refuses one that exists,
+ * so "New file" on a name a stale listing missed empties nothing. sudo and
+ * sudoPassword work as for SftpWrite.
+ */
+export function SftpCreateFile(sessionID: string, path: string, sudo: boolean, sudoPassword: string | null): $CancellablePromise<void> {
+    return $Call.ByID(1576101094, sessionID, path, sudo, sudoPassword);
+}
+
 export function SftpDownload(sessionID: string, remote: string, local: string): $CancellablePromise<void> {
     return $Call.ByID(1515460332, sessionID, remote, local);
 }

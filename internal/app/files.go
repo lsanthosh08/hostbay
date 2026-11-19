@@ -127,6 +127,20 @@ func (s *FilesService) SftpWrite(sessionID, path, content string, sudo bool, sud
 	return c.Write(path, content, sudo, pw)
 }
 
+// SftpCreateFile makes an empty file at path and refuses one that exists,
+// so "New file" on a name a stale listing missed empties nothing. sudo and
+// sudoPassword work as for SftpWrite.
+func (s *FilesService) SftpCreateFile(sessionID, path string, sudo bool, sudoPassword *string) error {
+	c, _, pw, err := s.conn(sessionID) // without SFTP, c runs sh
+	if err != nil {
+		return err
+	}
+	if sudoPassword != nil && *sudoPassword != "" {
+		pw = *sudoPassword
+	}
+	return c.CreateFile(path, sudo, pw)
+}
+
 func (s *FilesService) SftpMkdir(sessionID, path string) error {
 	c, scp, _, err := s.conn(sessionID)
 	if err != nil {
@@ -142,6 +156,14 @@ func (s *FilesService) SftpMkdir(sessionID, path string) error {
 func (s *FilesService) SftpRename(sessionID, from, to string) error {
 	c, scp, _, err := s.conn(sessionID)
 	if err != nil {
+		return err
+	}
+	if scp != nil {
+		_, err = scp.Stat(context.Background(), to)
+	} else {
+		_, err = c.Stat(to)
+	}
+	if err := noReplace(err, from, to); err != nil {
 		return err
 	}
 	if scp != nil {

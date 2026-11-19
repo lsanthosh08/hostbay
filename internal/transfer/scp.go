@@ -24,6 +24,8 @@ import (
 // shell word.
 type SCP struct{ c *ssh.Client }
 
+func (SCP) keepsModes() {}
+
 // NewSCP wraps c. Sources over the same connection compare equal, so they
 // share one concurrency limit.
 func NewSCP(c *ssh.Client) SCP { return SCP{c: c} }

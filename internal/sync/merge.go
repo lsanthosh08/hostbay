@@ -223,7 +223,7 @@ func withMeta(raw json.RawMessage, m store.Meta) json.RawMessage {
 // Repair fixes references a merge can break and returns a note for each
 // (KTD13). A host or folder whose folder is gone moves to the top level, a
 // folder cycle is cut at its member with the lowest ID (so every computer
-// cuts the same one), and a missing jump host is cleared. Repairs do not
+// cuts the same one), and a missing jump host is reported but kept. Repairs do not
 // touch Meta: every computer makes the same ones.
 func Repair(d *store.Data) []string {
 	var notes []string
@@ -258,9 +258,10 @@ func Repair(d *store.Data) []string {
 			h.FolderID = nil
 			notes = append(notes, fmt.Sprintf("Host %q moved to the top level: its folder is gone.", h.Alias))
 		}
-		if h.JumpHostID != nil && d.Host(*h.JumpHostID) == nil {
-			h.JumpHostID = nil
-			notes = append(notes, fmt.Sprintf("Host %q lost its jump host, which is gone.", h.Alias))
+		// A gone jump host stays named, so the host fails to connect rather
+		// than connect directly, as after a local delete or a restore.
+		if h.Jumped() && d.Host(*h.JumpHostID) == nil {
+			notes = append(notes, fmt.Sprintf("Host %q lost its jump host, which is gone; it will not connect until you choose another.", h.Alias))
 		}
 	}
 	return notes

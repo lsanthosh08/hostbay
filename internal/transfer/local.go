@@ -20,6 +20,8 @@ import (
 // file panes need network shares.
 type Local struct{}
 
+func (Local) keepsModes() {}
+
 func (Local) List(_ context.Context, dir string) ([]Entry, error) {
 	des, err := os.ReadDir(filepath.FromSlash(dir))
 	if err != nil {
@@ -60,13 +62,15 @@ func (Local) Create(_ context.Context, dir, rel string, _ int64) (Writer, error)
 		return nil, err
 	}
 	tmp := filepath.Join(filepath.Dir(dst), tempName())
-	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	// 0600 until setPerm, if called, opens a new file up.
+	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		root.Close()
 		return nil, err
 	}
 	w := &localWriter{root: root, f: f, tmp: tmp, dst: dst}
 	if fi, err := root.Stat(dst); err == nil {
+		w.kept = true
 		if err := f.Chmod(fi.Mode() & (fs.ModePerm | fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky)); err != nil {
 			w.Abort()
 			return nil, err
@@ -138,6 +142,17 @@ type localWriter struct {
 	root     *os.Root
 	f        *os.File
 	tmp, dst string
+	kept     bool // the destination existed: its mode was copied
+}
+
+// setPerm opens a new file up to 0644, but never to more users than could
+// read the file it copies; perm 0 (unknown) leaves it 0600. A replaced
+// file keeps its own mode.
+func (w *localWriter) setPerm(perm fs.FileMode) error {
+	if w.kept {
+		return nil
+	}
+	return w.f.Chmod(0o600 | 0o644&perm)
 }
 
 func (w *localWriter) Write(b []byte) (int, error) { return w.f.Write(b) }

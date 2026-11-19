@@ -20,6 +20,7 @@ func TestReadOnly(t *testing.T) {
 		"sort -o out in", "sort --out=x in", "sort --compress-program=sh in", "sort -T /tmp in",
 		"date -s 2020-01-01", "date 010112002020", "ip link set eth0 down", "ip l s eth0 down", "ip a a 10.0.0.1/24 dev eth0",
 		"ip addr add 10.0.0.1/24 dev eth0", "ip netns exec x sh", "ss -D out.bin", "ss -K", "hostname evil", "hostname -b x",
+		"ip -b route", "ip -b addr", "ip -s -b link",
 		"systemctl restart nginx", "systemctl status -Hroot@host nginx", "systemctl show nginx", "kubectl get pods", "git log --output=/tmp/x",
 		"git diff --output=.bashrc", "git status", "sed -i s/a/b/ f", "find / -delete", "arch rm x", "arch -x86_64 sh",
 		"cat ~/.ssh/id_rsa", "cat /etc/shadow", "cat /etc/shado[w]", "cat .env", "cat /proc/1/environ", "grep x /home/u/.aws/credentials",
