@@ -79,6 +79,7 @@ export type {
     ContainerInfo,
     DashboardInfo,
     DataFolder,
+    DatabaseDocument,
     DatabaseInfo,
     DatabaseTable,
     DatabaseTree,

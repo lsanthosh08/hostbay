@@ -42,6 +42,7 @@ export function DocumentView({
   onSaved: () => void;
 }) {
   const [loaded, setLoaded] = useState<string | null>(null);
+  const [version, setVersion] = useState("");
   const [text, setText] = useState("");
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -50,9 +51,10 @@ export function DocumentView({
   useEffect(() => {
     api.databaseDocument(databaseId, path, id).then(
       (d) => {
-        const doc = indentJSON(d);
+        const doc = indentJSON(d.doc);
         setLoaded(doc);
         setText(doc);
+        setVersion(d.version);
       },
       (e) => setError(api.errorInfo(e).message)
     );
@@ -65,7 +67,7 @@ export function DocumentView({
     setBusy(true);
     setError(undefined);
     try {
-      await api.databaseSaveDocument(databaseId, path, id, text);
+      await api.databaseSaveDocument(databaseId, path, id, version, text);
       onSaved();
     } catch (e) {
       setError(api.errorInfo(e).message);

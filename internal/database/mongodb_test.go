@@ -161,3 +161,26 @@ func TestMongoFilterRefusesOperators(t *testing.T) {
 		}
 	}
 }
+
+// A save replaces the document only while it is still the one the page
+// was shown: the filter holds the whole current document, so the check
+// and the replace are one step on the server.
+func TestMongoSaveIsConditionalOnTheShownVersion(t *testing.T) {
+	cur, _ := bson.Marshal(bson.D{{Key: "_id", Value: int32(3)}, {Key: "n", Value: int64(3)}})
+	f, err := mongoFilter(`{"$numberInt":"3"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := bson.MarshalExtJSON(mongoUnchanged(f, cur), true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"_id":{"$numberInt":"3"},"$expr":{"$eq":["$$ROOT",{"$literal":{"_id":{"$numberInt":"3"},"n":{"$numberLong":"3"}}}]}}`
+	if string(b) != want {
+		t.Fatalf("filter = %s\nwant     %s", b, want)
+	}
+	other, _ := bson.Marshal(bson.D{{Key: "_id", Value: int32(3)}, {Key: "n", Value: int64(4)}})
+	if mongoVersion(cur) == mongoVersion(other) || mongoVersion(cur) != mongoVersion(bson.Raw(slices.Clone(cur))) {
+		t.Fatal("the version does not follow the document's content")
+	}
+}

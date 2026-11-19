@@ -63,14 +63,21 @@ func TestElasticsearchThroughATwoHopChain(t *testing.T) {
 	if rows := allRows(t, e, ed.SelectTable([]string{"logs"})); len(rows) != 1 || rows[0][1].Text != "1" || !strings.Contains(rows[0][2].Text, "hello") {
 		t.Fatalf("hits = %+v", rows)
 	}
-	if err := ed.EditDocument(ctx, []string{"logs"}, "1", `{"msg": "bye", "n": 12345678901234567}`); err != nil {
+	_, version, err := ed.Document(ctx, []string{"logs"}, "1")
+	if err != nil {
 		t.Fatal(err)
 	}
-	doc, err := ed.Document(ctx, []string{"logs"}, "1")
+	if err := ed.EditDocument(ctx, []string{"logs"}, "1", version, `{"msg": "bye", "n": 12345678901234567}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.EditDocument(ctx, []string{"logs"}, "1", version, `{"msg": "again"}`); err == nil {
+		t.Fatal("a save from the old version overwrote the change made since")
+	}
+	doc, _, err := ed.Document(ctx, []string{"logs"}, "1")
 	if err != nil || !strings.Contains(doc, `"bye"`) || !strings.Contains(doc, "12345678901234567") {
 		t.Fatalf("after the edit: %s, %v", doc, err)
 	}
-	if err := ed.EditDocument(ctx, []string{"logs"}, "2", `{"msg": "new"}`); err == nil {
+	if err := ed.EditDocument(ctx, []string{"logs"}, "2", version, `{"msg": "new"}`); err == nil {
 		t.Fatal("an edit of a missing document saved")
 	}
 	if rows := allRows(t, e, "GET /_cluster/health"); !strings.Contains(rows[0][1].Text, "cluster_name") {

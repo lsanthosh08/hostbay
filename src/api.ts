@@ -791,11 +791,12 @@ export const databaseEditRow = (databaseId: string, path: string[], key: Record<
   DatabaseService.DatabaseEditRow(databaseId, { path, key, set });
 // With the documentEdit capability, a collection or index opens like a table
 // keyed by "_id": databaseDocument returns a document in full as JSON (a
-// grid cell may be cut), and databaseSaveDocument replaces it by its _id.
+// grid cell may be cut) with its version, and databaseSaveDocument
+// replaces it by its _id only while it is still that version.
 export const databaseDocument = (databaseId: string, path: string[], id: string) =>
-  DatabaseService.DatabaseDocument(databaseId, path, id) as Promise<string>;
-export const databaseSaveDocument = (databaseId: string, path: string[], id: string, doc: string) =>
-  DatabaseService.DatabaseSaveDocument(databaseId, path, id, doc);
+  DatabaseService.DatabaseDocument(databaseId, path, id) as Promise<{ doc: string; version: string }>;
+export const databaseSaveDocument = (databaseId: string, path: string[], id: string, version: string, doc: string) =>
+  DatabaseService.DatabaseSaveDocument(databaseId, path, id, version, doc);
 // Writes a cut or binary cell in full to a file chosen in Go's dialog;
 // false when the user cancelled.
 export const databaseSaveCell = (queryId: string, result: number, row: number, col: number) =>

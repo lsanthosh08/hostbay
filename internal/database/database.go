@@ -134,11 +134,13 @@ type DocumentEditor interface {
 	EditableTable(ctx context.Context, path []string) (*Table, error)
 	// SelectTable is the request that shows path's documents.
 	SelectTable(path []string) string
-	// Document returns the document id names in full, as JSON.
-	Document(ctx context.Context, path []string, id string) (string, error)
+	// Document returns the document id names in full, as JSON, and its
+	// version, an opaque token EditDocument takes back.
+	Document(ctx context.Context, path []string, id string) (doc, version string, err error)
 	// EditDocument replaces the document id names with doc, or fails when
-	// it no longer exists or doc names another _id.
-	EditDocument(ctx context.Context, path []string, id, doc string) error
+	// it no longer exists, changed since Document read version, or doc
+	// names another _id: a save never overwrites a change made meanwhile.
+	EditDocument(ctx context.Context, path []string, id, version, doc string) error
 }
 
 // Classifier is the optional capability that judges a request before it

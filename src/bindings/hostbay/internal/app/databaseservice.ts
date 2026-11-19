@@ -71,7 +71,7 @@ export function DatabaseCountRows(dbID: string, path: string[] | null, browse: d
  * index opened with DatabaseOpenTable that its "_id" cell names, for the
  * document view: a cell shown in the grid may be cut.
  */
-export function DatabaseDocument(dbID: string, path: string[] | null, id: string): $CancellablePromise<string> {
+export function DatabaseDocument(dbID: string, path: string[] | null, id: string): $CancellablePromise<$models.DatabaseDocument> {
     return $Call.ByID(3916030097, dbID, path, id);
 }
 
@@ -148,10 +148,11 @@ export function DatabaseSaveCell(queryID: string, result: number, row: number, c
 
 /**
  * DatabaseSaveDocument replaces that document with doc, by its _id; it
- * fails when the document no longer exists or doc names another _id.
+ * fails when the document no longer exists, changed since DatabaseDocument
+ * returned version, or doc names another _id.
  */
-export function DatabaseSaveDocument(dbID: string, path: string[] | null, id: string, doc: string): $CancellablePromise<void> {
-    return $Call.ByID(2657003396, dbID, path, id, doc);
+export function DatabaseSaveDocument(dbID: string, path: string[] | null, id: string, version: string, doc: string): $CancellablePromise<void> {
+    return $Call.ByID(2657003396, dbID, path, id, version, doc);
 }
 
 /**

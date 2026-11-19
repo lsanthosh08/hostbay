@@ -542,21 +542,29 @@ func (s *DatabaseService) documents(dbID string) (database.DocumentEditor, *dbSe
 	return ed, d, nil
 }
 
+// DatabaseDocument is a document as the document view shows it: in full,
+// as JSON, with the version a save takes back.
+type DatabaseDocument struct {
+	Doc     string `json:"doc"`
+	Version string `json:"version"`
+}
+
 // DatabaseDocument returns, as JSON, the whole document of a collection or
 // index opened with DatabaseOpenTable that its "_id" cell names, for the
 // document view: a cell shown in the grid may be cut.
-func (s *DatabaseService) DatabaseDocument(ctx context.Context, dbID string, path []string, id string) (string, error) {
+func (s *DatabaseService) DatabaseDocument(ctx context.Context, dbID string, path []string, id string) (DatabaseDocument, error) {
 	ed, _, err := s.documents(dbID)
 	if err != nil {
-		return "", err
+		return DatabaseDocument{}, err
 	}
-	doc, err := ed.Document(ctx, path, id)
-	return doc, s.pageErr(err)
+	doc, version, err := ed.Document(ctx, path, id)
+	return DatabaseDocument{Doc: doc, Version: version}, s.pageErr(err)
 }
 
 // DatabaseSaveDocument replaces that document with doc, by its _id; it
-// fails when the document no longer exists or doc names another _id.
-func (s *DatabaseService) DatabaseSaveDocument(ctx context.Context, dbID string, path []string, id, doc string) error {
+// fails when the document no longer exists, changed since DatabaseDocument
+// returned version, or doc names another _id.
+func (s *DatabaseService) DatabaseSaveDocument(ctx context.Context, dbID string, path []string, id, version, doc string) error {
 	ed, d, err := s.documents(dbID)
 	if err != nil {
 		return err
@@ -564,7 +572,7 @@ func (s *DatabaseService) DatabaseSaveDocument(ctx context.Context, dbID string,
 	if err := s.writable(d); err != nil {
 		return err
 	}
-	return s.pageErr(ed.EditDocument(ctx, path, id, doc))
+	return s.pageErr(ed.EditDocument(ctx, path, id, version, doc))
 }
 
 // DatabaseSaveCell writes the full value of a cut or binary cell from the

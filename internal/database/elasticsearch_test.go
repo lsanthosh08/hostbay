@@ -219,16 +219,23 @@ func TestElasticsearchPathsAndResponses(t *testing.T) {
 		t.Fatalf("redirect: err = %v", err)
 	}
 
-	if err := ed.EditDocument(ctx, []string{"logs"}, "7", `{"msg":"bye"}`); err != nil {
+	if err := ed.EditDocument(ctx, []string{"logs"}, "7", "3:2", `{"msg":"bye"}`); err == nil || len(f.seen().puts) != 0 {
+		t.Fatalf("a save from an older version: err = %v, puts %q", err, f.seen().puts)
+	}
+	_, version, err := ed.Document(ctx, []string{"logs"}, "7")
+	if err != nil || version != "4:2" {
+		t.Fatalf("version = %q, %v", version, err)
+	}
+	if err := ed.EditDocument(ctx, []string{"logs"}, "7", version, `{"msg":"bye"}`); err != nil {
 		t.Fatal(err)
 	}
 	if puts := f.seen().puts; len(puts) != 1 || !strings.Contains(puts[0], "if_seq_no=4") || !strings.Contains(puts[0], "if_primary_term=2") {
 		t.Fatalf("PUT queries = %q", puts)
 	}
-	if err := ed.EditDocument(ctx, []string{"logs"}, "8", `{"msg":"bye"}`); err == nil {
+	if err := ed.EditDocument(ctx, []string{"logs"}, "8", version, `{"msg":"bye"}`); err == nil {
 		t.Fatal("an edit of a missing document saved")
 	}
-	if err := ed.EditDocument(ctx, []string{"logs"}, "7", `[1]`); Category(err) != "syntax" {
+	if err := ed.EditDocument(ctx, []string{"logs"}, "7", version, `[1]`); Category(err) != "syntax" {
 		t.Fatalf("a non-object document: err = %v", err)
 	}
 }
@@ -239,7 +246,7 @@ func TestElasticsearchPathsAndResponses(t *testing.T) {
 func TestElasticsearchRefusesDotSegments(t *testing.T) {
 	e := &esEngine{}
 	for _, id := range []string{".", ".."} {
-		if _, err := e.Document(context.Background(), []string{"logs"}, id); err == nil {
+		if _, _, err := e.Document(context.Background(), []string{"logs"}, id); err == nil {
 			t.Errorf("_id %q was sent", id)
 		}
 	}

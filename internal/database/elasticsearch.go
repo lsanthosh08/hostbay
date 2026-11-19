@@ -383,15 +383,19 @@ func (e *esEngine) get(ctx context.Context, path []string, id string) (esDoc, er
 	return d, nil
 }
 
-func (e *esEngine) Document(ctx context.Context, path []string, id string) (string, error) {
+// esVersion is a document's version token: its sequence number and
+// primary term, which a conditional write checks.
+func esVersion(d esDoc) string { return fmt.Sprintf("%d:%d", d.SeqNo, d.PrimaryTerm) }
+
+func (e *esEngine) Document(ctx context.Context, path []string, id string) (string, string, error) {
 	d, err := e.get(ctx, path, id)
-	return string(d.Source), err
+	return string(d.Source), esVersion(d), err
 }
 
 // EditDocument replaces the document by its _id, on condition that it is
 // the version just read, so one deleted or changed meanwhile is neither
 // recreated nor overwritten.
-func (e *esEngine) EditDocument(ctx context.Context, path []string, id, doc string) error {
+func (e *esEngine) EditDocument(ctx context.Context, path []string, id, version, doc string) error {
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(doc), &obj); err != nil {
 		return &Error{Category: "syntax", Err: errors.New("the document must be a JSON object: " + err.Error())}
@@ -399,6 +403,11 @@ func (e *esEngine) EditDocument(ctx context.Context, path []string, id, doc stri
 	d, err := e.get(ctx, path, id)
 	if err != nil {
 		return err
+	}
+	// The write is conditional on the version the page was shown, not one
+	// read now, so a change made while the user edited is never overwritten.
+	if esVersion(d) != version {
+		return errors.New("this document was changed meanwhile, so nothing was saved; reload the index")
 	}
 	q := url.Values{"if_seq_no": {strconv.FormatInt(d.SeqNo, 10)}, "if_primary_term": {strconv.FormatInt(d.PrimaryTerm, 10)}, "refresh": {"wait_for"}}
 	_, _, _, err = e.call(ctx, "PUT", []string{path[0], "_doc", id}, q.Encode(), []byte(doc))

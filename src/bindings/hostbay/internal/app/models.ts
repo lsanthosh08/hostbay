@@ -278,6 +278,15 @@ export interface DataFolder {
 }
 
 /**
+ * DatabaseDocument is a document as the document view shows it: in full,
+ * as JSON, with the version a save takes back.
+ */
+export interface DatabaseDocument {
+    "doc": string;
+    "version": string;
+}
+
+/**
  * DatabaseInfo is an open database: its ID, and the capabilities the tab
  * shows controls for (database.Capabilities).
  */

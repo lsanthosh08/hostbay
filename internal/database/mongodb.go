@@ -2,7 +2,9 @@ package database
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net"
@@ -335,25 +337,44 @@ func mongoTarget(path []string, id string) (bson.D, error) {
 	return mongoFilter(id)
 }
 
-func (e *mongoEngine) Document(ctx context.Context, path []string, id string) (string, error) {
+func (e *mongoEngine) Document(ctx context.Context, path []string, id string) (string, string, error) {
 	f, err := mongoTarget(path, id)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
+	doc, err := e.find(ctx, path, f)
+	if err != nil {
+		return "", "", err
+	}
+	return mongoJSON(doc), mongoVersion(doc), nil
+}
+
+func (e *mongoEngine) find(ctx context.Context, path []string, f bson.D) (bson.Raw, error) {
 	doc, err := e.c.Database(path[0]).Collection(path[1]).FindOne(ctx, f).Raw()
 	if errors.Is(err, mongo.ErrNoDocuments) {
-		return "", errors.New("this document no longer exists; reload the collection")
+		return nil, errors.New("this document no longer exists; reload the collection")
 	}
-	if err != nil {
-		return "", mongoError(err)
-	}
-	return mongoJSON(doc), nil
+	return doc, mongoError(err)
+}
+
+// mongoVersion is a document's version token: a hash of its bytes, since
+// MongoDB keeps no version of its own.
+func mongoVersion(doc bson.Raw) string {
+	sum := sha256.Sum256(doc)
+	return hex.EncodeToString(sum[:])
+}
+
+// mongoUnchanged is the filter matching the document f names only while
+// it is still exactly cur, so the replace and the check are one step.
+func mongoUnchanged(f bson.D, cur bson.Raw) bson.D {
+	return append(slices.Clone(f), bson.E{Key: "$expr", Value: bson.D{{Key: "$eq", Value: bson.A{"$$ROOT", bson.D{{Key: "$literal", Value: cur}}}}}})
 }
 
 // EditDocument replaces the document by its _id with doc, parsed from
-// Extended JSON into typed BSON. The replacement is a $literal value, so a
-// field named like an operator ("$set") is stored as a field, never run.
-func (e *mongoEngine) EditDocument(ctx context.Context, path []string, id, doc string) error {
+// Extended JSON into typed BSON, only while it is still the version the
+// page was shown. The replacement is a $literal value, so a field named
+// like an operator ("$set") is stored as a field, never run.
+func (e *mongoEngine) EditDocument(ctx context.Context, path []string, id, version, doc string) error {
 	f, err := mongoTarget(path, id)
 	if err != nil {
 		return err
@@ -366,12 +387,19 @@ func (e *mongoEngine) EditDocument(ctx context.Context, path []string, id, doc s
 	if err != nil {
 		return err
 	}
-	res, err := e.c.Database(path[0]).Collection(path[1]).UpdateOne(ctx, f, replaceLiteral(d))
+	cur, err := e.find(ctx, path, f)
+	if err != nil {
+		return err
+	}
+	if mongoVersion(cur) != version {
+		return errors.New("this document was changed meanwhile, so nothing was saved; reload the collection")
+	}
+	res, err := e.c.Database(path[0]).Collection(path[1]).UpdateOne(ctx, mongoUnchanged(f, cur), replaceLiteral(d))
 	if err != nil {
 		return mongoError(err)
 	}
 	if res.MatchedCount != 1 {
-		return errors.New("this document was deleted meanwhile, so nothing was saved; reload the collection")
+		return errors.New("this document was changed or deleted meanwhile, so nothing was saved; reload the collection")
 	}
 	return nil
 }
