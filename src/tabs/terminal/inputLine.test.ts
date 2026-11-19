@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { InputLine, quickBytes, type BufferLike } from "./inputLine";
+import { InputLine, pasteText, quickBytes, type BufferLike } from "./inputLine";
 
 /** A screen of plain rows with a cursor, standing in for xterm's buffer. */
 function screen(rows: string[], cursorX: number, cursorY = rows.length - 1) {
@@ -82,5 +82,17 @@ describe("quickBytes", () => {
   });
   it("pastes without Enter, and without brackets the shell did not ask for", () => {
     expect(quickBytes("cd /srv\nls", "paste", false)).toBe("cd /srv\rls");
+  });
+  it("cannot end its own bracketed paste early, so no line runs on its own", () => {
+    expect(quickBytes("echo a\x1b[201~\nrm -rf ~\n", "paste", true)).toBe("\x1b[200~echo a[201~\rrm -rf ~\x1b[201~");
+  });
+});
+
+describe("pasteText", () => {
+  it("drops control characters a paste could use to escape bracketed paste", () => {
+    expect(pasteText("echo a\x1b[201~\nrm -rf ~\x03\x9b\x7f")).toBe("echo a[201~\nrm -rf ~");
+  });
+  it("keeps tabs, line breaks and ordinary text", () => {
+    expect(pasteText("a\tb\r\nc é")).toBe("a\tb\r\nc é");
   });
 });

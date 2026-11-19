@@ -18,7 +18,7 @@ import { termFontSize } from "../shell/settings/Terminal";
 import { backgroundImage, loadBackground, onSettingsChange, settings } from "../state/settings";
 import { humanSize } from "./files/paths";
 import { activeTerminal, clearActiveTerminal, notifyActiveTerminal, setActiveTerminal, type ActiveTerm } from "./terminal/active";
-import { InputLine } from "./terminal/inputLine";
+import { InputLine, pasteText } from "./terminal/inputLine";
 import { accepts, AI_PAUSE_MS, completionRest, historySuggestion, mayAskAI } from "./terminal/suggestions";
 import {
   startZmodem,
@@ -201,6 +201,16 @@ function TermPane({ conn }: { conn: Connection }) {
     // The quick-commands and history panels act on the pane focused last.
     const active: ActiveTerm = { sessionId: conn.sessionId, ptyId: () => ptyId, bracketed: () => term.modes.bracketedPasteMode, focus: () => term.focus() };
     term.textarea?.addEventListener("focus", () => setActiveTerminal(active));
+    // xterm brackets a paste as it is; clean it first (see pasteText). The
+    // capture listener runs before xterm's own on the textarea.
+    const onPaste = (e: ClipboardEvent) => {
+      const text = e.clipboardData?.getData("text/plain");
+      if (text === undefined) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      term.paste(pasteText(text));
+    };
+    el.addEventListener("paste", onPaste, true);
 
     // Completion (R62): ghost text after the cursor from the host's
     // history or, when turned on, the AI. Right Arrow at the end of the
@@ -399,6 +409,7 @@ function TermPane({ conn }: { conn: Connection }) {
       offTheme();
       offSettings();
       window.removeEventListener("resize", doResize);
+      el.removeEventListener("paste", onPaste, true);
       ro.disconnect();
       stopListening();
       if (ptyId) api.ptyClose(ptyId).catch(() => {});
