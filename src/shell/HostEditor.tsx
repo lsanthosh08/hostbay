@@ -15,37 +15,14 @@ import { usePrompt } from "../ui/prompt";
 import { SegmentedControl } from "../ui/SegmentedControl";
 import { Select } from "../ui/Select";
 import { useAsyncToast, useToast } from "../ui/toast";
-import { asksPasswordAgain, formHost, KIND_GROUPS, kindPatch, SQL_SERVERS, unencrypted, validateHost, type HostField } from "./hostForm";
+import { asksPasswordAgain, formHost, kindPatch, SQL_SERVERS, unencrypted, validateHost, type HostField } from "./hostForm";
+import { KindOptions } from "./KindOptions";
 import { SSH_ALGORITHMS } from "./sshAlgorithms";
 import { PostLoginEditor } from "./PostLoginEditor";
 import { VpnField } from "./VpnField";
 import { TERMINAL_KINDS } from "./settings/Logging";
 
 const KEY_FILTERS = [{ name: "Keys", extensions: ["pem", "ppk", "key", ""] }];
-
-const KIND_LABEL = {
-  ssh: t("hostForm.kind.ssh"),
-  rdp: t("hostForm.kind.rdp"),
-  vnc: t("hostForm.kind.vnc"),
-  spice: t("hostForm.kind.spice"),
-  telnet: t("hostForm.kind.telnet"),
-  mosh: t("hostForm.kind.mosh"),
-  tcp: t("hostForm.kind.tcp"),
-  ftp: t("hostForm.kind.ftp"),
-  smb: t("hostForm.kind.smb"),
-  webdav: t("hostForm.kind.webdav"),
-  s3: t("hostForm.kind.s3"),
-  postgres: t("hostForm.kind.postgres"),
-  mysql: t("hostForm.kind.mysql"),
-  mssql: t("hostForm.kind.mssql"),
-  oracle: t("hostForm.kind.oracle"),
-  rqlite: t("hostForm.kind.rqlite"),
-  sqlite: t("hostForm.kind.sqlite"),
-  kubernetes: t("hostForm.kind.kubernetes"),
-  redis: t("hostForm.kind.redis"),
-  mongodb: t("hostForm.kind.mongodb"),
-  elasticsearch: t("hostForm.kind.elasticsearch"),
-};
 
 // What Test connection says for each step it can stop at (ConnTest.step).
 const TEST_TEXT: Record<api.ConnTest["step"], MessageKey> = {
@@ -326,21 +303,17 @@ export function HostEditor({
             </Field>
             <Field label={t("hostForm.type")}>
               <Select className="w-full" value={kind} onChange={(e) => set(kindPatch(h, e.target.value as HostKind))}>
-                {KIND_GROUPS.map((g) => (
-                  <optgroup key={g.label} label={t(g.label)}>
-                    {g.kinds.map((k) => (
-                      // Mosh's UDP cannot pass through SSH jump hosts (R19) or a proxy.
-                      <option
-                        key={k}
-                        value={k}
-                        disabled={k === "mosh" && (!!h.jumpHostId || !!h.proxyId)}
-                        title={k === "mosh" && h.jumpHostId ? t("hostForm.moshJump") : k === "mosh" && h.proxyId ? t("hostForm.error.proxyMosh") : undefined}
-                      >
-                        {KIND_LABEL[k]}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
+                <KindOptions
+                  // Mosh's UDP cannot pass through SSH jump hosts (R19) or a proxy.
+                  extra={(k) =>
+                    k === "mosh"
+                      ? {
+                          disabled: !!h.jumpHostId || !!h.proxyId,
+                          title: h.jumpHostId ? t("hostForm.moshJump") : h.proxyId ? t("hostForm.error.proxyMosh") : undefined,
+                        }
+                      : {}
+                  }
+                />
               </Select>
             </Field>
           </div>

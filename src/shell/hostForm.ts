@@ -243,6 +243,32 @@ export const KIND_GROUPS: readonly { label: MessageKey; kinds: readonly HostKind
   { label: "hostForm.kindGroup.clusters", kinds: ["kubernetes"] },
 ];
 
+/** The name of each kind, in the editor's Type dropdown and the host list's
+ *  filter alike. */
+export const KIND_LABEL: Record<HostKind, MessageKey> = {
+  ssh: "hostForm.kind.ssh",
+  mosh: "hostForm.kind.mosh",
+  telnet: "hostForm.kind.telnet",
+  tcp: "hostForm.kind.tcp",
+  rdp: "hostForm.kind.rdp",
+  vnc: "hostForm.kind.vnc",
+  spice: "hostForm.kind.spice",
+  ftp: "hostForm.kind.ftp",
+  smb: "hostForm.kind.smb",
+  webdav: "hostForm.kind.webdav",
+  s3: "hostForm.kind.s3",
+  postgres: "hostForm.kind.postgres",
+  mysql: "hostForm.kind.mysql",
+  mssql: "hostForm.kind.mssql",
+  oracle: "hostForm.kind.oracle",
+  sqlite: "hostForm.kind.sqlite",
+  rqlite: "hostForm.kind.rqlite",
+  redis: "hostForm.kind.redis",
+  mongodb: "hostForm.kind.mongodb",
+  elasticsearch: "hostForm.kind.elasticsearch",
+  kubernetes: "hostForm.kind.kubernetes",
+};
+
 /** The port a host gets when its type changes to `k`. FTP, SMB, VNC,
  *  SPICE and the database servers take 0, their protocol's default (SQLite and rqlite have none); WebDAV and S3 keep theirs untouched, because
  *  the saved password is sealed to it (store.Host.SecretAAD). */

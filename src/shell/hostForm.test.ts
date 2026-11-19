@@ -1,7 +1,10 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { Host, HostKind } from "../api";
 import { en } from "../i18n/en";
-import { asksPasswordAgain, formHost, KIND_GROUPS, kindPatch, missingVpn, passwordForKind, proxyAsksPasswordAgain, unencrypted, validateHost, validateProxy } from "./hostForm";
+import { KindOptions } from "./KindOptions";
+import { asksPasswordAgain, formHost, KIND_GROUPS, KIND_LABEL, kindPatch, missingVpn, passwordForKind, proxyAsksPasswordAgain, unencrypted, validateHost, validateProxy } from "./hostForm";
 
 const host = (over: Partial<Host> = {}): Host => ({
   id: "web",
@@ -498,7 +501,21 @@ describe("host type dropdown", () => {
   it("offers every kind once, under a titled group", () => {
     expect([...offered].sort()).toEqual([...ALL].sort());
     for (const g of KIND_GROUPS) expect(en[g.label]).toBeTruthy();
-    for (const k of ALL) expect(en[`hostForm.kind.${k}` as keyof typeof en]).toBeTruthy();
+    for (const k of ALL) expect(en[KIND_LABEL[k]]).toBeTruthy();
+  });
+
+  // Both controls render KIND_GROUPS and KIND_LABEL, so a kind missing from
+  // either one would be missing from the host list's filter or the form.
+  it("names exactly the kinds the groups offer", () => {
+    expect(Object.keys(KIND_LABEL).sort()).toEqual([...offered].sort());
+  });
+
+  it("renders the same groups, order and labels for both dropdowns", () => {
+    const html = renderToStaticMarkup(createElement(KindOptions, {}));
+    const expected = KIND_GROUPS.map(
+      (g) => `<optgroup label="${en[g.label]}">${g.kinds.map((k) => `<option value="${k}">${en[KIND_LABEL[k]]}</option>`).join("")}</optgroup>`
+    ).join("");
+    expect(html).toBe(expected);
   });
 
   it("applies the kind's default port", () => {

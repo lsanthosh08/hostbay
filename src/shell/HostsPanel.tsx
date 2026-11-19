@@ -1,6 +1,6 @@
 import { useState, type MouseEvent } from "react";
 import * as api from "../api";
-import type { Host } from "../api";
+import type { Host, HostKind } from "../api";
 import { t } from "../i18n";
 import { HostTree } from "../components/HostTree";
 import { useHostManager } from "../components/HostManager";
@@ -31,32 +31,10 @@ import { Select } from "../ui/Select";
 import { StatusDot } from "../ui/StatusDot";
 import { fuzzyRank } from "./fuzzy";
 import { hostIcon } from "./kindIcon";
+import { KindOptions } from "./KindOptions";
 import { PanelHeader } from "./SidePanel";
 
-type Kind = NonNullable<Host["kind"]>;
-const KINDS: Record<Kind, string> = {
-  ssh: t("hosts.kind.ssh"),
-  rdp: t("hosts.kind.rdp"),
-  vnc: t("hosts.kind.vnc"),
-  spice: t("hosts.kind.spice"),
-  telnet: t("hosts.kind.telnet"),
-  mosh: t("hosts.kind.mosh"),
-  tcp: t("hosts.kind.tcp"),
-  ftp: t("hosts.kind.ftp"),
-  smb: t("hosts.kind.smb"),
-  webdav: t("hosts.kind.webdav"),
-  s3: t("hosts.kind.s3"),
-  postgres: t("hosts.kind.postgres"),
-  sqlite: t("hosts.kind.sqlite"),
-  kubernetes: t("hosts.kind.kubernetes"),
-  redis: t("hosts.kind.redis"),
-  mongodb: t("hosts.kind.mongodb"),
-  elasticsearch: t("hosts.kind.elasticsearch"),
-  mysql: t("hosts.kind.mysql"),
-  mssql: t("hosts.kind.mssql"),
-  oracle: t("hosts.kind.oracle"),
-  rqlite: t("hosts.kind.rqlite"),
-};
+type Kind = HostKind;
 
 /** "+" menu items that open a local shell, one per shell this computer has. */
 export async function localShellItems(open: (s: api.LocalShell) => void, onError: (msg: string) => void) {
@@ -193,11 +171,7 @@ export function HostsPanel() {
           className="!h-8 w-20 shrink-0"
         >
           <option value="">{t("hosts.kind.all")}</option>
-          {Object.entries(KINDS).map(([k, label]) => (
-            <option key={k} value={k}>
-              {label}
-            </option>
-          ))}
+          <KindOptions />
         </Select>
       </div>
 
