@@ -426,6 +426,8 @@ export const sftpWrite = (
   sudo: boolean,
   sudoPassword?: string
 ) => FilesService.SftpWrite(sessionId, path, content, sudo, sudoPassword ?? null);
+export const sftpCreateFile = (sessionId: string, path: string, sudo: boolean, sudoPassword?: string) =>
+  FilesService.SftpCreateFile(sessionId, path, sudo, sudoPassword ?? null);
 export const sftpMkdir = (sessionId: string, path: string) =>
   FilesService.SftpMkdir(sessionId, path);
 export const sftpRename = (sessionId: string, from: string, to: string) =>

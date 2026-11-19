@@ -141,13 +141,13 @@ export function FilesTab({ conn, windows }: { conn: Connection; windows?: boolea
   // Write with sudo, reusing the stored login password first (backend does
   // that automatically). Only if that's rejected do we prompt for a sudo
   // password and retry once. Non-sudo writes go straight through.
-  const writeWithSudo = async (path: string, body: string, okMsg: string): Promise<boolean> => {
+  const withSudo = async (call: (sudo: boolean, pw?: string) => Promise<unknown>, okMsg: string): Promise<boolean> => {
     if (!sudo) {
-      const r = await run(() => api.sftpWrite(conn.sessionId, path, body, false), okMsg);
+      const r = await run(() => call(false), okMsg);
       return r !== undefined;
     }
     try {
-      await api.sftpWrite(conn.sessionId, path, body, true); // uses stored pw
+      await call(true); // uses stored pw
       push("success", okMsg);
       return true;
     } catch (e) {
@@ -159,13 +159,12 @@ export function FilesTab({ conn, windows }: { conn: Connection; windows?: boolea
       // Stored password missing/wrong -> ask and retry once.
       const pw = await prompt(`sudo password for ${conn.host.user}`, "", true);
       if (!pw) return false;
-      const r = await run(
-        () => api.sftpWrite(conn.sessionId, path, body, true, pw),
-        okMsg
-      );
+      const r = await run(() => call(true, pw), okMsg);
       return r !== undefined;
     }
   };
+  const writeWithSudo = (path: string, body: string, okMsg: string) =>
+    withSudo((s, pw) => api.sftpWrite(conn.sessionId, path, body, s, pw), okMsg);
 
   const saveFile = async () => {
     if (!openFile) return;
@@ -184,7 +183,8 @@ export function FilesTab({ conn, windows }: { conn: Connection; windows?: boolea
       return;
     }
     const target = joinPath(cwd, name);
-    // An empty write truncates, so "New file" on a taken name would empty it.
+    // The listing can be out of date; for a file, sftpCreateFile refuses a
+    // taken name itself, so a new file never empties an old one.
     if (taken(name)) {
       push("error", t("files.exists", { name }));
       return;
@@ -192,7 +192,7 @@ export function FilesTab({ conn, windows }: { conn: Connection; windows?: boolea
     if (creating === "folder") {
       await run(() => api.sftpMkdir(conn.sessionId, target), "Folder created");
     } else {
-      await writeWithSudo(target, "", "File created");
+      await withSudo((s, pw) => api.sftpCreateFile(conn.sessionId, target, s, pw), "File created");
     }
     setCreating(null);
     setNewName("");
