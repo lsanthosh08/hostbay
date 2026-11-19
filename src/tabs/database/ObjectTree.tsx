@@ -13,6 +13,10 @@ const OPENS = ["table", "view", "key", "collection", "index"];
 /** One level of the tree, loaded in pages of 200 when first shown. */
 type Level = { nodes: DbNode[]; more: boolean; loading: boolean; error?: string };
 
+/** Whether expanding a node loads its level: the first time, and again
+ *  after a load failed, so a timeout is not shown for the tab's life. */
+export const shouldLoad = (l: Level | undefined) => !l || (!!l.error && !l.loading);
+
 /**
  * The database's objects: schemas, tables and views, and their columns,
  * each level loaded on demand from Go's catalog queries (KTD23). A table or
@@ -45,7 +49,7 @@ export function ObjectTree({ databaseId, onOpen }: { databaseId: string; onOpen:
     if (next.has(k)) next.delete(k);
     else {
       next.add(k);
-      if (!levels[k]) load(n.path, 0);
+      if (shouldLoad(levels[k])) load(n.path, 0);
     }
     setOpen(next);
   };
