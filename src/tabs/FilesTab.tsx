@@ -41,6 +41,10 @@ export function FilesTab({ conn, windows }: { conn: Connection; windows?: boolea
     ? `/home/${conn.host.user}`
     : "/";
   const [cwd, setCwd] = useState<string>(home);
+  // The folder shown now: an action refreshes this one when it ends, not
+  // the one it started in, so navigating away meanwhile is not undone.
+  const cwdRef = useRef(cwd);
+  cwdRef.current = cwd;
   const [pathInput, setPathInput] = useState<string>(home);
   const [entries, setEntries] = useState<DirEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -188,7 +192,7 @@ export function FilesTab({ conn, windows }: { conn: Connection; windows?: boolea
     }
     setCreating(null);
     setNewName("");
-    list(cwd);
+    list(cwdRef.current);
   };
 
   const renamePath = async (path: string) => {
@@ -197,7 +201,7 @@ export function FilesTab({ conn, windows }: { conn: Connection; windows?: boolea
     if (!name || name === cur) return;
     const to = joinPath(parentPath(path), name);
     await run(() => api.sftpRename(conn.sessionId, path, to), "Renamed");
-    list(cwd);
+    list(cwdRef.current);
   };
 
   const removePath = async (path: string, isDir: boolean) => {
@@ -207,7 +211,7 @@ export function FilesTab({ conn, windows }: { conn: Connection; windows?: boolea
       setOpenFile(null);
       setContent("");
     }
-    list(cwd);
+    list(cwdRef.current);
   };
 
   // A single-file upload or paste writes over a file of the same name.
@@ -219,7 +223,7 @@ export function FilesTab({ conn, windows }: { conn: Connection; windows?: boolea
     const to = joinPath(cwd, basename(clipboard));
     if (!(await mayReplace(basename(clipboard)))) return;
     await run(() => api.sftpCopy(conn.sessionId, clipboard, to, sudo), "Pasted");
-    list(cwd);
+    list(cwdRef.current);
   };
 
   const upload = async () => {
@@ -228,7 +232,7 @@ export function FilesTab({ conn, windows }: { conn: Connection; windows?: boolea
     const remote = joinPath(cwd, basename(local));
     if (!(await mayReplace(basename(local)))) return;
     await run(() => api.sftpUpload(conn.sessionId, local, remote), "Uploaded");
-    list(cwd);
+    list(cwdRef.current);
   };
 
   // Whole folders go through the transfer engine, which asks about each

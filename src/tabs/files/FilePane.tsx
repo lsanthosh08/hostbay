@@ -62,6 +62,9 @@ export function FilePane({
   const { menu, node: menuNode } = useContextMenu();
   const [kind, setKind] = useState("");
   const [cwd, setCwd] = useState("");
+  // The folder shown now, which an action refreshes when it ends.
+  const cwdRef = useRef(cwd);
+  cwdRef.current = cwd;
   const [pathInput, setPathInput] = useState("");
   const [entries, setEntries] = useState<DirEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -124,7 +127,7 @@ export function FilePane({
     } catch (e) {
       push("error", api.errorInfo(e).message);
     }
-    list(cwd);
+    list(cwdRef.current);
   };
 
   const picked = entries.filter((e) => selected.has(e.path));
