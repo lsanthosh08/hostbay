@@ -91,6 +91,7 @@ export function SessionTabBar({ onStart, onPalette }: { onStart: () => void; onP
         <button
           onClick={onPalette}
           title={t("action.palette")}
+          aria-label={t("action.palette")}
           className="ml-1 inline-flex items-center gap-1.5 px-2 h-7 rounded-control text-xs text-muted hover:text-fg hover:bg-hover"
         >
           <CommandIcon className="size-3.5" aria-hidden />
