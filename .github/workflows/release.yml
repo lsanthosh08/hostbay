@@ -97,34 +97,44 @@ jobs:
       # loads and their versions and licence texts for NOTICE's source offer:
       # build/windows/bundle-openconnect.sh builds OpenConnect's release
       # tarball in the runner's MSYS2 (UCRT64) from the files
-      # build/windows/openconnect-packages.txt pins by SHA-256. A maintainer
-      # may ship their own zip of openconnect.exe and its DLLs instead (files
-      # at the zip's top level) by setting the repository variables
-      # OPENCONNECT_WINDOWS_URL and OPENCONNECT_WINDOWS_SHA256. Either way,
-      # NOTICE must cover every DLL, and a build without openconnect.exe fails.
+      # build/windows/openconnect-packages.txt pins by SHA-256. It runs in
+      # MSYS2's own bash, not Git Bash: the two MSYS runtimes do not share a
+      # process tree reliably.
       - name: Bundle OpenConnect for Windows
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && vars.OPENCONNECT_WINDOWS_URL == ''
+        shell: C:\msys64\usr\bin\bash.exe -leo pipefail {0}
+        env:
+          MSYSTEM: UCRT64
+          CHERE_INVOKING: "1"
+        run: build/windows/bundle-openconnect.sh bin/openconnect-windows bin/openconnect-windows-notices
+
+      # A maintainer may ship their own zip of openconnect.exe and its DLLs
+      # instead (files at the zip's top level) by setting the repository
+      # variables OPENCONNECT_WINDOWS_URL and OPENCONNECT_WINDOWS_SHA256.
+      - name: Fetch OpenConnect for Windows
+        if: runner.os == 'Windows' && vars.OPENCONNECT_WINDOWS_URL != ''
         env:
           OPENCONNECT_WINDOWS_URL: ${{ vars.OPENCONNECT_WINDOWS_URL }}
           OPENCONNECT_WINDOWS_SHA256: ${{ vars.OPENCONNECT_WINDOWS_SHA256 }}
         run: |
-          if [ -n "$OPENCONNECT_WINDOWS_URL" ]; then
-            test -n "$OPENCONNECT_WINDOWS_SHA256"
-            curl -fsSL -o openconnect.zip "$OPENCONNECT_WINDOWS_URL"
-            echo "$OPENCONNECT_WINDOWS_SHA256  openconnect.zip" | sha256sum -c -
-            mkdir -p bin/openconnect-windows
-            python -m zipfile -e openconnect.zip bin/openconnect-windows
-            rm openconnect.zip
-            bash build/windows/bundle-openconnect.sh --check bin/openconnect-windows
-          else
-            # Git Bash sets MSYSTEM=MINGW64 itself; the login shell takes
-            # UCRT64's PATH from MSYSTEM and stays in this folder.
-            MSYSTEM=UCRT64 CHERE_INVOKING=1 /c/msys64/usr/bin/bash.exe -l build/windows/bundle-openconnect.sh bin/openconnect-windows bin/openconnect-windows-notices
-          fi
+          test -n "$OPENCONNECT_WINDOWS_SHA256"
+          curl -fsSL -o openconnect.zip "$OPENCONNECT_WINDOWS_URL"
+          echo "$OPENCONNECT_WINDOWS_SHA256  openconnect.zip" | sha256sum -c -
+          mkdir -p bin/openconnect-windows
+          python -m zipfile -e openconnect.zip bin/openconnect-windows
+          rm openconnect.zip
+
+      # Either way, NOTICE must cover every DLL beside openconnect.exe, and a
+      # build without openconnect.exe fails rather than ship an installer
+      # without it.
+      - name: Check OpenConnect for Windows
+        if: runner.os == 'Windows'
+        run: |
           if [ ! -f bin/openconnect-windows/openconnect.exe ]; then
             echo "::error::bin/openconnect-windows has no openconnect.exe; the installer would ship without OpenConnect"
             exit 1
           fi
+          bash build/windows/bundle-openconnect.sh --check bin/openconnect-windows
 
       # The same Wails CLI version as the library in go.mod. On Linux it is
       # built with the gtk3 tag, as the app is: without it the CLI links GTK4
