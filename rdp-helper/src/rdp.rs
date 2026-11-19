@@ -948,9 +948,12 @@ fn explain(e: &connector::ConnectorError, security: &str) -> (Option<String>, bo
     match e.kind() {
         connector::ConnectorErrorKind::Negotiation(f) => {
             let why = match f.code() {
-                FailureCode::HYBRID_REQUIRED_BY_SERVER => {
+                FailureCode::HYBRID_REQUIRED_BY_SERVER if security == "tls" => {
                     format!("This server requires NLA. Set RDP security to \"{LABEL_AUTO}\" or \"{LABEL_NLA}\".")
                 }
+                // "auto" offers NLA, so this is its fallback to the logon
+                // screen: no setting helps, the account has to be fixed.
+                FailureCode::HYBRID_REQUIRED_BY_SERVER => "This server allows sign-in only with NLA, so the account has to be fixed first, for example by changing the password from another computer or asking the server's administrator.".to_owned(),
                 FailureCode::SSL_REQUIRED_BY_SERVER => format!(
                     "This server has NLA turned off and signs in only at its Windows logon screen. Set RDP security to \"{LABEL_AUTO}\" to sign in there; the server then opens a session before it checks the account."
                 ),
@@ -1156,7 +1159,8 @@ pub fn run(
     let (conn_result, framed, clip, mic, no_nla) = loop {
         attempt += 1;
         let cfg = build_config(user.clone(), password.clone(), domain.clone(), width, height, mode);
-        match connect(&out, &rx, &ep, cfg, mode) {
+        // Messages name the host's own setting, not the fallback's.
+        match connect(&out, &rx, &ep, cfg, &security) {
             Ok(ok) => break ok,
             Err(f) => {
                 if worth_retrying(&f) && attempt < 3 {
@@ -1744,10 +1748,13 @@ mod tests {
         use sspi::credssp::NStatusCode as S;
         let expired = fail(&refused(S::PASSWORD_EXPIRED), "auto", "connect finalize (auth)", true);
         let code = FailureCode::HYBRID_REQUIRED_BY_SERVER;
-        let then = fail(&negotiate("tls", ConnectionConfirm::Failure { code }), "tls", "connect begin", false);
+        // The fallback offers "tls", but run() words it for the host's "auto".
+        let then = fail(&negotiate("tls", ConnectionConfirm::Failure { code }), "auto", "connect begin", false);
         let m = both_failed(&expired.message, &then.message);
         assert!(m.starts_with("The password for this account has expired"), "{m}");
-        assert!(m.contains("This server requires NLA."), "{m}");
+        assert!(m.contains("allows sign-in only with NLA") && m.contains("another computer"), "{m}");
+        // The host is already on Automatic, and NLA only fails the same way.
+        assert!(!m.contains(LABEL_AUTO) && !m.contains(LABEL_NLA), "{m}");
     }
 
     #[test]
