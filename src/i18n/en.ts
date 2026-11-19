@@ -909,7 +909,7 @@ export const en = {
   "settings.importedKeys": "Imported keys",
   "settings.importedKeysHint": "Keys copied into Hostbay and kept encrypted. Hosts can use them by name.",
   "settings.keyImported": "Key imported",
-  "settings.keyDelete": "Delete key",
+  "settings.keyDelete": "Delete key {name}",
   "settings.keyDeleteConfirm": "Delete the imported key {name}? Hosts that use it will need another key.",
   "settings.sshKeys": "Keys in ~/.ssh",
   "settings.sshKeysHint": "Hostbay can use these where they are; it does not copy them.",

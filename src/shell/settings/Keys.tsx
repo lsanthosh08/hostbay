@@ -41,7 +41,7 @@ export function Keys() {
         {saved.length > 0 && (
           <ul className="flex flex-col max-w-xl">
             {saved.map((k) => (
-              <Row key={k} actions={<IconButton label={t("settings.keyDelete")} icon={DeleteIcon} tone="danger" onClick={() => remove(k)} />}>
+              <Row key={k} actions={<IconButton label={t("settings.keyDelete", { name: k })} icon={DeleteIcon} tone="danger" onClick={() => remove(k)} />}>
                 <span className="font-mono allow-select">{k}</span>
               </Row>
             ))}
