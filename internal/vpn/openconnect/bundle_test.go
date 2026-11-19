@@ -61,20 +61,28 @@ func TestBundledOpenConnectIsNewEnough(t *testing.T) {
 	}
 }
 
-// Every library the coverage gate admits is one NOTICE names, so the gate
-// passing means NOTICE covers what the installer ships.
+// Every library the coverage gate admits is one NOTICE names where it says
+// what the Windows installer ships, so the gate passing means NOTICE covers
+// what the installer ships. Many of the names also appear in the macOS text,
+// which does not count.
 func TestBundledDLLsAreInNotice(t *testing.T) {
 	notice, err := os.ReadFile("../../../NOTICE")
 	if err != nil {
 		t.Fatal(err)
+	}
+	var windows strings.Builder
+	for _, p := range strings.Split(strings.ReplaceAll(string(notice), "\r\n", "\n"), "\n\n") {
+		if i := strings.Index(p, "The Windows installer"); i >= 0 {
+			windows.WriteString(p[i:])
+		}
 	}
 	for _, l := range lines(t, "openconnect-dlls.txt") {
 		if len(l) != 2 || l[0] != strings.ToLower(l[0]) {
 			t.Errorf("openconnect-dlls.txt: want a lower-case pattern and a name, got %q", l)
 			continue
 		}
-		if !strings.Contains(string(notice), l[1]) {
-			t.Errorf("NOTICE does not name %s, which openconnect-dlls.txt admits for %s", l[1], l[0])
+		if !strings.Contains(windows.String(), l[1]) {
+			t.Errorf("NOTICE's Windows installer text does not name %s, which openconnect-dlls.txt admits for %s", l[1], l[0])
 		}
 	}
 }

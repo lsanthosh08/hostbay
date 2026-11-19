@@ -113,12 +113,13 @@ strip -o "$dest/openconnect.exe" "$exe"
 # The DLLs openconnect.exe imports, and theirs in turn, from UCRT64's bin.
 # Windows' own (System32, and the api-ms-win-* API sets) are not bundled; a
 # DLL found in neither place fails the build.
-system=$(cygpath -u "$SYSTEMROOT")/System32
+system=$(cygpath -S)
 declare -A seen=()
 queue=("$dest/openconnect.exe") dlls=()
 i=0
 while [ "$i" -lt "${#queue[@]}" ]; do
-	for dll in $(objdump -p "${queue[$i]}" | sed -n 's/^[[:space:]]*DLL Name: //p' | tr -d '\r'); do
+	imports=$(objdump -p "${queue[$i]}" | sed -n 's/^[[:space:]]*DLL Name: //p' | tr -d '\r')
+	for dll in $imports; do
 		key=$(echo "$dll" | tr 'A-Z' 'a-z')
 		[ -z "${seen[$key]:-}" ] || continue
 		seen[$key]=1
@@ -140,8 +141,13 @@ done
 # GnuTLS reads the Windows certificate store only when it was built with no
 # default trust file (lib/system/certs.c); one of the paths its configure
 # looks for would point at a file no Windows machine has.
+gnutls=$(ls "$dest"/libgnutls-*.dll 2>/dev/null || true)
+if [ -z "$gnutls" ]; then
+	echo "openconnect.exe does not load GnuTLS, so the trust check below cannot run" >&2
+	exit 1
+fi
 for f in /etc/ssl/ca-bundle.pem /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/cert.pem /usr/local/share/certs/ca-root-nss.crt /etc/ssl/cert.pem; do
-	if grep -a -q -F "$f" "$dest"/libgnutls-*.dll; then
+	if grep -a -q -F "$f" $gnutls; then
 		echo "the bundled GnuTLS trusts $f instead of the Windows certificate store" >&2
 		exit 1
 	fi
@@ -157,7 +163,9 @@ fi
 
 # The source offer in NOTICE names exact versions: keep each bundled file's
 # package and version, and its licence texts, beside the app, since build
-# logs expire.
+# logs expire. Some MSYS2 packages install no licence text; licenses/<name>
+# holds the upstream texts of those, from the releases pinned (p11-kit's
+# from 0.26.5, whose COPYING 0.26.6 keeps).
 rm -rf "$notices"
 mkdir -p "$notices/openconnect-$version"
 cp "$src/COPYING.LGPL" "$notices/openconnect-$version/"
@@ -169,7 +177,17 @@ for dll in "${dlls[@]}"; do
 	dir="$notices/${pkg#mingw-w64-ucrt-x86_64-}-$pkgver"
 	[ ! -d "$dir" ] || continue
 	mkdir -p "$dir"
-	pacman -Qlq "$pkg" | { grep '/share/licenses/.*[^/]$' || true; } | while read -r f; do cp "$f" "$dir/"; done
+	# Paths stay as the package has them: libiconv has a COPYING.LIB at its
+	# top and another for libcharset.
+	pacman -Qlq "$pkg" | { grep '/share/licenses/.*[^/]$' || true; } | while read -r f; do
+		rel=${f#*/share/licenses/*/}
+		mkdir -p "$dir/$(dirname "$rel")"
+		cp "$f" "$dir/$rel"
+	done
+	short=${pkg#mingw-w64-ucrt-x86_64-}
+	if [ -z "$(ls -A "$dir")" ] && [ -d "$here/licenses/$short" ]; then
+		cp "$here/licenses/$short"/* "$dir/"
+	fi
 	if [ -z "$(ls -A "$dir")" ]; then
 		echo "$pkg installs no licence text to ship with $dll" >&2
 		exit 1

@@ -1,0 +1,5 @@
+# The Windows release job runs these in MSYS2 after a checkout that would
+# otherwise give them CRLF endings, which bash's read keeps and SHA-256
+# checks then reject.
+build/windows/*.sh text eol=lf
+build/windows/*.txt text eol=lf
