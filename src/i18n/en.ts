@@ -858,6 +858,7 @@ export const en = {
   "appearance.custom.import": "Import .itermcolors…",
   "appearance.custom.name": "Name",
   "appearance.custom.delete": "Delete theme",
+  "appearance.custom.deleteConfirm": "Delete the terminal theme {name}?",
   "appearance.custom.defaultName": "Custom {n}",
   "appearance.custom.missing": "The file has no {colors}; those keep the colours of the theme it was based on.",
   "appearance.custom.bad": "This is not an .itermcolors file.",

@@ -16,6 +16,7 @@ import { terminalPalette, xtermTheme, type CustomTheme } from "../../theme/termi
 import { longHex, PALETTE_KEYS, TERMINAL_THEMES, type Palette } from "../../theme/terminalThemes";
 import { Button } from "../../ui/Button";
 import { Field, Input } from "../../ui/Field";
+import { usePrompt } from "../../ui/prompt";
 import { SegmentedControl } from "../../ui/SegmentedControl";
 import { Select } from "../../ui/Select";
 import { useTheme, type Theme } from "../../ui/theme";
@@ -31,6 +32,7 @@ const UI_THEMES: { value: Theme; label: string }[] = [
  *  terminal background image (R67, KTD41). */
 export function Appearance() {
   const { theme, setTheme } = useTheme();
+  const { confirm } = usePrompt();
   const [s, setS] = useState(settings);
   const [image, setImage] = useState(backgroundImage);
   const [note, setNote] = useState("");
@@ -154,7 +156,10 @@ export function Appearance() {
             key={selected.id}
             theme={selected}
             onChange={(c) => updateCustom(selected.id, c)}
-            onDelete={() => save({ customThemes: custom.filter((c) => c.id !== selected.id), terminalTheme: "" })}
+            onDelete={async () => {
+              if (!(await confirm(t("appearance.custom.deleteConfirm", { name: selected.name })))) return;
+              save({ customThemes: custom.filter((c) => c.id !== selected.id), terminalTheme: "" });
+            }}
           />
         )}
       </Group>
