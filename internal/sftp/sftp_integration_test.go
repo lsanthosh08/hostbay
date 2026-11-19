@@ -415,3 +415,60 @@ func TestDownloadKeepsAPrivateFilePrivate(t *testing.T) {
 		t.Fatalf("downloaded mode = %v, %v; want 0600", fi.Mode().Perm(), err)
 	}
 }
+
+// "New file" never empties a file that exists, a stale listing or not,
+// with or without the root retry a permission refusal brings.
+func TestCreateFileNeverEmptiesAnExistingFile(t *testing.T) {
+	s, c, dir := setup(t)
+	open, locked := filepath.Join(dir, "open"), filepath.Join(dir, "root owned")
+	for _, d := range []string{open, locked} {
+		if err := os.Mkdir(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, filepath.Join(d, "taken.txt"), "data\n")
+	}
+	s.Protect(t, locked)
+	if err := os.Chmod(locked, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(locked, 0o755) })
+
+	for _, d := range []string{open, locked} {
+		taken := filepath.Join(d, "taken.txt")
+		if err := c.CreateFile(taken, false, loginPW); err == nil {
+			t.Errorf("%s: created over an existing file", taken)
+		}
+		if got := readFile(t, taken); got != "data\n" {
+			t.Errorf("%s now holds %q", taken, got)
+		}
+		fresh := filepath.Join(d, "new.txt")
+		if err := c.CreateFile(fresh, false, loginPW); err != nil {
+			t.Errorf("%s: %v", fresh, err)
+		} else if got := readFile(t, fresh); got != "" {
+			t.Errorf("%s holds %q", fresh, got)
+		}
+	}
+}
+
+// On a server without SFTP, "New file" runs sh, which also refuses a file
+// that exists.
+func TestCreateFileWithoutSFTPNeverEmptiesAnExistingFile(t *testing.T) {
+	s, _, dir := setup(t)
+	s.RefuseSFTP()
+	c := Shell(s.Dial(t))
+	taken := filepath.Join(dir, "taken.txt")
+	writeFile(t, taken, "data\n")
+	if err := c.CreateFile(taken, false, ""); err == nil {
+		t.Fatal("created over an existing file")
+	}
+	if got := readFile(t, taken); got != "data\n" {
+		t.Fatalf("taken.txt now holds %q", got)
+	}
+	fresh := filepath.Join(dir, "it's new.txt")
+	if err := c.CreateFile(fresh, false, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, fresh); got != "" {
+		t.Fatalf("new file holds %q", got)
+	}
+}

@@ -118,7 +118,7 @@ type Conn struct {
 }
 
 // Shell returns a Conn for a server without SFTP. Only the methods that run
-// shell commands work on it: Copy, Chmod, and Remove with sudo.
+// shell commands work on it: Copy, Chmod, CreateFile, and Remove with sudo.
 func Shell(c *ssh.Client) *Conn { return &Conn{ssh: c} }
 
 // List returns dir's entries, folders first, then by case-insensitive name.
@@ -275,6 +275,28 @@ func (c *Conn) put(p string, r io.Reader) error {
 		return err
 	}
 	return f.Close()
+}
+
+// CreateFile makes p as an empty file and refuses one that exists, so a
+// new file never empties an old one a stale listing missed. Without sudo
+// it creates over SFTP and, as Write does, retries as root only when that
+// is refused for permission. On a Shell conn it runs sh, as root with sudo.
+func (c *Conn) CreateFile(p string, sudo bool, password string) error {
+	if !sudo && c.sftp != nil {
+		f, err := c.sftp.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL)
+		if err == nil {
+			return f.Close()
+		}
+		if !errors.Is(err, os.ErrPermission) {
+			// SFTP v3 has no "exists" status: say so when that is why.
+			if _, serr := c.sftp.Lstat(p); serr == nil {
+				return fmt.Errorf("%s already exists", p)
+			}
+			return err
+		}
+	}
+	// With noclobber set, sh's > refuses a file that exists.
+	return c.shell("create", sudo || c.sftp != nil, password, "sh", "-c", `set -C && : > "$1"`, "sh", p)
 }
 
 func (c *Conn) Mkdir(p string) error         { return c.sftp.Mkdir(p) }
