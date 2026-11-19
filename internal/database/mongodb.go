@@ -305,6 +305,11 @@ func mongoFilter(id string) (bson.D, error) {
 	if err := bson.UnmarshalExtJSON([]byte(`{"_id":`+id+`}`), false, &f); err != nil || len(f) != 1 || f[0].Key != "_id" {
 		return nil, errors.New("that is not a document's _id")
 	}
+	// Extended JSON types parse to values; a document left holding a $ key
+	// is a query operator, which would match some other document.
+	if d, ok := f[0].Value.(bson.D); ok && slices.ContainsFunc(d, func(el bson.E) bool { return strings.HasPrefix(el.Key, "$") }) {
+		return nil, errors.New("that is not a document's _id")
+	}
 	return f, nil
 }
 

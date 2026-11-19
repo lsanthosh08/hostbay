@@ -144,3 +144,20 @@ func TestMongoEditReplacesWithALiteral(t *testing.T) {
 		}
 	}
 }
+
+// An _id that is a query operator, such as {"$ne": null}, would match some
+// other document: Document would show it and an edit would aim at it.
+// Extended JSON types ($oid, $numberLong) parse to values, not documents,
+// so they still name one _id, as does a plain embedded document.
+func TestMongoFilterRefusesOperators(t *testing.T) {
+	for _, bad := range []string{`{"$ne": null}`, `{"$gt": {"$minKey": 1}}`, `{"a": 1, "$or": []}`} {
+		if _, err := mongoFilter(bad); err == nil {
+			t.Errorf("%s was taken as an _id", bad)
+		}
+	}
+	for _, good := range []string{`{"$oid": "65a1b2c3d4e5f60718293a4b"}`, `{"$numberLong": "5"}`, `{"a": 1, "b": "x"}`, `"s"`} {
+		if _, err := mongoFilter(good); err != nil {
+			t.Errorf("%s: %v", good, err)
+		}
+	}
+}
