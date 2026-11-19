@@ -17,6 +17,7 @@ libiconv-*.dll libiconv
 libcharset-*.dll libiconv
 libxml2-*.dll libxml2
 zlib1.dll zlib
+libz-*.dll zlib
 libbrotli*.dll Brotli
 libzstd.dll Zstandard
 libwinpthread-*.dll winpthreads

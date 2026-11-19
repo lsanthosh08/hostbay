@@ -153,6 +153,12 @@ for f in /etc/ssl/ca-bundle.pem /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/
 	fi
 done
 
+# Absolute build-machine paths compiled into the bundle (config and module
+# folders) name places a user's machine may let anyone create, while
+# openconnect.exe runs as SYSTEM: list them in the log for review.
+echo "UCRT64 paths compiled into the bundle:"
+grep -a -o -h '[[:print:]]*[/\\]ucrt64[/\\][[:print:]]*' "$dest"/*.dll "$dest/openconnect.exe" | sort -u || true
+
 # The bundle must run without UCRT64's bin on PATH, as on a user's machine.
 out=$(PATH=/usr/bin "$dest/openconnect.exe" --version 2>&1 || true)
 if ! grep -q "version v$version" <<<"$out"; then
