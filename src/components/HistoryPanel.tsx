@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as api from "../api";
 import { t } from "../i18n";
 import { PanelHeader } from "../shell/SidePanel";
@@ -23,12 +23,22 @@ export function HistoryPanel() {
   const [query, setQuery] = useState("");
 
   useEffect(() => onActiveTerminal(() => setPtyId(activeTerminal()?.ptyId() ?? null)), []);
+  // Only the focused terminal's answers count. A click runs a line in the
+  // focused terminal, so lines from one focused before must never show.
+  const current = useRef(ptyId);
+  current.current = ptyId;
   const load = () => {
-    if (!ptyId) return setLines([]);
-    api.terminalState(ptyId).then(setState, () => setState(null));
-    api.terminalHistory(ptyId).then(
-      (h) => setLines(h.reverse()),
-      (e) => push("error", api.errorInfo(e).message)
+    setLines([]);
+    setState(null);
+    if (!ptyId) return;
+    const id = ptyId;
+    api.terminalState(id).then(
+      (s) => current.current === id && setState(s),
+      () => {}
+    );
+    api.terminalHistory(id).then(
+      (h) => current.current === id && setLines(h.reverse()),
+      (e) => current.current === id && push("error", api.errorInfo(e).message)
     );
   };
   useEffect(load, [ptyId]); // eslint-disable-line react-hooks/exhaustive-deps
