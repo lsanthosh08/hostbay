@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { InputLine, linesRun, pasteText, quickBytes, type BufferLike } from "./inputLine";
+import { InputLine, pasteLines, pasteText, quickBytes, type BufferLike } from "./inputLine";
 
 /** A screen of plain rows with a cursor, standing in for xterm's buffer. */
 function screen(rows: string[], cursorX: number, cursorY = rows.length - 1) {
@@ -88,13 +88,17 @@ describe("quickBytes", () => {
   });
 });
 
-describe("linesRun", () => {
-  it("counts each line break a shell without bracketed paste runs", () => {
-    expect(linesRun("ls\r\npwd\nid\r", false)).toBe(3);
-    expect(linesRun("uptime", false)).toBe(0);
+describe("pasteLines", () => {
+  it("counts the lines of a paste a shell without bracketed paste runs as they land", () => {
+    expect(pasteLines("ls\r\npwd\nid\r", false)).toBe(3);
+    expect(pasteLines("ls\npwd", false)).toBe(2);
+  });
+  it("asks nothing for one line, with or without its line break", () => {
+    expect(pasteLines("uptime", false)).toBe(0);
+    expect(pasteLines("uptime\n", false)).toBe(0);
   });
   it("is none when the shell holds the paste for Enter", () => {
-    expect(linesRun("ls\npwd\n", true)).toBe(0);
+    expect(pasteLines("ls\npwd\n", true)).toBe(0);
   });
 });
 

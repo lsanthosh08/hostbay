@@ -19,7 +19,7 @@ import { termFontSize } from "../shell/settings/Terminal";
 import { backgroundImage, loadBackground, onSettingsChange, settings } from "../state/settings";
 import { humanSize } from "./files/paths";
 import { activeTerminal, clearActiveTerminal, notifyActiveTerminal, setActiveTerminal, type ActiveTerm } from "./terminal/active";
-import { InputLine, linesRun, pasteText } from "./terminal/inputLine";
+import { InputLine, pasteLines, pasteText } from "./terminal/inputLine";
 import { accepts, AI_PAUSE_MS, completionRest, historySuggestion, mayAskAI } from "./terminal/suggestions";
 import {
   startZmodem,
@@ -213,8 +213,8 @@ function TermPane({ conn }: { conn: Connection }) {
       e.preventDefault();
       e.stopImmediatePropagation();
       const text = pasteText(raw);
-      const n = linesRun(text.replace(/(\r\n|\r|\n)$/, ""), term.modes.bracketedPasteMode);
-      if (n > 0 && !(await confirm(t("terminal.pasteRuns", { n: n + 1 }), { confirmLabel: t("terminal.paste") }))) return;
+      const n = pasteLines(text, term.modes.bracketedPasteMode);
+      if (n > 0 && !(await confirm(t("terminal.pasteRuns", { n }), { confirmLabel: t("terminal.paste") }))) return;
       if (!disposed) term.paste(text);
     };
     el.addEventListener("paste", onPaste, true);
