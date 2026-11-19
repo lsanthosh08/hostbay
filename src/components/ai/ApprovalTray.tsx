@@ -69,8 +69,8 @@ export function ApprovalTray() {
         aria-label={t("ai.tray.title", { n: pending.length })}
         className={pending.length ? `fixed bottom-10 right-4 ${layer.popover} w-96 max-w-[calc(100vw-2rem)] max-h-[70vh] overflow-auto flex flex-col gap-2 outline-none` : "sr-only"}
       >
-        {pending.map((p) => (
-          <ApprovalCard key={p.id} p={p} onAnswer={(allow) => answer(p, allow)} />
+        {pending.map((p, i) => (
+          <ApprovalCard key={p.id} p={p} index={i} onAnswer={(allow) => answer(p, allow)} />
         ))}
       </section>
     </>

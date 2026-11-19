@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AIPending, VpnTier } from "../../api";
 import { t, type MessageKey } from "../../i18n";
 import { Button } from "../../ui/Button";
@@ -12,6 +12,13 @@ const TIER: Partial<Record<VpnTier, MessageKey>> = {
   system: "mcp.card.vpnTier.system",
   external: "mcp.card.vpnTier.external",
 };
+
+/** How long a card must sit still before Allow takes a click. Cards stack
+ *  oldest first, so when one above is answered or expires every card below
+ *  moves up, and a click aimed at the gone card's Allow would land on the
+ *  next card's Allow: a command the user never read. */
+export const SETTLE_MS = 600;
+export const settled = (since: number, now: number) => now - since >= SETTLE_MS;
 
 const secondsLeft = (expires: string) => Math.max(0, Math.round((Date.parse(expires) - Date.now()) / 1000));
 
@@ -32,8 +39,13 @@ export function approvalLabel(p: AIPending): string {
  *  was picked by, what it reaches (the whole computer for a system-wide
  *  profile) and the gateway, and has no bytes (KTD6). Allow and Deny are
  *  plain buttons; neither is the default and neither takes focus. */
-export function ApprovalCard({ p, onAnswer }: { p: VPNPending; onAnswer: (allow: boolean) => void }) {
+export function ApprovalCard({ p, index = 0, onAnswer }: { p: VPNPending; index?: number; onAnswer: (allow: boolean) => void }) {
   const [left, setLeft] = useState(() => secondsLeft(p.expires));
+  // When the card last appeared or moved in the tray.
+  const since = useRef(0);
+  useLayoutEffect(() => {
+    since.current = Date.now();
+  }, [index]);
   useEffect(() => {
     const id = setInterval(() => setLeft(secondsLeft(p.expires)), 1000);
     return () => clearInterval(id);
@@ -72,7 +84,7 @@ export function ApprovalCard({ p, onAnswer }: { p: VPNPending; onAnswer: (allow:
         <Button type="button" variant="ghost" size="sm" onClick={() => onAnswer(false)}>
           {t("ai.card.deny")}
         </Button>
-        <Button type="button" size="sm" onClick={() => onAnswer(true)}>
+        <Button type="button" size="sm" onClick={() => settled(since.current, Date.now()) && onAnswer(true)}>
           {t("ai.card.allow")}
         </Button>
       </div>

@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { AIEvent, AIPending, AISkill } from "../../api";
-import { ApprovalCard } from "./ApprovalCard";
+import { ApprovalCard, SETTLE_MS, settled } from "./ApprovalCard";
 import { errorHint, initialChat, reduce, RichText, splitFences, type Chat } from "./messages";
 import { SlashMenu, slashMatches } from "./SlashMenu";
 
@@ -141,6 +141,15 @@ describe("a save_skill card", () => {
     expect(html).toContain("Run &lt;script&gt;alert(1)&lt;/script&gt;");
     expect(html).toContain("/deploy-check");
     expect(html).toContain("Replace");
+  });
+});
+
+describe("an approval card's Allow", () => {
+  // A card above that expires moves this one under the pointer.
+  it("ignores a click until the card has stayed in place a moment", () => {
+    expect(settled(1000, 1000)).toBe(false);
+    expect(settled(1000, 1000 + SETTLE_MS - 1)).toBe(false);
+    expect(settled(1000, 1000 + SETTLE_MS)).toBe(true);
   });
 });
 
