@@ -136,6 +136,7 @@ export const en = {
   "sync.choice": "This computer and the sync target both hold data. Use the target's data, or merge both?",
   "sync.choice.merge": "Merge both",
   "sync.choice.remote": "Use the target's data",
+  "sync.choice.remoteConfirm": "Replace everything on this computer with the sync target's data? Hosts, folders, keys, scripts and tunnels that are only here are deleted, not moved to the Trash.",
   "sync.hold.tunnel": "Another computer set tunnel {name} to listen beyond this computer. It stays on 127.0.0.1 here until you allow it.",
   "sync.hold.keepLoopback": "Keep on loopback",
   "sync.now": "Sync now",
