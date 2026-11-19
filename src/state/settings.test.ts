@@ -70,6 +70,14 @@ describe("settings", () => {
     expect(store.get("theme")).toBe("light");
   });
 
+  // The opacity slider saves on every step while a theme name saves on blur.
+  it("keeps both of two appearance changes saved at the same time", async () => {
+    const s = await import("./settings");
+    await s.loadSettings();
+    await Promise.all([s.setAppearance({ backgroundOpacity: 40 }), s.setAppearance({ fontSize: 18 })]);
+    expect(go.groups.appearance).toMatchObject({ backgroundOpacity: 40, fontSize: 18 });
+  });
+
   // A group sent without the fields it failed to load would erase them,
   // custom themes included, here and on every synced computer.
   it("refuses to save the appearance when the settings did not load", async () => {

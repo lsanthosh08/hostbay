@@ -114,7 +114,7 @@ export function KubernetesTab({ conn }: { conn: Connection }) {
           const v = await prompt(t("kubernetes.scalePrompt", where(it)), it.ready?.split("/")[1] ?? "1");
           if (v == null) return;
           const n = Number(v);
-          if (!Number.isInteger(n) || n < 0) return push("error", t("kubernetes.scale"));
+          if (!Number.isInteger(n) || n < 0) return push("error", t("kubernetes.scaleInvalid"));
           await api.kubernetesScale(clusterId, kind, itemNs, it.name, n);
           break;
         }

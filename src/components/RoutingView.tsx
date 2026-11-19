@@ -373,7 +373,7 @@ export function RoutingView() {
         busy={busy}
         onProfile={pick}
         onMode={setMode}
-        onLocal={(dsts) => act(() => api.setLocalRoutes(dsts)).then(() => api.localRoutes().then(setLocal))}
+        onLocal={(dsts) => act(() => api.setLocalRoutes(dsts)).then(() => api.localRoutes().then(setLocal, () => {}))}
         onApply={() =>
           act(() => api.applyRoutes(id, id ? mode : ""), t("routing.applied")).then((r) => {
             if (r) setReport(r);
@@ -385,7 +385,7 @@ export function RoutingView() {
           if (await confirm(t("routing.resetConfirm"), { confirmLabel: t("routing.reset") }))
             act(() => api.resetRoutes(), t("routing.resetDone")).then((r) => r && setReport(r));
         }}
-        onInstall={() => act(() => api.installHelper()).then(() => api.helperStatus().then(setHelper))}
+        onInstall={() => act(() => api.installHelper()).then(() => api.helperStatus().then(setHelper, () => {}))}
         onNarrow={setNarrowing}
         onPin={(p, iface) => act(() => api.pinInterface(p, iface))}
         pac={pac}

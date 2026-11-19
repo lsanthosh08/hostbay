@@ -58,9 +58,19 @@ export function loadSettings(): Promise<Settings> {
   return loaded;
 }
 
+let saving: Promise<void> = Promise.resolve();
+
 /** Saves an appearance change, keeping the group's other fields. It fails
  *  when they cannot be loaded: a partial group would erase them. */
-export async function setAppearance(change: Appearance) {
+export function setAppearance(change: Appearance): Promise<void> {
+  // One save at a time, each built on the last: two overlapping saves built
+  // from the same old group would each drop the other's change.
+  const run = saving.then(() => saveAppearance(change));
+  saving = run.catch(() => {});
+  return run;
+}
+
+async function saveAppearance(change: Appearance) {
   await loadSettings();
   const next = { ...current, ...change };
   await settingsSet({

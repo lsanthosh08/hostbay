@@ -41,10 +41,11 @@ export function Security() {
         {known?.length === 0 && <EmptyState icon={KeyIcon} title={t("settings.knownHostsEmpty")} />}
         <ul className="flex flex-col">
           {known?.map((k, i) => {
-            const id = `${k.host}:${k.port}`;
+            // A host has a row per key type, so the open form is the row's.
+            const id = `${k.host}:${k.port}-${i}`;
             return (
               <Row
-                key={`${id}-${i}`}
+                key={id}
                 actions={
                   !k.hashed &&
                   removing !== id && (

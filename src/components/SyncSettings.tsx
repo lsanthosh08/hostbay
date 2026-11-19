@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   errorInfo,
   listProxies,
@@ -18,6 +18,7 @@ import { useConnect } from "../connect/useConnect";
 import { t, type MessageKey } from "../i18n";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Field";
+import { usePrompt } from "../ui/prompt";
 import { Badge, Spinner } from "../ui/kit";
 import { Select } from "../ui/Select";
 import { Tabs } from "../ui/Tabs";
@@ -94,6 +95,7 @@ export function SyncSettings() {
   const [error, setError] = useState("");
   // An SFTP target's unknown host key asks to trust it, then reruns the action.
   const { fail, dialog } = useConnect();
+  const { confirm } = usePrompt();
   const [tab, setTab] = useState<"settings" | "conflicts">("settings");
   // To name the proxy a held host change points at.
   const [proxies, setProxies] = useState<Proxy[]>([]);
@@ -102,11 +104,18 @@ export function SyncSettings() {
     if (held) listProxies().then(setProxies).catch(() => {});
   }, [held]);
 
+  // The saved target fills the form once, from the first status that
+  // arrives; later refreshes (after every action, failed ones too) leave the
+  // user's unsaved edits alone.
+  const filled = useRef(false);
   const refresh = useCallback(() => {
     syncStatus()
       .then((s) => {
         setStatus(s);
-        if (s.target?.kind) setTarget(s.target);
+        if (!filled.current && s.target?.kind) {
+          filled.current = true;
+          setTarget(s.target);
+        }
       })
       .catch((e) => setError(errorInfo(e).message));
   }, []);
@@ -187,7 +196,13 @@ export function SyncSettings() {
                     <Button variant="primary" disabled={busy} onClick={() => sync("merge")}>
                       {t("sync.choice.merge")}
                     </Button>
-                    <Button variant="danger" disabled={busy} onClick={() => sync("remote")}>
+                    <Button
+                      variant="danger"
+                      disabled={busy}
+                      onClick={async () => {
+                        if (await confirm(t("sync.choice.remoteConfirm"), { confirmLabel: t("sync.choice.remote") })) sync("remote");
+                      }}
+                    >
                       {t("sync.choice.remote")}
                     </Button>
                   </div>

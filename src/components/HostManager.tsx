@@ -55,6 +55,7 @@ export function HostManagerProvider({ children }: { children: ReactNode }) {
   // A single host's backup, while its format dialog is open.
   const [backingUp, setBackingUp] = useState<Host | null>(null);
   const [folderDelete, setFolderDelete] = useState<{ folder: Folder; count: number } | null>(null);
+  const [deletingFolder, setDeletingFolder] = useState(false);
   // Linux only: no master password yet, so passwords cannot be saved (KTD7).
   const [needsMaster, setNeedsMaster] = useState(false);
   const [settingMaster, setSettingMaster] = useState(false);
@@ -100,12 +101,15 @@ export function HostManagerProvider({ children }: { children: ReactNode }) {
     setFolderDelete({ folder: f, count: n });
   };
   const doDeleteFolder = async (mode: "reparent" | "purge") => {
-    if (!folderDelete) return;
-    await run(
-      () => api.deleteFolder(folderDelete.folder.id, mode),
+    if (!folderDelete || deletingFolder) return;
+    // One delete at a time; a failed one keeps the dialog open to try again.
+    setDeletingFolder(true);
+    const ok = await run(
+      () => api.deleteFolder(folderDelete.folder.id, mode).then(() => true),
       mode === "purge" ? "Folder + hosts deleted" : "Folder deleted, hosts moved up"
     );
-    setFolderDelete(null);
+    setDeletingFolder(false);
+    if (ok) setFolderDelete(null);
     onChanged();
   };
 
@@ -201,10 +205,10 @@ export function HostManagerProvider({ children }: { children: ReactNode }) {
             should happen to them?
           </p>
           <div className="flex flex-col gap-2">
-            <Button variant="primary" onClick={() => doDeleteFolder("reparent")}>
+            <Button variant="primary" disabled={deletingFolder} onClick={() => doDeleteFolder("reparent")}>
               Keep hosts — move them up to the parent
             </Button>
-            <Button variant="danger" onClick={() => doDeleteFolder("purge")}>
+            <Button variant="danger" disabled={deletingFolder} onClick={() => doDeleteFolder("purge")}>
               Delete the hosts too (to Trash)
             </Button>
             <Button variant="ghost" onClick={() => setFolderDelete(null)}>

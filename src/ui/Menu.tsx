@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
+import { focusReturn, focusTarget } from "./Dialog";
 import { CollapsedIcon, type Icon } from "./icons";
 import { Kbd } from "./Kbd";
 import { layer } from "./layers";
@@ -39,12 +40,13 @@ export function Menu({
   const [pos, setPos] = useState({ left: x, top: y });
   const [sub, setSub] = useState<{ index: number; x: number; y: number } | null>(null);
   // Read before the layout effect below moves focus into the menu.
-  const [before] = useState(() => document.activeElement as HTMLElement | null);
+  const [back] = useState(focusTarget);
 
   const buttons = () => [...ref.current!.querySelectorAll<HTMLButtonElement>("[role=menuitem]:not(:disabled)")];
 
   // Keep the menu on screen, then focus its first item.
   useLayoutEffect(() => {
+    focusReturn.set(ref.current!, back);
     const r = ref.current!.getBoundingClientRect();
     setPos({
       left: Math.max(4, Math.min(x, window.innerWidth - r.width - 4)),
@@ -54,7 +56,7 @@ export function Menu({
   }, [x, y]);
 
   // The top level hands focus back when it closes.
-  useEffect(() => (onBack ? undefined : () => before?.focus()), [onBack, before]);
+  useEffect(() => (onBack ? undefined : () => back()?.focus()), [onBack, back]);
 
   const openSub = (index: number, el: HTMLElement) => {
     const r = el.getBoundingClientRect();

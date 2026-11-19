@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { errorInfo } from "../api";
 import { t } from "../i18n";
 import { Button } from "./Button";
 import { IconButton } from "./IconButton";
@@ -94,7 +95,7 @@ export function useAsyncToast() {
         if (okMsg) push("success", okMsg);
         return r;
       } catch (e) {
-        push("error", e instanceof Error ? e.message : String(e));
+        push("error", errorInfo(e).message);
         return undefined;
       }
     },

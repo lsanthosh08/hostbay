@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import * as api from "../api";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
@@ -56,10 +56,18 @@ export function ContainerFiles({
   const [loading, setLoading] = useState(false);
   const [viewer, setViewer] = useState<{ name: string; text: string } | null>(null);
 
+  // Bumped per listing and per read; an answer that is no longer the latest
+  // is dropped, so a slow folder cannot replace the one clicked after it and
+  // a slow file does not open after the user moved to another folder.
+  const seq = useRef(0);
+  const fileSeq = useRef(0);
+
   const load = useCallback(
     async (p: string) => {
+      const my = ++seq.current;
       setLoading(true);
       const r = await run(() => api.containerListDir(sessionId, containerId, p));
+      if (my !== seq.current) return;
       setLoading(false);
       if (r === undefined) return;
       setEntries(parseLs(r));
@@ -83,9 +91,11 @@ export function ContainerFiles({
 
   const openFile = async (e: Entry) => {
     const full = path.endsWith("/") ? path + e.name : `${path}/${e.name}`;
+    const folder = seq.current;
+    const my = ++fileSeq.current;
     // Cap the read so a huge/binary file can't flood the UI.
     const r = await run(() => api.containerReadFile(sessionId, containerId, full));
-    if (r === undefined) return;
+    if (r === undefined || my !== fileSeq.current || folder !== seq.current) return;
     setViewer({ name: e.name, text: r });
   };
 

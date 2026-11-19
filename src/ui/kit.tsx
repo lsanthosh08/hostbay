@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { t } from "../i18n";
 
 export function Panel({
   title,
@@ -27,9 +28,11 @@ export function Panel({
   );
 }
 
+/** Named, because buttons swap their label for it while they work and
+ *  would otherwise have no accessible name. */
 export function Spinner() {
   return (
-    <span className="inline-block size-4 border-2 border-current/30 border-t-current rounded-full animate-spin" />
+    <span role="status" aria-label={t("common.loading")} className="inline-block size-4 border-2 border-current/30 border-t-current rounded-full animate-spin" />
   );
 }
 

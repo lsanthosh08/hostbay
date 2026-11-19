@@ -3,22 +3,30 @@ import * as api from "../api";
 import type { Script } from "../api";
 import { t } from "../i18n";
 import { PanelHeader } from "../shell/SidePanel";
-import { sendToActive } from "../tabs/terminal/active";
+import { activeTerminal, sendToActive } from "../tabs/terminal/active";
+import { pasteLines } from "../tabs/terminal/inputLine";
 import { Button } from "../ui/Button";
 import { EmptyState } from "../ui/EmptyState";
 import { Input } from "../ui/Field";
 import { IconButton } from "../ui/IconButton";
 import { QuickCommandsIcon, RefreshIcon } from "../ui/icons";
+import { usePrompt } from "../ui/prompt";
 import { useToast } from "../ui/toast";
 
-/** Sends text to the focused terminal, or says why it cannot (R71). */
+/** Sends text to the focused terminal, or says why it cannot (R71). Paste
+ *  of several lines into a shell without bracketed paste would run them as
+ *  they land, so it asks first, as a paste typed into the terminal does. */
 export function useSendToTerminal() {
   const { push } = useToast();
-  return (text: string, mode: "run" | "paste") =>
-    sendToActive(text, mode).then(
+  const { confirm } = usePrompt();
+  return async (text: string, mode: "run" | "paste") => {
+    const n = mode === "paste" ? pasteLines(text, activeTerminal()?.bracketed() ?? true) : 0;
+    if (n > 0 && !(await confirm(t("terminal.pasteRuns", { n }), { confirmLabel: t("terminal.paste") }))) return;
+    await sendToActive(text, mode).then(
       (refused) => refused && push("error", t(refused)),
       (e) => push("error", api.errorInfo(e).message)
     );
+  };
 }
 
 /** The quick-commands panel: saved scripts (R11), run or pasted into the
@@ -46,6 +54,8 @@ export function QuickCommands() {
       </div>
       {scripts.length === 0 ? (
         <EmptyState icon={QuickCommandsIcon} title={t("quick.empty")} />
+      ) : shown.length === 0 ? (
+        <EmptyState icon={QuickCommandsIcon} title={t("quick.noMatch")} />
       ) : (
         <ul className="flex-1 min-h-0 overflow-auto px-2 pb-2 flex flex-col gap-1">
           {shown.map((s) => (

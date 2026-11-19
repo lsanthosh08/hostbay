@@ -55,11 +55,25 @@ export class InputLine {
   }
 }
 
+/** Pasted text without control characters other than tab and line breaks.
+ *  An ESC could end a bracketed paste early ("\x1b[201~") and run every line
+ *  after it, and other controls act as keys (Ctrl+C, a C1 CSI); terminals
+ *  such as VTE drop them from a paste for the same reason. */
+export const pasteText = (text: string) => text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g, "");
+
+/** How many lines a paste holds when the shell would run them as they land
+ *  (no bracketed paste: each line break is Enter), else 0. One line, with or
+ *  without its line break, counts as 0: it asks nothing. */
+export function pasteLines(text: string, bracketed: boolean): number {
+  const lines = text.replace(/(\r\n|\r|\n)$/, "").split(/\r\n|\r|\n/).length;
+  return bracketed || lines < 2 ? 0 : lines;
+}
+
 /** What a quick command sends: Run is the text and Enter, Paste the text
  *  alone. Several lines go as one bracketed paste when the shell asked for
  *  bracketed paste, so none of them runs on its own. */
 export function quickBytes(text: string, mode: "run" | "paste", bracketed: boolean): string {
-  const body = text.replace(/\r?\n$/, "").replace(/\r?\n/g, "\r");
+  const body = pasteText(text).replace(/\r?\n$/, "").replace(/\r?\n/g, "\r");
   const sent = bracketed && body.includes("\r") ? `\x1b[200~${body}\x1b[201~` : body;
   return mode === "run" ? sent + "\r" : sent;
 }

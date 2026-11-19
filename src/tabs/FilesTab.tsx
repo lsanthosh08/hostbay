@@ -41,6 +41,10 @@ export function FilesTab({ conn, windows }: { conn: Connection; windows?: boolea
     ? `/home/${conn.host.user}`
     : "/";
   const [cwd, setCwd] = useState<string>(home);
+  // The folder shown now: an action refreshes this one when it ends, not
+  // the one it started in, so navigating away meanwhile is not undone.
+  const cwdRef = useRef(cwd);
+  cwdRef.current = cwd;
   const [pathInput, setPathInput] = useState<string>(home);
   const [entries, setEntries] = useState<DirEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -168,6 +172,10 @@ export function FilesTab({ conn, windows }: { conn: Connection; windows?: boolea
     await writeWithSudo(openFile, content, "Saved");
   };
 
+  // Whether the folder shown holds this name; Windows file names ignore case.
+  const taken = (name: string) =>
+    entries.some((e) => (windows ? e.name.toLowerCase() === name.toLowerCase() : e.name === name));
+
   const doCreate = async () => {
     const name = newName.trim();
     if (!name || !creating) {
@@ -176,6 +184,11 @@ export function FilesTab({ conn, windows }: { conn: Connection; windows?: boolea
       return;
     }
     const target = joinPath(cwd, name);
+    // An empty write truncates, so "New file" on a taken name would empty it.
+    if (taken(name)) {
+      push("error", t("files.exists", { name }));
+      return;
+    }
     if (creating === "folder") {
       await run(() => api.sftpMkdir(conn.sessionId, target), "Folder created");
     } else {
@@ -183,7 +196,7 @@ export function FilesTab({ conn, windows }: { conn: Connection; windows?: boolea
     }
     setCreating(null);
     setNewName("");
-    list(cwd);
+    list(cwdRef.current);
   };
 
   const renamePath = async (path: string) => {
@@ -192,7 +205,7 @@ export function FilesTab({ conn, windows }: { conn: Connection; windows?: boolea
     if (!name || name === cur) return;
     const to = joinPath(parentPath(path), name);
     await run(() => api.sftpRename(conn.sessionId, path, to), "Renamed");
-    list(cwd);
+    list(cwdRef.current);
   };
 
   const removePath = async (path: string, isDir: boolean) => {
@@ -202,22 +215,28 @@ export function FilesTab({ conn, windows }: { conn: Connection; windows?: boolea
       setOpenFile(null);
       setContent("");
     }
-    list(cwd);
+    list(cwdRef.current);
   };
+
+  // A single-file upload or paste writes over a file of the same name.
+  const mayReplace = async (name: string) =>
+    !taken(name) || (await confirm(t("files.replaceConfirm", { name }), { confirmLabel: t("files.replace") }));
 
   const paste = async () => {
     if (!clipboard) return;
     const to = joinPath(cwd, basename(clipboard));
+    if (!(await mayReplace(basename(clipboard)))) return;
     await run(() => api.sftpCopy(conn.sessionId, clipboard, to, sudo), "Pasted");
-    list(cwd);
+    list(cwdRef.current);
   };
 
   const upload = async () => {
     const local = await open();
     if (typeof local !== "string") return;
     const remote = joinPath(cwd, basename(local));
+    if (!(await mayReplace(basename(local)))) return;
     await run(() => api.sftpUpload(conn.sessionId, local, remote), "Uploaded");
-    list(cwd);
+    list(cwdRef.current);
   };
 
   // Whole folders go through the transfer engine, which asks about each

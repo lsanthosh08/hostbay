@@ -4,6 +4,7 @@ import { t } from "../i18n";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 import { Field, Input } from "../ui/Field";
+import { useSettled, waitProps } from "../ui/settle";
 
 /** An RDP server's or file host's certificate, rather than an SSH key. */
 export const isCert = (p: HostKeyPrompt) => !!p.kind?.endsWith("Cert");
@@ -34,6 +35,9 @@ export function TrustDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  // Queued prompts open one after another in the same place, so Trust waits
+  // a moment: a double-click must not trust the next key unread.
+  const { ready, waiting } = useSettled(undefined, prompt.requestId);
   return (
     <Dialog
       title={isCert(prompt) ? t("trust.titleCert") : t("trust.title")}
@@ -43,7 +47,7 @@ export function TrustDialog({
           <Button variant="ghost" onClick={onCancel}>
             {t("common.cancel")}
           </Button>
-          <Button variant="primary" onClick={onConfirm}>
+          <Button variant="primary" {...waitProps(waiting)} onClick={() => ready() && onConfirm()}>
             {t("trust.confirm")}
           </Button>
         </>

@@ -353,7 +353,8 @@ function Containers({ sessionId, info, local }: { sessionId: string; info: api.C
   }, [refresh]);
 
   const act = async (id: string, action: "start" | "stop" | "restart" | "rm") => {
-    if (action === "rm" && !(await confirm(t("containers.confirmRemove")))) return;
+    const ask = { rm: "containers.confirmRemove", stop: "containers.confirmStop", restart: "containers.confirmRestart" } as const;
+    if (action !== "start" && !(await confirm(t(ask[action])))) return;
     const r = await run(() => api.dockerAction(sessionId, id, action), t("containers.actionDone", { action }));
     if (r !== undefined) refresh();
   };
@@ -861,6 +862,7 @@ function Compose({ sessionId, local }: { sessionId: string; local: boolean }) {
 
   const act = async (p: api.ComposeProject, action: "up" | "down" | "restart" | "ps" | "logs") => {
     if (action === "down" && !(await confirm(t("containers.confirmDown", { name: p.name })))) return;
+    if (action === "restart" && !(await confirm(t("containers.confirmComposeRestart", { name: p.name })))) return;
     setBusy(`${p.path}:${action}`);
     const r = await run(() => api.composeAction(sessionId, p.path, action), t("containers.composeDone", { action: t(COMPOSE_LABEL[action]), name: p.name }));
     setBusy(null);
