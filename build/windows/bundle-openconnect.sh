@@ -87,6 +87,14 @@ version=$(basename "$tarball" .tar.gz)
 version=${version#openconnect-}
 tar -xzf "$tarball" -C "$work"
 src="$work/openconnect-$version"
+# OpenConnect 9.21 reads getenv_s and _putenv_s from <sec_api/stdlib_s.h>, a
+# folder the pinned mingw-w64 headers no longer have; <stdlib.h> declares
+# both. A release that drops the include fails here, to take this out.
+grep -q 'sec_api/stdlib_s\.h' "$src/configure" "$src/compat.c" || {
+	echo "OpenConnect $version no longer includes sec_api/stdlib_s.h; remove this patch" >&2
+	exit 1
+}
+sed -i 's|sec_api/stdlib_s\.h|stdlib.h|' "$src/configure" "$src/compat.c"
 # Only what Hostbay uses: hostbay-netd always passes --script, so the
 # default vpnc-script is never run, and no optional library is linked
 # beyond GnuTLS, libxml2, zlib and libiconv.
