@@ -239,10 +239,9 @@ func main() {
 	mcpSvc := app.NewMCPService(st, connSvc, creds, aiSvc)
 	a.RegisterService(application.NewService(mcpSvc))
 	// A waiting MCP request also shows as an OS notification with Allow and
-	// Deny, for a user who is in another app.
-	notices := notifications.New()
-	a.RegisterService(application.NewService(notices))
-	app.LinkNotices(mcpSvc, notices)
+	// Deny, for a user who is in another app. LinkNotices' service starts
+	// it, so a run outside an app bundle, where macOS refuses it, still starts.
+	a.RegisterService(application.NewService(app.LinkNotices(mcpSvc, notifications.New())))
 
 	mainWindow = a.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:            app.Name,

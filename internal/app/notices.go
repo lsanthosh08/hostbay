@@ -1,10 +1,13 @@
 package app
 
 import (
+	"context"
+	"log"
 	"strings"
 	"sync"
 	"unicode/utf8"
 
+	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 
 	"hostbay/internal/agentexec"
@@ -84,13 +87,46 @@ type osNotices struct {
 // LinkNotices shows each MCP request that waits as an OS notification with
 // Allow and Deny, so a user in another app can answer without switching to
 // Hostbay. Where a notification cannot be shown the window comes forward and
-// the card is there as before.
-func LinkNotices(m *MCPService, ns *notifications.NotificationService) {
+// the card is there as before. It returns the service to register in ns's
+// place, which starts ns.
+func LinkNotices(m *MCPService, ns *notifications.NotificationService) *noticeService {
 	o := &osNotices{ns: ns, on: m.noticeAnswered, sent: map[string]bool{}, todo: map[string]bool{}}
 	m.mu.Lock()
 	m.notice = o
 	m.mu.Unlock()
+	return &noticeService{start: ns.ServiceStartup, stop: ns.ServiceShutdown, off: o.disable}
 }
+
+// noticeService starts the OS notification service without letting its
+// failure stop Hostbay. macOS refuses notifications to a binary outside an
+// app bundle (wails3 dev, server mode, go run); the approval card is still
+// in the window, so such a run loses only the notification.
+type noticeService struct {
+	start  func(context.Context, application.ServiceOptions) error
+	stop   func() error
+	off    func()
+	failed bool
+}
+
+func (s *noticeService) ServiceStartup(ctx context.Context, opts application.ServiceOptions) error {
+	if err := s.start(ctx, opts); err != nil {
+		log.Printf("OS notifications are off: %v", err)
+		s.failed = true
+		s.off()
+	}
+	return nil
+}
+
+func (s *noticeService) ServiceShutdown() error {
+	if s.failed {
+		return nil
+	}
+	return s.stop()
+}
+
+// disable makes every Send report undelivered without calling into a
+// notification service that did not start.
+func (o *osNotices) disable() { o.once.Do(func() {}) }
 
 // setup asks for permission and registers the category, once, the first
 // time a request waits: macOS asks the user then, with a reason in view.

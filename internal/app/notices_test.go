@@ -1,10 +1,14 @@
 package app
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"hostbay/internal/agentexec"
 )
@@ -151,5 +155,31 @@ func TestNoticeTextLimit(t *testing.T) {
 	p.Bytes += "x"
 	if _, body, actions := noticeText(p); actions || !strings.HasSuffix(body, "…") {
 		t.Fatalf("a request that does not fit kept its buttons: %q", body)
+	}
+}
+
+// Outside an app bundle macOS refuses the notification service; Hostbay
+// must still start, and each request falls back to raising the window.
+func TestNoticeServiceStartsWhenNotificationsCannot(t *testing.T) {
+	o := &osNotices{sent: map[string]bool{}, todo: map[string]bool{}}
+	s := &noticeService{
+		start: func(context.Context, application.ServiceOptions) error { return errors.New("no bundle identifier") },
+		stop:  func() error { t.Error("shut down a notification service that never started"); return nil },
+		off:   o.disable,
+	}
+	if err := s.ServiceStartup(context.Background(), application.ServiceOptions{}); err != nil {
+		t.Fatalf("ServiceStartup = %v, want nil so the app starts", err)
+	}
+	undelivered := make(chan struct{})
+	if err := o.Send("r1", "title", "body", true, func() { close(undelivered) }); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-undelivered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Send did not report the notification as undelivered")
+	}
+	if err := s.ServiceShutdown(); err != nil {
+		t.Fatal(err)
 	}
 }
