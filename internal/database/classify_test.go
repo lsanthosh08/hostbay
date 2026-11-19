@@ -26,6 +26,8 @@ func TestReadOnlyJudgement(t *testing.T) {
 		{"t-sql exec", &sqlEngine{d: mssqlDialect}, "SELECT 1\nEXEC sp_who", false},
 		{"t-sql truncate", &sqlEngine{d: mssqlDialect}, "SELECT 1 TRUNCATE TABLE t", false},
 		{"mysql executable comment", &sqlEngine{d: mysqlDialect}, "/*!40000 ALTER TABLE t DISABLE KEYS */; SELECT 1", false},
+		{"mysql show create", &sqlEngine{d: mysqlDialect}, "SHOW CREATE TABLE t", true},
+		{"mysql show then drop", &sqlEngine{d: mysqlDialect}, "SHOW TABLES; DROP TABLE t", false},
 		{"mysql plain comment", &sqlEngine{d: mysqlDialect}, "/* note */ SELECT 1", true},
 		{"sql word in a string", &sqlEngine{d: pgDialect}, "SELECT 'drop table' AS x", true},
 		{"redis reads", &redisEngine{}, "GET a\nHGETALL b", true},

@@ -387,6 +387,9 @@ func rerunnable(text string, d dialect) bool {
 		if !slices.Contains(readOnlyLead, words[0]) {
 			return false
 		}
+		if words[0] == "SHOW" { // SHOW CREATE TABLE, SHOW GRANTS: reads
+			continue
+		}
 		for _, w := range words {
 			if slices.Contains(writeWords, w) {
 				return false
