@@ -145,6 +145,14 @@ func (s *FilesService) SftpRename(sessionID, from, to string) error {
 		return err
 	}
 	if scp != nil {
+		_, err = scp.Stat(context.Background(), to)
+	} else {
+		_, err = c.Stat(to)
+	}
+	if err := noReplace(err, from, to); err != nil {
+		return err
+	}
+	if scp != nil {
 		return scp.Rename(context.Background(), from, to)
 	}
 	return c.Rename(from, to)
