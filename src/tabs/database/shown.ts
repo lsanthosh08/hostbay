@@ -12,6 +12,10 @@ export type Shown = {
   done: boolean;
   loading: boolean;
   error?: string;
+  /** When the request started, and how long it took to its first page or
+   *  its end (Date.now() milliseconds). */
+  started?: number;
+  took?: number;
 };
 
 /** Whether the request is working now: opening, or reading a page. Go
@@ -31,3 +35,11 @@ export const failed = (s: Shown, e: AppError): Shown =>
 
 /** text cut to n characters for a dialog that quotes it. */
 export const clip = (text: string, n = 600) => (text.length > n ? text.slice(0, n) + "…" : text);
+
+/** A duration for the status line: 0.25 s, 12.3 s, 2 min 5 s. */
+export function duration(ms: number): string {
+  if (ms < 10_000) return `${(ms / 1000).toFixed(2)} s`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)} s`;
+  const s = Math.round(ms / 1000);
+  return `${Math.floor(s / 60)} min ${s % 60} s`;
+}

@@ -1275,6 +1275,7 @@ export const en = {
   "database.runHint": "Runs the selection, or everything when nothing is selected (Ctrl+Enter or Cmd+Enter).",
   "database.rows": "{n} rows",
   "database.row": "1 row",
+  "database.took": "in {time}",
   "database.loadMore": "Load more rows",
   "database.cancelled": "Cancelled.",
   "database.rerun": "Run again",

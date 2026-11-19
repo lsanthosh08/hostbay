@@ -14,7 +14,7 @@ import { ObjectTree } from "./ObjectTree";
 import { QueryEditor } from "./QueryEditor";
 import { ResultGrid } from "./ResultGrid";
 import { addPage } from "./rows";
-import { cancelled, clip, failed, isRunning, type Shown } from "./shown";
+import { cancelled, clip, duration, failed, isRunning, type Shown } from "./shown";
 
 // A page with no rows moves to the next result set; this many in a row is
 // a request of empty statements, shown as they are.
@@ -61,7 +61,7 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
     try {
       for (let empty = 0; ; empty++) {
         const p = await api.databaseNextPage(queryId);
-        update(queryId, (s) => ({ ...s, sets: addPage(s.sets, p), done: p.done }));
+        update(queryId, (s) => ({ ...s, sets: addPage(s.sets, p), done: p.done, took: s.took ?? Date.now() - (s.started ?? Date.now()) }));
         if (p.done || p.rows.length || empty >= MAX_EMPTY_PAGES) break;
       }
       update(queryId, (s) => ({ ...s, loading: false }));
@@ -73,12 +73,13 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
   const start = async (open: () => Promise<{ queryId: string; table: DbTable | null }>, what: { text?: string; path?: string[] }) => {
     forget();
     const mine = seq.current;
-    setShown({ queryId: "", table: null, sets: [], done: false, loading: true, ...what });
+    const started = Date.now();
+    setShown({ queryId: "", table: null, sets: [], done: false, loading: true, started, ...what });
     try {
       const { queryId, table } = await open();
       if (mine !== seq.current) return void api.databaseCloseQuery(queryId).catch(() => {});
       current.current = queryId;
-      setShown({ queryId, table: canEdit || canEditDocs ? table : null, sets: [], done: false, loading: true, ...what });
+      setShown({ queryId, table: canEdit || canEditDocs ? table : null, sets: [], done: false, loading: true, started, ...what });
       const off = await api.onQueryState(queryId, (st) => update(queryId, (s) => ({ ...s, state: st })));
       if (current.current === queryId) unlisten.current = off;
       else off();
@@ -114,6 +115,15 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
   const rerun = () => shown && (shown.path ? openTable(shown.path) : shown.text && runQuery(shown.text));
 
   const state = shown?.state?.state;
+  // While a request runs, the status line counts up a few times a second.
+  const [now, setNow] = useState(Date.now());
+  const ticking = isRunning(shown) && shown?.took === undefined;
+  useEffect(() => {
+    if (!ticking) return;
+    const id = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(id);
+  }, [ticking]);
+  const elapsed = shown?.took ?? (ticking && shown?.started ? now - shown.started : undefined);
   const running = isRunning(shown);
   const rows = shown?.sets.reduce((n, s) => n + s.rows.length, 0) ?? 0;
 
@@ -139,6 +149,7 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
         <div role="status" aria-live="polite" className="flex flex-wrap items-center gap-2 px-2 py-1 text-xs border-b border-line min-h-8">
           {running && <Spinner />}
           {shown && !shown.error && <span className="text-muted">{t(rows === 1 ? "database.row" : "database.rows", { n: rows })}</span>}
+          {elapsed !== undefined && <span className="text-muted tabular-nums">{t("database.took", { time: duration(Math.max(0, elapsed)) })}</span>}
           {state === "cancelled" && <span className="text-muted">{t("database.cancelled")}</span>}
           {shown?.error && <span className="text-danger allow-select break-words">{shown.error}</span>}
           {state === "expired" && shown?.state?.rerun && (

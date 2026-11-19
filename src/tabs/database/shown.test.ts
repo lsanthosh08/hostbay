@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cancelled, clip, failed, isRunning, type Shown } from "./shown";
+import { cancelled, clip, duration, failed, isRunning, type Shown } from "./shown";
 
 const shown = (over: Partial<Shown> = {}): Shown => ({ queryId: "q", table: null, sets: [], done: false, loading: false, ...over });
 
@@ -40,4 +40,10 @@ describe("cancelled", () => {
 it("clips a long statement quoted in the confirmation", () => {
   expect(clip("abc", 5)).toBe("abc");
   expect(clip("abcdefgh", 5)).toBe("abcde…");
+});
+
+it("formats how long a request took", () => {
+  expect(duration(250)).toBe("0.25 s");
+  expect(duration(12_340)).toBe("12.3 s");
+  expect(duration(125_000)).toBe("2 min 5 s");
 });
