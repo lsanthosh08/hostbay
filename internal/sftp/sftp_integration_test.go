@@ -364,3 +364,36 @@ func TestCreateAbortLeavesTheOriginalAndNoTempFile(t *testing.T) {
 		t.Fatalf("left behind: %v", names)
 	}
 }
+
+// A delete SFTP refuses for permission is retried as root, but only for
+// what the refused request would have removed: a file or an empty folder,
+// never a whole tree, unless the caller asked for sudo.
+func TestPermissionDeniedRemoveRetriesOnlyAnEmptyFolder(t *testing.T) {
+	s, c, dir := setup(t)
+	parent := filepath.Join(dir, "root owned")
+	full, empty := filepath.Join(parent, "full"), filepath.Join(parent, "empty")
+	for _, d := range []string{full, empty} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile(t, filepath.Join(full, "keep.txt"), "data\n")
+	s.Protect(t, parent)
+	if err := os.Chmod(parent, 0o555); err != nil { // traversable, not writable
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(parent, 0o755) })
+
+	if err := c.Remove(full, true, false, loginPW); err == nil {
+		t.Fatal("removed a non-empty folder without sudo")
+	}
+	if got := readFile(t, filepath.Join(full, "keep.txt")); got != "data\n" {
+		t.Fatalf("content = %q", got)
+	}
+	if err := c.Remove(empty, true, false, loginPW); err != nil {
+		t.Fatalf("empty folder: %v", err)
+	}
+	if _, err := os.Stat(empty); !os.IsNotExist(err) {
+		t.Fatalf("empty folder still there: %v", err)
+	}
+}
