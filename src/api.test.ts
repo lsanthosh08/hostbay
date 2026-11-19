@@ -24,6 +24,7 @@ vi.mock("@wailsio/runtime", () => ({
 }));
 
 import * as api from "./api";
+import { en } from "./i18n/en";
 import * as bindings from "./bindings/hostbay/internal/app";
 
 // Every #[tauri::command] the Tauri app registered (src-tauri/src/lib.rs).
@@ -168,6 +169,20 @@ describe("errorInfo", () => {
   it("passes a plain error through as its message", () => {
     expect(api.errorInfo(new Error("disk full"))).toEqual({ message: "disk full" });
     expect(api.errorInfo("boom")).toEqual({ message: "boom" });
+  });
+
+  it("never returns a blank message", () => {
+    const generic = en["error.noMessage"];
+    // The Wails runtime throws new Error(await response.text()) for a
+    // bodiless HTTP error, such as the 404 of a page with no backend.
+    expect(api.errorInfo(new Error("")).message).toBe(generic);
+    expect(api.errorInfo(new Error("   ")).message).toBe(generic);
+    expect(api.errorInfo("").message).toBe(generic);
+    expect(api.errorInfo(Object.assign(new Error(""), { cause: { code: "Internal", message: "" } }))).toEqual({ code: "Internal", message: generic });
+  });
+
+  it("takes the error's own message when only the cause's is blank", () => {
+    expect(api.errorInfo(Object.assign(new Error("failed"), { cause: { message: "" } })).message).toBe("failed");
   });
 });
 

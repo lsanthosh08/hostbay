@@ -1,6 +1,7 @@
 // Typed seam between React and the Go backend (Wails services in internal/app).
 // Each wrapper keeps the old Tauri command's name and payload shape.
 import { Events, Stream } from "@wailsio/runtime";
+import { t } from "./i18n";
 import type { KeyOverrides } from "./actions/shortcuts";
 import {
   AdminService,
@@ -45,12 +46,16 @@ const on = <T>(name: string, cb: (data: T) => void): Promise<UnlistenFn> =>
 /** What a failed backend call carries (see internal/app/errors.go). */
 export type AppError = { code?: string; message: string; details?: Record<string, string> };
 
-/** Reads the structured error from a rejected backend call. */
+/** Reads the structured error from a rejected backend call. The message is
+ *  never blank: a failure that carried none (the Wails runtime throws an
+ *  empty Error for a bodiless HTTP error such as a 404) says so instead. */
 export function errorInfo(e: unknown): AppError {
   // Wails rejects with a RuntimeError whose `cause` is MarshalError's output.
   const cause = (e as { cause?: AppError } | undefined)?.cause;
-  if (cause && typeof cause.message === "string") return cause;
-  return { message: e instanceof Error ? e.message : String(e) };
+  const own = e instanceof Error ? e.message : String(e);
+  const info: AppError = cause && typeof cause.message === "string" ? cause : { message: own };
+  if (info.message.trim()) return info;
+  return { ...info, message: own.trim() || t("error.noMessage") };
 }
 
 // In master-password mode (Linux without a Secret Service) the vault is

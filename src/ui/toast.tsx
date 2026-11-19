@@ -15,6 +15,9 @@ type Ctx = { push: (kind: Kind, msg: string, opts?: { action?: Action }) => void
 const ToastCtx = createContext<Ctx>({ push: () => {} });
 export const useToast = () => useContext(ToastCtx);
 
+/** Whatever pushed it, an error toast always says something. */
+const said = (msg: string) => msg.trim() || t("error.noMessage");
+
 const look = {
   info: [InfoIcon, "text-muted"],
   success: [SuccessIcon, "text-success"],
@@ -29,6 +32,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const dismiss = useCallback((id: number) => setToasts((t) => t.filter((x) => x.id !== id)), []);
   const push = useCallback<Ctx["push"]>(
     (kind, msg, opts) => {
+      msg = kind === "error" ? said(msg) : msg;
       const id = Date.now() + Math.floor(Math.random() * 1000);
       setToasts((t) => [...t, { id, kind, msg, action: opts?.action }]);
       notices.add({ id: `toast:${id}`, kind, msg });
@@ -81,7 +85,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 export function ToastScope({ name, children }: { name: string; children: ReactNode }) {
   const { push } = useToast();
   // push stays the same while name does: views keep it in effect deps.
-  const value = useMemo<Ctx>(() => ({ push: (kind, msg, opts) => push(kind, kind === "error" ? `${name}: ${msg}` : msg, opts) }), [push, name]);
+  const value = useMemo<Ctx>(() => ({ push: (kind, msg, opts) => push(kind, kind === "error" ? `${name}: ${said(msg)}` : msg, opts) }), [push, name]);
   return <ToastCtx.Provider value={value}>{children}</ToastCtx.Provider>;
 }
 

@@ -7,6 +7,7 @@ export const en = {
   "common.closeTab": "Close tab",
   "common.confirm": "Confirm",
   "common.dismiss": "Dismiss",
+  "error.noMessage": "Something failed and no reason came back. Try again; if it keeps happening, restart Hostbay.",
   "common.ok": "OK",
   "common.more": "More actions",
   "common.loading": "Loading",
