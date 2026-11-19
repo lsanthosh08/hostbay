@@ -119,19 +119,18 @@ of each:
 On macOS, libxml2 and zlib come from the operating system and are not bundled.
 The Windows installer carries openconnect.exe beside hostbay.exe, built by
 Hostbay's release workflow from OpenConnect's unmodified release tarball
-(build/windows/bundle-openconnect.sh), without stoken. Beside it are the DLLs
-it loads, taken unmodified from MSYS2's UCRT64 packages (https://www.msys2.org,
-built from https://github.com/msys2/MINGW-packages): GnuTLS, Nettle and
-Hogweed, GMP, libtasn1, p11-kit, libidn2, libunistring and libintl as above,
-and these:
+(build/windows/bundle-openconnect.sh), without stoken or p11-kit. GnuTLS is
+linked into openconnect.exe from MSYS2's static library; to use your own
+GnuTLS, rebuild openconnect.exe with that script. Beside it are the DLLs it
+loads, taken unmodified from MSYS2's UCRT64 packages (https://www.msys2.org,
+built from https://github.com/msys2/MINGW-packages): Nettle and Hogweed, GMP,
+libtasn1, libidn2, libunistring and libintl as above, and these:
   libxml2 (https://gitlab.gnome.org/GNOME/libxml2), MIT License, Copyright
     Daniel Veillard;
   zlib (https://zlib.net), zlib License, Copyright Jean-loup Gailly and Mark
     Adler;
   GNU libiconv (https://www.gnu.org/software/libiconv/), LGPL-2.1 or later,
     Copyright the Free Software Foundation, Inc.;
-  libffi (https://sourceware.org/libffi/), MIT License, Copyright Anthony
-    Green, Red Hat, Inc. and others;
   Brotli (https://github.com/google/brotli), MIT License, Copyright the Brotli
     Authors;
   Zstandard (https://github.com/facebook/zstd), BSD 3-Clause License, Copyright
@@ -142,8 +141,8 @@ and these:
     the GCC Runtime Library Exception, version 3.1, Copyright the Free Software
     Foundation, Inc.
 The OpenConnect folder in Hostbay's install folder holds versions.txt, which
-names the MSYS2 package and exact version each DLL came from, and each one's
-licence texts. On Linux, Hostbay uses the distribution's openconnect package
+names the MSYS2 package and exact version GnuTLS and each DLL came from, and
+each one's licence texts. On Linux, Hostbay uses the distribution's openconnect package
 and ships none of these.
 
 You may replace any of these libraries or the openconnect program in your copy

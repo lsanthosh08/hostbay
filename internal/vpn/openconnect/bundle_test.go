@@ -98,7 +98,7 @@ func TestBundleCoverageGate(t *testing.T) {
 		t.Skip("no bash")
 	}
 	dir := t.TempDir()
-	for _, f := range []string{"openconnect.exe", "wintun.dll", "wintun-LICENSE.txt", "libgnutls-30.dll", "ZLIB1.DLL", "libxml2-16.dll"} {
+	for _, f := range []string{"openconnect.exe", "wintun.dll", "wintun-LICENSE.txt", "libnettle-9.dll", "ZLIB1.DLL", "libxml2-16.dll"} {
 		if err := os.WriteFile(filepath.Join(dir, f), nil, 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -110,10 +110,16 @@ func TestBundleCoverageGate(t *testing.T) {
 	if out, err := gate(); err != nil {
 		t.Fatalf("covered DLLs failed the gate: %v\n%s", err, out)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "libstoken-1.dll"), nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if out, err := gate(); err == nil || !strings.Contains(out, "libstoken-1.dll") {
-		t.Fatalf("an uncovered DLL passed the gate (err %v):\n%s", err, out)
+	// p11-kit loads PKCS#11 modules from a folder any user may create, and
+	// GnuTLS is linked in without it: neither DLL may ship.
+	for _, f := range []string{"libstoken-1.dll", "libp11-kit-0.dll", "libgnutls-30.dll"} {
+		p := filepath.Join(dir, f)
+		if err := os.WriteFile(p, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if out, err := gate(); err == nil || !strings.Contains(out, f) {
+			t.Fatalf("%s passed the gate (err %v):\n%s", f, err, out)
+		}
+		os.Remove(p)
 	}
 }

@@ -2,14 +2,13 @@
 # lower-case shell pattern, then the name NOTICE gives the library.
 # bundle-openconnect.sh --check fails the build on a DLL no line matches,
 # and a Go test (internal/vpn/openconnect) fails when NOTICE lacks a name.
+# GnuTLS is linked into openconnect.exe, and p11-kit must never ship: the
+# script fails on either DLL.
 wintun.dll Wintun
-libgnutls-*.dll GnuTLS
 libnettle-*.dll Nettle
 libhogweed-*.dll Hogweed
 libgmp-*.dll GMP
 libtasn1-*.dll libtasn1
-libp11-kit-*.dll p11-kit
-libffi-*.dll libffi
 libidn2-*.dll libidn2
 libunistring-*.dll libunistring
 libintl-*.dll libintl

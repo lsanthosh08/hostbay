@@ -95,12 +95,33 @@ grep -q 'sec_api/stdlib_s\.h' "$src/configure" "$src/compat.c" || {
 	exit 1
 }
 sed -i 's|sec_api/stdlib_s\.h|stdlib.h|' "$src/configure" "$src/compat.c"
+# GnuTLS is linked in from MSYS2's static libgnutls.a, which MSYS2 builds
+# --without-p11-kit, unlike its DLL. p11-kit loads the PKCS#11 modules that
+# .module files under its compiled-in /ucrt64/etc/pkcs11 name, a folder any
+# user may create at the root of the system drive, into openconnect.exe,
+# which runs as SYSTEM; Hostbay uses no PKCS#11 token. gnutls.h declares
+# its data symbols (gnutls_free) dllimport on Windows, so the build uses a
+# copy of the headers without that.
+inc="$work/include"
+mkdir -p "$inc"
+cp -r /ucrt64/include/gnutls "$inc/"
+grep -q '^#define _SYM_EXPORT __declspec(dllimport)$' "$inc/gnutls/gnutls.h" || {
+	echo "gnutls.h no longer declares _SYM_EXPORT dllimport; update the static GnuTLS link" >&2
+	exit 1
+}
+sed -i 's/^#define _SYM_EXPORT __declspec(dllimport)$/#define _SYM_EXPORT/' "$inc/gnutls/gnutls.h"
+if grep -a -q 'p11_kit_' /ucrt64/lib/libgnutls.a; then
+	echo "MSYS2's static libgnutls.a links p11-kit; it must not" >&2
+	exit 1
+fi
+gnutls_libs="-Wl,-Bstatic -lgnutls -Wl,-Bdynamic $(pkg-config --libs nettle hogweed libtasn1 libidn2 zlib libbrotlienc libbrotlidec libzstd) -lintl -lgmp -lunistring -ladvapi32 -lws2_32 -lcrypt32 -lncrypt -lbcrypt"
 # Only what Hostbay uses: hostbay-netd always passes --script, so the
 # default vpnc-script is never run, and no optional library is linked
 # beyond GnuTLS, libxml2, zlib and libiconv.
 (
 	cd "$src"
-	./configure --disable-shared --disable-nls --disable-docs \
+	GNUTLS_CFLAGS="-I$inc" GNUTLS_LIBS="$gnutls_libs" \
+		./configure --disable-shared --disable-nls --disable-docs \
 		--with-vpnc-script=vpnc-script-win.js --with-builtin-json \
 		--without-libproxy --without-stoken --without-libpskc \
 		--without-libpcsclite --without-gssapi --without-lz4
@@ -146,16 +167,20 @@ while [ "$i" -lt "${#queue[@]}" ]; do
 	i=$((i + 1))
 done
 
+for f in "$dest"/*; do
+	case $(basename "$f" | tr 'A-Z' 'a-z') in
+	libgnutls*.dll | libp11-kit*.dll)
+		echo "openconnect.exe loads $(basename "$f"); GnuTLS must be linked in, without p11-kit" >&2
+		exit 1
+		;;
+	esac
+done
+
 # GnuTLS reads the Windows certificate store only when it was built with no
 # default trust file (lib/system/certs.c); one of the paths its configure
 # looks for would point at a file no Windows machine has.
-gnutls=$(ls "$dest"/libgnutls-*.dll 2>/dev/null || true)
-if [ -z "$gnutls" ]; then
-	echo "openconnect.exe does not load GnuTLS, so the trust check below cannot run" >&2
-	exit 1
-fi
 for f in /etc/ssl/ca-bundle.pem /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/cert.pem /usr/local/share/certs/ca-root-nss.crt /etc/ssl/cert.pem; do
-	if grep -a -q -F "$f" $gnutls; then
+	if grep -a -q -F "$f" "$dest/openconnect.exe"; then
 		echo "the bundled GnuTLS trusts $f instead of the Windows certificate store" >&2
 		exit 1
 	fi
@@ -184,12 +209,16 @@ rm -rf "$notices"
 mkdir -p "$notices/openconnect-$version"
 cp "$src/COPYING.LGPL" "$notices/openconnect-$version/"
 echo "openconnect.exe openconnect $version $tarball_url" >"$notices/versions.txt"
-for dll in "${dlls[@]}"; do
-	pkg=$(pacman -Qqo "/ucrt64/bin/$dll")
+# record notes that bundled file name holds the MSYS2 package owning lib,
+# with that package's licence texts.
+record() {
+	local name=$1 lib=$2 pkg pkgver dir f rel short
+	pkg=$(pacman -Qqo "$lib")
 	read -r _ pkgver < <(pacman -Q "$pkg")
-	echo "$dll $pkg $pkgver" >>"$notices/versions.txt"
-	dir="$notices/${pkg#mingw-w64-ucrt-x86_64-}-$pkgver"
-	[ ! -d "$dir" ] || continue
+	echo "$name $pkg $pkgver" >>"$notices/versions.txt"
+	short=${pkg#mingw-w64-ucrt-x86_64-}
+	dir="$notices/$short-$pkgver"
+	[ ! -d "$dir" ] || return 0
 	mkdir -p "$dir"
 	# Paths stay as the package has them: libiconv has a COPYING.LIB at its
 	# top and another for libcharset.
@@ -198,14 +227,17 @@ for dll in "${dlls[@]}"; do
 		mkdir -p "$dir/$(dirname "$rel")"
 		cp "$f" "$dir/$rel"
 	done
-	short=${pkg#mingw-w64-ucrt-x86_64-}
 	if [ -z "$(ls -A "$dir")" ] && [ -d "$here/licenses/$short" ]; then
 		cp "$here/licenses/$short"/* "$dir/"
 	fi
 	if [ -z "$(ls -A "$dir")" ]; then
-		echo "$pkg installs no licence text to ship with $dll" >&2
+		echo "$pkg installs no licence text to ship with $name" >&2
 		exit 1
 	fi
+}
+record openconnect.exe /ucrt64/lib/libgnutls.a # GnuTLS is linked in
+for dll in "${dlls[@]}"; do
+	record "$dll" "/ucrt64/bin/$dll"
 done
 cat "$notices/versions.txt"
 
