@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as api from "../../api";
 import type { DbNode } from "../../api";
 import { t } from "../../i18n";
@@ -41,18 +41,25 @@ export function ObjectTree({ databaseId, onOpen }: { databaseId: string; onOpen:
   const q = filter.trim().toLowerCase();
   const id = treeKey;
 
+  // Bumped by refresh: a load started before it drops its late result,
+  // which would otherwise stand in the fresh tree and never be read again.
+  const gen = useRef(0);
   const load = async (path: string[] | null, offset: number) => {
     const k = id(path);
+    const mine = gen.current;
     setLevels((l) => ({ ...l, [k]: { ...(l[k] ?? { nodes: [], more: false }), loading: true, error: undefined } }));
     try {
       const r = await api.databaseTree(databaseId, path, offset);
+      if (mine !== gen.current) return;
       setLevels((l) => ({ ...l, [k]: { nodes: (offset ? l[k]?.nodes ?? [] : []).concat(r.nodes), more: r.more, loading: false } }));
     } catch (e) {
+      if (mine !== gen.current) return;
       setLevels((l) => ({ ...l, [k]: { ...(l[k] ?? { nodes: [], more: false }), loading: false, error: api.errorInfo(e).message } }));
     }
   };
 
   const refresh = () => {
+    gen.current++;
     setLevels({});
     setOpen(new Set());
     load(null, 0);
