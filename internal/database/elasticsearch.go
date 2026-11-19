@@ -105,6 +105,11 @@ func esPath(raw string) ([]string, error) {
 // segment. It returns the status and at most esMaxBody of the body, and
 // whether more was cut. An error status is an error.
 func (e *esEngine) call(ctx context.Context, method string, segs []string, query string, body []byte) (int, []byte, bool, error) {
+	// A "." or ".." segment, such as a document _id, would name another
+	// path once a proxy normalises it; esPath refuses it in typed paths.
+	if slices.Contains(segs, ".") || slices.Contains(segs, "..") {
+		return 0, nil, false, &Error{Category: "syntax", Err: errors.New(`a path with a ".." or "." segment is refused`)}
+	}
 	u := *e.base
 	esc := make([]string, len(segs))
 	for i, s := range segs {

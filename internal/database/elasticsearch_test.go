@@ -232,3 +232,15 @@ func TestElasticsearchPathsAndResponses(t *testing.T) {
 		t.Fatalf("a non-object document: err = %v", err)
 	}
 }
+
+// A document _id of "." or "..", sent as a path segment, would name the
+// index or the root once a proxy normalises the path, so it is refused
+// before anything is sent.
+func TestElasticsearchRefusesDotSegments(t *testing.T) {
+	e := &esEngine{}
+	for _, id := range []string{".", ".."} {
+		if _, err := e.Document(context.Background(), []string{"logs"}, id); err == nil {
+			t.Errorf("_id %q was sent", id)
+		}
+	}
+}
