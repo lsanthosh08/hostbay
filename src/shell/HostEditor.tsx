@@ -319,10 +319,6 @@ export function HostEditor({
           </div>
           {kind === "telnet" && <p className="text-xs text-warning">{t("hostForm.telnetWarning")}</p>}
           {kind === "tcp" && <p className="text-xs text-warning">{t("hostForm.tcpWarning")}</p>}
-          {file && unencrypted(h) && <p className="text-xs text-warning">{t("hostForm.unencryptedWarning")}</p>}
-          {vnc && unencrypted(h) && <p className="text-xs text-warning">{t("hostForm.vncUnencrypted")}</p>}
-          {spice && unencrypted(h) && <p className="text-xs text-warning">{t("hostForm.spiceUnencrypted")}</p>}
-          {netDb && unencrypted(h) && <p className="text-xs text-warning">{t("hostForm.dbUnencrypted")}</p>}
           {sqlite ? (
             <Field label={t("hostForm.dbFile")} hint={t("hostForm.dbFileHint")} error={err("file")}>
               <div className="flex gap-2">
@@ -348,31 +344,35 @@ export function HostEditor({
               </div>
             </Field>
           ) : byUrl ? (
-            <Field
-              label={kind === "s3" ? t("hostForm.endpoint") : k8s ? t("hostForm.clusterUrl") : kind === "elasticsearch" || rq ? t("hostForm.nodeUrl") : t("hostForm.url")}
-              hint={k8s ? t("hostForm.clusterUrlHint") : t("hostForm.urlHint")}
-              error={err("url")}
-            >
-              <Input
-                className="w-full"
-                autoFocus
-                spellCheck={false}
-                placeholder={
-                  kind === "s3"
-                    ? "https://s3.eu-west-1.amazonaws.com"
-                    : k8s
-                      ? "https://k8s.example.com:6443"
-                      : kind === "elasticsearch"
-                        ? "https://search.example.com:9200"
-                        : rq
-                          ? "https://rqlite.example.com:4001"
-                          : "https://files.example.com/remote.php/dav/"
-                }
-                value={h.url ?? ""}
-                aria-invalid={!!err("url")}
-                onChange={(e) => set({ url: e.target.value })}
-              />
-            </Field>
+            <>
+              <Field
+                label={kind === "s3" ? t("hostForm.endpoint") : k8s ? t("hostForm.clusterUrl") : kind === "elasticsearch" || rq ? t("hostForm.nodeUrl") : t("hostForm.url")}
+                hint={k8s ? t("hostForm.clusterUrlHint") : t("hostForm.urlHint")}
+                error={err("url")}
+              >
+                <Input
+                  className="w-full"
+                  autoFocus
+                  spellCheck={false}
+                  placeholder={
+                    kind === "s3"
+                      ? "https://s3.eu-west-1.amazonaws.com"
+                      : k8s
+                        ? "https://k8s.example.com:6443"
+                        : kind === "elasticsearch"
+                          ? "https://search.example.com:9200"
+                          : rq
+                            ? "https://rqlite.example.com:4001"
+                            : "https://files.example.com/remote.php/dav/"
+                  }
+                  value={h.url ?? ""}
+                  aria-invalid={!!err("url")}
+                  onChange={(e) => set({ url: e.target.value })}
+                />
+              </Field>
+              {/* A plain http:// address is the cause, so its warning sits here. */}
+              {unencrypted(h) && <p className="text-xs text-warning">{t(file ? "hostForm.unencryptedWarning" : "hostForm.dbUnencrypted")}</p>}
+            </>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-[1fr_7rem] gap-3">
               <Field label={t("hostForm.hostname")} error={err("hostname")}>
@@ -414,6 +414,7 @@ export function HostEditor({
               </Select>
             </Field>
           )}
+          {kind === "ftp" && unencrypted(h) && <p className="text-xs text-warning">{t("hostForm.unencryptedWarning")}</p>}
           {vnc && (
             <Field label={t("hostForm.vncSecurity")} hint={err("tls") ? undefined : t("hostForm.vncSecurityHint")} error={err("tls")}>
               <Select
@@ -427,6 +428,7 @@ export function HostEditor({
               </Select>
             </Field>
           )}
+          {vnc && unencrypted(h) && <p className="text-xs text-warning">{t("hostForm.vncUnencrypted")}</p>}
           {spice && (
             <Field label={t("hostForm.vncSecurity")} hint={err("tls") ? undefined : t("hostForm.vncSecurityHint")} error={err("tls")}>
               <Select
@@ -440,6 +442,7 @@ export function HostEditor({
               </Select>
             </Field>
           )}
+          {spice && unencrypted(h) && <p className="text-xs text-warning">{t("hostForm.spiceUnencrypted")}</p>}
           {tlsDb && (
             <Field label={t("hostForm.dbTls")} error={err("tls")}>
               <Select
@@ -453,6 +456,7 @@ export function HostEditor({
               </Select>
             </Field>
           )}
+          {tlsDb && unencrypted(h) && <p className="text-xs text-warning">{t("hostForm.dbUnencrypted")}</p>}
           {asksPasswordAgain(initial, h) && <p className="text-xs text-warning">{t("hostForm.passwordAgain")}</p>}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {/* Raw TCP signs in to nothing, SPICE with no user, and SQLite at all. */}
