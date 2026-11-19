@@ -619,6 +619,10 @@ fn build_config(
     // "nla" = force CredSSP: only HYBRID(_EX) is offered, so the server
     // cannot downgrade to plain TLS. "auto" (default) = TLS + CredSSP.
     let enable_credssp = security != "tls";
+    // Client Info carries the password in every mode whatever this flag says;
+    // the flag only lets the server use it instead of showing an empty logon
+    // screen. That screen is where a server without NLA signs the user in.
+    let autologon = !password.is_empty();
     connector::Config {
         credentials: Credentials::UsernamePassword { username, password },
         domain,
@@ -651,7 +655,7 @@ fn build_config(
         // cursor:default) which tracks the mouse 1:1 since we forward moves.
         enable_server_pointer: false,
         request_data: None,
-        autologon: false,
+        autologon,
         enable_audio_playback: true,
         // Matches the released connector, which never set INFO_AUDIOCAPTURE.
         enable_audio_capture: false,
@@ -1307,5 +1311,15 @@ mod tests {
         assert!(tls.enable_tls && !tls.enable_credssp);
         let auto = cfg("auto");
         assert!(auto.enable_tls && auto.enable_credssp);
+    }
+
+    #[test]
+    fn a_saved_password_signs_in_at_the_logon_screen() {
+        for mode in ["auto", "nla", "tls"] {
+            let with = build_config("me".into(), "pw".into(), None, 800, 600, mode);
+            assert!(with.autologon, "{mode}");
+            let without = build_config("me".into(), String::new(), None, 800, 600, mode);
+            assert!(!without.autologon, "{mode}");
+        }
     }
 }
