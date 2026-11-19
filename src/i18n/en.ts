@@ -9,6 +9,8 @@ export const en = {
   "common.dismiss": "Dismiss",
   "common.ok": "OK",
   "common.more": "More actions",
+  "common.crashed": "Something went wrong",
+  "common.tryAgain": "Try again",
 
   "status.live": "Connected",
   "status.connecting": "Connecting",

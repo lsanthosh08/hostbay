@@ -4,6 +4,7 @@ import { VpnSignIn } from "../components/VpnPanel";
 import { useVpns } from "../state/vpns";
 import { ConnectionStatusView, ReconnectBanner } from "../connect/ConnectionStatusView";
 import { t } from "../i18n";
+import { ErrorBoundary } from "../ui/ErrorBoundary";
 import { ToastScope } from "../ui/toast";
 import { layoutOf, sessionAddress, terminalOnly, useSessions, vpnTabNote, type Connection, type TabKey } from "../state/sessions";
 import type { VpnState } from "../api";
@@ -185,7 +186,9 @@ export function SessionLayer({ slots }: { slots: Slots }) {
       {sessions.map((c) =>
         createPortal(
           <ToastScope name={c.host.alias}>
-            <SessionView c={c} view={views[c.sessionId]} />
+            <ErrorBoundary>
+              <SessionView c={c} view={views[c.sessionId]} />
+            </ErrorBoundary>
           </ToastScope>,
           slots.slot(c.sessionId),
           c.sessionId
