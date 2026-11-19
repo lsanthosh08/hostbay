@@ -128,8 +128,8 @@ func TestClientsInheritNoEnvironment(t *testing.T) {
 	conf := filepath.Join(dir, "run", "openssl.cnf")
 	prio := filepath.Join(dir, "run", "gnutls.config")
 	libs := filepath.Dir(netd.ClientPath(dir, "openvpn"))
-	want := []string{"GNUTLS_SYSTEM_PRIORITY_FILE=" + prio, "OPENSSL_CONF=" + conf, "OPENSSL_ENGINES=" + libs, "OPENSSL_MODULES=" + libs, "PATH=/usr/bin:/bin:/usr/sbin:/sbin"}
-	got := strings.Split(strings.TrimSpace(out.String()), "\n")
+	want := []string{"GNUTLS_SYSTEM_PRIORITY_FILE=" + prio, "LC_ALL=C", "OPENSSL_CONF=" + conf, "OPENSSL_ENGINES=" + libs, "OPENSSL_MODULES=" + libs, "PATH=/usr/bin:/bin:/usr/sbin:/sbin", "XML_CATALOG_FILES= "}
+	got := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
 	slices.Sort(got)
 	if !slices.Equal(got, want) {
 		t.Errorf("client environment = %q, want %q", got, want)

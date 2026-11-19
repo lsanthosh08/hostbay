@@ -104,10 +104,18 @@ func New(env netd.TunnelEnv) netd.Tunnels {
 // reads its system priority file from there too. conf is an empty OpenSSL
 // configuration, prio an empty GnuTLS priority file, and libs a folder only
 // root can write.
+//
+// Windows' openconnect has the same kind of compiled-in paths: GnuTLS's
+// priority file on the build machine's drive, and drive-less ones under
+// \ucrt64, which any user may create at the system drive's root. In the C
+// locale gettext opens no message catalog, whose format strings would run
+// in the client; and a blank XML_CATALOG_FILES names no libxml2 catalog (an
+// empty value may read as unset on Windows).
 func clientEnv(conf, prio, libs string) []string {
-	env := []string{"OPENSSL_CONF=" + conf, "OPENSSL_MODULES=" + libs, "OPENSSL_ENGINES=" + libs}
+	env := []string{"OPENSSL_CONF=" + conf, "OPENSSL_MODULES=" + libs, "OPENSSL_ENGINES=" + libs,
+		"GNUTLS_SYSTEM_PRIORITY_FILE=" + prio, "LC_ALL=C", "XML_CATALOG_FILES= "}
 	if runtime.GOOS != "windows" {
-		return append(env, "GNUTLS_SYSTEM_PRIORITY_FILE="+prio, "PATH=/usr/bin:/bin:/usr/sbin:/sbin")
+		return append(env, "PATH=/usr/bin:/bin:/usr/sbin:/sbin")
 	}
 	root := os.Getenv("SystemRoot")
 	env = append(env, "PATH="+root+`\System32;`+root) // the machine PATH may hold folders users can write
