@@ -703,7 +703,10 @@ fn tls_upgrade(
     let client = rustls::ClientConnection::new(config, sni)
         .map_err(|e| String::from(format!("tls client: {e}")))?;
     let mut tls = rustls::StreamOwned::new(client, stream);
-    tls.flush().map_err(|e| String::from(format!("tls flush: {e}")))?;
+    tls.flush().map_err(|e| match explain_tls(&e) {
+        Some(why) => format!("{why} (tls flush: {e})"),
+        None => format!("tls flush: {e}"),
+    })?;
 
     let cert = tls
         .conn
@@ -805,18 +808,17 @@ fn await_trust(rx: &Receiver<In>) -> AppResult<()> {
     }
 }
 
+/// A connected session, ready for the active stage.
+type Connected = (connector::ConnectionResult, UpgradedFramed, Arc<Mutex<ClipShared>>, crate::audin::Mic);
+
 /// Full connect: TCP → begin → TLS → certificate trust → finalize (CredSSP).
 fn connect(
     out: &Sink,
     rx: &Receiver<In>,
     ep: &Endpoint,
     cfg: connector::Config,
-) -> AppResult<(
-    connector::ConnectionResult,
-    UpgradedFramed,
-    Arc<Mutex<ClipShared>>,
-    crate::audin::Mic,
-)> {
+    security: &str,
+) -> Result<Connected, ConnectFail> {
     use std::net::ToSocketAddrs;
     let addr = (ep.dial_host.as_str(), ep.dial_port)
         .to_socket_addrs()
@@ -848,7 +850,7 @@ fn connect(
         // Dynamic channels (mic input via AUDIO_INPUT).
         .with_static_channel(drdynvc);
     let should_upgrade = ironrdp_blocking::connect_begin(&mut framed, &mut connector)
-        .map_err(|e| format!("connect begin: {e}"))?;
+        .map_err(|e| fail(&e, security, "connect begin", false))?;
 
     let initial = framed.into_inner_no_leftover();
     let (upgraded_stream, server_public_key, cert_der) = tls_upgrade(initial, &ep.target_host)?;
@@ -871,7 +873,7 @@ fn connect(
         server_public_key,
         None,
     )
-    .map_err(|e| format!("connect finalize (auth): {}", err_chain(&e)))?;
+    .map_err(|e| fail(&e, security, "connect finalize (auth)", true))?;
 
     // Now enter interactive mode: a short read timeout lets the active-stage
     // loop break to WouldBlock and service input while the server is idle.
@@ -882,6 +884,130 @@ fn connect(
     }
 
     Ok((result, upgraded_framed, shared, mic))
+}
+
+/// The host form's labels for each RDP security choice, named in messages
+/// that tell the user what to change (`hostForm.rdpSecurity.*` in
+/// src/i18n/en.ts; a test keeps them equal).
+const LABEL_AUTO: &str = "Automatic: NLA, or the Windows logon screen if NLA fails";
+const LABEL_NLA: &str = "NLA only, never the logon screen";
+
+const LEGACY_LAYER: &str = "This server is set to the legacy RDP Security Layer, which Hostbay does not support: it does not prove the server's identity and its encryption is weak. The server's administrator can set its security layer to Negotiate or SSL (TLS).";
+const TOO_OLD: &str = "This server is too old to offer TLS: it offers only the legacy RDP security layer, which Hostbay does not support because it does not prove the server's identity and its encryption is weak.";
+const OLD_TLS: &str = "This server offers only TLS versions or cipher suites older than Hostbay supports (TLS 1.2 or 1.3 with modern ciphers).";
+
+/// Why one connect attempt failed, and what may follow it.
+#[derive(Debug)]
+struct ConnectFail {
+    message: String,
+    /// A credential (CredSSP or the logon data) left before the failure, so
+    /// repeating the attempt could count as another failed logon.
+    sent_credentials: bool,
+    /// NLA refused for a reason the Windows logon screen can handle.
+    logon_screen_can_help: bool,
+}
+
+impl From<String> for ConnectFail {
+    fn from(message: String) -> Self {
+        Self { message, sent_credentials: false, logon_screen_can_help: false }
+    }
+}
+
+/// Turn a connector error into a failure the user can act on: a plain
+/// sentence first when the cause is known, the raw chain after it.
+fn fail(e: &connector::ConnectorError, security: &str, step: &str, sent_credentials: bool) -> ConnectFail {
+    let raw = format!("{step}: {}", err_chain(e));
+    let (why, logon_screen_can_help) = explain(e, security);
+    let message = match why {
+        Some(why) => format!("{why} ({raw})"),
+        None => raw,
+    };
+    ConnectFail { message, sent_credentials, logon_screen_can_help }
+}
+
+/// The NTSTATUS a CredSSP server refused with, found down the source chain.
+fn nla_status(e: &(dyn std::error::Error + 'static)) -> Option<sspi::credssp::NStatusCode> {
+    let mut cur = Some(e);
+    while let Some(err) = cur {
+        if let Some(status) = err.downcast_ref::<sspi::Error>().and_then(|s| s.nstatus) {
+            return Some(status);
+        }
+        cur = err.source();
+    }
+    None
+}
+
+/// A plain explanation of a sign-in failure, and whether the Windows logon
+/// screen (TLS without NLA) could get past it.
+fn explain(e: &connector::ConnectorError, security: &str) -> (Option<String>, bool) {
+    use ironrdp::pdu::nego::FailureCode;
+    use sspi::credssp::NStatusCode;
+    match e.kind() {
+        connector::ConnectorErrorKind::Negotiation(f) => {
+            let why = match f.code() {
+                FailureCode::HYBRID_REQUIRED_BY_SERVER => {
+                    format!("This server requires NLA. Set RDP security to \"{LABEL_AUTO}\" or \"{LABEL_NLA}\".")
+                }
+                FailureCode::SSL_REQUIRED_BY_SERVER => format!(
+                    "This server has NLA turned off and signs in only at its Windows logon screen. Set RDP security to \"{LABEL_AUTO}\" to sign in there; the server then opens a session before it checks the account."
+                ),
+                FailureCode::SSL_NOT_ALLOWED_BY_SERVER => LEGACY_LAYER.to_owned(),
+                _ => return (None, false),
+            };
+            return (Some(why), false);
+        }
+        // A server that predates security negotiation answers without it,
+        // which IronRDP reads as Standard RDP Security.
+        connector::ConnectorErrorKind::Reason(r) if r.contains("server selected STANDARD_RDP_SECURITY") => {
+            return (Some(TOO_OLD.to_owned()), false);
+        }
+        _ => {}
+    }
+    let elsewhere = if security == "nla" {
+        format!(" To sign in at the Windows logon screen instead, set RDP security to \"{LABEL_AUTO}\"; this works only if the server allows sign-in without NLA.")
+    } else {
+        String::new()
+    };
+    match nla_status(e) {
+        Some(NStatusCode::PASSWORD_EXPIRED | NStatusCode::PASSWORD_MUST_CHANGE) => (
+            Some(format!("The password for this account has expired or must be changed, and NLA cannot change it.{elsewhere}")),
+            true,
+        ),
+        Some(NStatusCode::ACCOUNT_RESTRICTION | NStatusCode::LOGON_TYPE_NOT_GRANTED) => (
+            Some(format!("The server does not let this account sign in over NLA (an account restriction or a missing logon right), though its Windows logon screen may.{elsewhere}")),
+            true,
+        ),
+        Some(NStatusCode::LOGON_FAILURE | NStatusCode::WRONG_PASSWORD) => {
+            (Some("The server rejected the user name or password.".to_owned()), false)
+        }
+        _ => (None, false),
+    }
+}
+
+/// A TLS handshake the server cannot complete with Hostbay's TLS stack.
+fn explain_tls(e: &std::io::Error) -> Option<&'static str> {
+    use rustls::{AlertDescription as Alert, Error as Tls, PeerIncompatible};
+    match e.get_ref()?.downcast_ref::<Tls>()? {
+        // rustls refuses an old ServerHello itself; a server that cannot
+        // meet the client's versions or ciphers sends one of these alerts.
+        Tls::PeerIncompatible(PeerIncompatible::ServerDoesNotSupportTls12Or13)
+        | Tls::AlertReceived(Alert::ProtocolVersion | Alert::HandshakeFailure | Alert::InsufficientSecurity) => {
+            Some(OLD_TLS)
+        }
+        _ => None,
+    }
+}
+
+/// Whether a failed attempt is worth repeating as it was: only a reset of
+/// the connection before any credential left. A refusal is never retried,
+/// and nothing is once a password may have been counted.
+fn worth_retrying(f: &ConnectFail) -> bool {
+    let msg = f.message.to_lowercase();
+    !f.sent_credentials
+        && (msg.contains("reset by peer")
+            || msg.contains("os error 54")
+            || msg.contains("broken pipe")
+            || msg.contains("connection reset"))
 }
 
 /// How long the server may take to finish a desktop switch.
@@ -1009,19 +1135,14 @@ pub fn run(
     let (conn_result, framed, clip, mic) = loop {
         attempt += 1;
         let cfg = build_config(user.clone(), password.clone(), domain.clone(), width, height, &security);
-        match connect(&out, &rx, &ep, cfg) {
+        match connect(&out, &rx, &ep, cfg, &security) {
             Ok(ok) => break ok,
-            Err(e) => {
-                let msg = e.to_lowercase();
-                let transient = msg.contains("reset by peer")
-                    || msg.contains("os error 54")
-                    || msg.contains("broken pipe")
-                    || msg.contains("connection reset");
-                if transient && attempt < 3 {
+            Err(f) => {
+                if worth_retrying(&f) && attempt < 3 {
                     std::thread::sleep(Duration::from_millis(400));
                     continue;
                 }
-                return Err(e);
+                return Err(f.message);
             }
         }
     };
@@ -1469,6 +1590,96 @@ mod tests {
             // What CredSSP builds from the pair, as IronRDP does.
             let name = sspi::Username::new(&a, d.as_deref()).unwrap();
             assert_eq!(name.format(), format, "{input}");
+        }
+    }
+
+    /// What IronRDP returns when the server answers negotiation with `confirm`.
+    fn negotiate(security: &str, confirm: ironrdp::pdu::nego::ConnectionConfirm) -> connector::ConnectorError {
+        use connector::Sequence as _;
+        let cfg = build_config("me".into(), "pw".into(), None, 800, 600, security);
+        let mut c = connector::ClientConnector::new(cfg, "127.0.0.1:50000".parse().unwrap());
+        let mut buf = ironrdp::core::WriteBuf::new();
+        c.step_no_input(&mut buf).unwrap();
+        let reply = ironrdp::core::encode_vec(&ironrdp::pdu::x224::X224(confirm)).unwrap();
+        c.step(&reply, None, &mut buf).err().unwrap()
+    }
+
+    /// What IronRDP returns when a CredSSP server refuses with `status`.
+    fn refused(status: sspi::credssp::NStatusCode) -> connector::ConnectorError {
+        let reply = sspi::credssp::TsRequest { error_code: Some(status), ..Default::default() };
+        let e = reply.check_error().unwrap_err();
+        connector::ConnectorError::new("CredSSP", connector::ConnectorErrorKind::Credssp(e))
+    }
+
+    #[test]
+    fn negotiation_refusals_say_what_to_change() {
+        use ironrdp::pdu::nego::{ConnectionConfirm, FailureCode, ResponseFlags, SecurityProtocol};
+        let refusal = |security, code| {
+            let f = fail(&negotiate(security, ConnectionConfirm::Failure { code }), security, "connect begin", false);
+            assert!(!f.sent_credentials && !f.logon_screen_can_help && !worth_retrying(&f), "{}", f.message);
+            f.message
+        };
+        let m = refusal("tls", FailureCode::HYBRID_REQUIRED_BY_SERVER);
+        assert!(m.starts_with("This server requires NLA.") && m.contains(LABEL_AUTO), "{m}");
+        let m = refusal("nla", FailureCode::SSL_REQUIRED_BY_SERVER);
+        assert!(m.starts_with("This server has NLA turned off") && m.contains(LABEL_AUTO), "{m}");
+        assert!(refusal("auto", FailureCode::SSL_NOT_ALLOWED_BY_SERVER).starts_with(LEGACY_LAYER));
+        // The raw cause stays after the explanation.
+        assert!(refusal("auto", FailureCode::SSL_NOT_ALLOWED_BY_SERVER).contains("(connect begin: "));
+
+        // A server from before negotiation existed answers without choosing.
+        let old = ConnectionConfirm::Response { flags: ResponseFlags::empty(), protocol: SecurityProtocol::empty() };
+        let f = fail(&negotiate("auto", old), "auto", "connect begin", false);
+        assert!(f.message.starts_with(TOO_OLD), "{}", f.message);
+    }
+
+    #[test]
+    fn nla_refusals_say_whether_the_logon_screen_can_help() {
+        use sspi::credssp::NStatusCode as S;
+        for status in [S::PASSWORD_EXPIRED, S::PASSWORD_MUST_CHANGE, S::ACCOUNT_RESTRICTION, S::LOGON_TYPE_NOT_GRANTED] {
+            let f = fail(&refused(status), "nla", "connect finalize (auth)", true);
+            assert!(f.logon_screen_can_help && f.message.contains(LABEL_AUTO), "{status}: {}", f.message);
+            // "Automatic" falls back by itself, so it names no setting.
+            let f = fail(&refused(status), "auto", "connect finalize (auth)", true);
+            assert!(f.logon_screen_can_help && !f.message.contains(LABEL_AUTO), "{status}: {}", f.message);
+        }
+        let f = fail(&refused(S::PASSWORD_EXPIRED), "nla", "connect finalize (auth)", true);
+        assert!(f.message.starts_with("The password for this account has expired"), "{}", f.message);
+        assert!(f.message.contains("STATUS_PASSWORD_EXPIRED"), "{}", f.message);
+
+        let f = fail(&refused(S::LOGON_FAILURE), "auto", "connect finalize (auth)", true);
+        assert!(!f.logon_screen_can_help && f.message.starts_with("The server rejected the user name or password."));
+        // Lockouts, disabled accounts and the rest keep their raw cause only.
+        let f = fail(&refused(S::ACCOUNT_LOCKED_OUT), "auto", "connect finalize (auth)", true);
+        assert!(!f.logon_screen_can_help && f.message.starts_with("connect finalize (auth): "), "{}", f.message);
+    }
+
+    #[test]
+    fn an_old_tls_server_gets_a_plain_message() {
+        use rustls::{AlertDescription, Error as Tls, PeerIncompatible};
+        let io = |e: Tls| std::io::Error::new(std::io::ErrorKind::InvalidData, e);
+        assert_eq!(explain_tls(&io(Tls::PeerIncompatible(PeerIncompatible::ServerDoesNotSupportTls12Or13))), Some(OLD_TLS));
+        assert_eq!(explain_tls(&io(Tls::AlertReceived(AlertDescription::ProtocolVersion))), Some(OLD_TLS));
+        assert_eq!(explain_tls(&io(Tls::AlertReceived(AlertDescription::HandshakeFailure))), Some(OLD_TLS));
+        assert_eq!(explain_tls(&io(Tls::AlertReceived(AlertDescription::DecryptError))), None);
+        assert_eq!(explain_tls(&std::io::Error::from(std::io::ErrorKind::ConnectionReset)), None);
+    }
+
+    #[test]
+    fn only_a_reset_before_credentials_is_retried() {
+        let reset = "connect begin: Connection reset by peer (os error 54)".to_owned();
+        assert!(worth_retrying(&ConnectFail::from(reset.clone())));
+        let after = ConnectFail { message: reset, sent_credentials: true, logon_screen_can_help: false };
+        assert!(!worth_retrying(&after));
+        assert!(!worth_retrying(&ConnectFail::from("the server certificate was not trusted".to_owned())));
+    }
+
+    #[test]
+    fn messages_name_the_host_form_labels() {
+        let en = include_str!("../../src/i18n/en.ts");
+        for (key, label) in [("auto", LABEL_AUTO), ("nla", LABEL_NLA)] {
+            let line = format!("\"hostForm.rdpSecurity.{key}\": \"{label}\",");
+            assert!(en.contains(&line), "en.ts lacks {line}");
         }
     }
 
