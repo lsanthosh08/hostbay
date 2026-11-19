@@ -57,6 +57,7 @@ export function ConnectionStatusView({ c }: { c: Connection }) {
   useEffect(() => {
     setPassword("");
     setRemoving(false);
+    setRemoved(false);
     setError("");
   }, [step]);
 
