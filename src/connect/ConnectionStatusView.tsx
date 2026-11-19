@@ -22,7 +22,7 @@ const WAKE_WAIT = 25;
 export function ConnectionStatusView({ c }: { c: Connection }) {
   const { retry, disconnect, wakeHost, showSettings, cancelPrompt } = useSessions();
   const manager = useHostManager();
-  const { reloadHosts } = useHosts();
+  const { hosts, reloadHosts } = useHosts();
   const { vpns } = useVpns();
   const { step, host } = c;
   const close = () => disconnect(c.sessionId);
@@ -189,8 +189,11 @@ export function ConnectionStatusView({ c }: { c: Connection }) {
             e.preventDefault();
             setBusy(true);
             try {
-              // Saved sealed, then the connect runs again with it.
-              await api.saveHost({ ...needs, password });
+              // Saved sealed, then the connect runs again with it. Saving
+              // writes every field, so start from the host as saved now:
+              // `needs` is the copy the connect began with.
+              const now = hosts.find((h) => h.id === needs.id) ?? needs;
+              await api.saveHost({ ...now, password });
               await reloadHosts();
               again();
             } catch (err) {
