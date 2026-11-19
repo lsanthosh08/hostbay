@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   errorInfo,
   listProxies,
@@ -104,17 +104,22 @@ export function SyncSettings() {
     if (held) listProxies().then(setProxies).catch(() => {});
   }, [held]);
 
-  // The saved target fills the form once; later refreshes (after every
-  // action, failed ones too) leave the user's unsaved edits alone.
-  const refresh = useCallback((withTarget = false) => {
+  // The saved target fills the form once, from the first status that
+  // arrives; later refreshes (after every action, failed ones too) leave the
+  // user's unsaved edits alone.
+  const filled = useRef(false);
+  const refresh = useCallback(() => {
     syncStatus()
       .then((s) => {
         setStatus(s);
-        if (withTarget && s.target?.kind) setTarget(s.target);
+        if (!filled.current && s.target?.kind) {
+          filled.current = true;
+          setTarget(s.target);
+        }
       })
       .catch((e) => setError(errorInfo(e).message));
   }, []);
-  useEffect(() => refresh(true), [refresh]);
+  useEffect(refresh, [refresh]);
 
   const run = async (fn: () => Promise<string | void>) => {
     setBusy(true);
