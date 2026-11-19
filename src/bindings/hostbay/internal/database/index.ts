@@ -9,5 +9,6 @@ export type {
     Node,
     Page,
     RowEdit,
+    RowPreview,
     Table
 } from "./models.js";

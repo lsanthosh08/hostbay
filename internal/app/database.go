@@ -531,6 +531,57 @@ func (s *DatabaseService) DatabaseEditRow(ctx context.Context, dbID string, edit
 	return s.pageErr(ed.EditRow(ctx, edit))
 }
 
+// rowWriter is dbID's row writer.
+func (s *DatabaseService) rowWriter(dbID string) (database.RowWriter, *dbSession, error) {
+	d, err := s.session(dbID)
+	if err != nil {
+		return nil, nil, err
+	}
+	w, ok := d.engine.(database.RowWriter)
+	if !ok {
+		return nil, nil, errors.New("this database cannot insert or delete rows here")
+	}
+	return w, d, nil
+}
+
+// DatabasePreviewRow returns the statement a row change would run (op
+// "update", "insert" or "delete"), built in Go as it would be, with its
+// values, for the page's review step; it changes nothing.
+func (s *DatabaseService) DatabasePreviewRow(ctx context.Context, dbID, op string, edit database.RowEdit) (database.RowPreview, error) {
+	w, _, err := s.rowWriter(dbID)
+	if err != nil {
+		return database.RowPreview{}, err
+	}
+	p, err := w.PreviewRow(ctx, op, edit)
+	return p, s.pageErr(err)
+}
+
+// DatabaseInsertRow inserts one row of a table from the tree, its columns
+// checked against the catalog and its values parameters.
+func (s *DatabaseService) DatabaseInsertRow(ctx context.Context, dbID string, edit database.RowEdit) error {
+	w, d, err := s.rowWriter(dbID)
+	if err != nil {
+		return err
+	}
+	if err := s.writable(d); err != nil {
+		return err
+	}
+	return s.pageErr(w.InsertRow(ctx, edit))
+}
+
+// DatabaseDeleteRow deletes the one row the table's own key names, in a
+// transaction that commits only when exactly one row went.
+func (s *DatabaseService) DatabaseDeleteRow(ctx context.Context, dbID string, edit database.RowEdit) error {
+	w, d, err := s.rowWriter(dbID)
+	if err != nil {
+		return err
+	}
+	if err := s.writable(d); err != nil {
+		return err
+	}
+	return s.pageErr(w.DeleteRow(ctx, edit))
+}
+
 // documents is dbID's document editor.
 func (s *DatabaseService) documents(dbID string) (database.DocumentEditor, *dbSession, error) {
 	d, err := s.session(dbID)

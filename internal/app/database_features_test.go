@@ -186,3 +186,33 @@ func TestDatabaseHistoryAndSavedQueries(t *testing.T) {
 		t.Fatal("a query was saved without a name")
 	}
 }
+
+// Insert and delete go through the service, after a preview of the
+// statement, and are refused in read-only mode.
+func TestDatabaseInsertAndDeleteRows(t *testing.T) {
+	d, id := sqliteTab(t, `CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT);`)
+	ctx := context.Background()
+	s := func(v string) *string { return &v }
+	ins := database.RowEdit{Path: []string{"users"}, Set: map[string]*string{"id": s("7"), "name": s("ann")}}
+	if p, err := d.DatabasePreviewRow(ctx, id, "insert", ins); err != nil || p.Statement != `INSERT INTO "users" ("id", "name") VALUES (?, ?)` {
+		t.Fatalf("preview = %+v, %v", p, err)
+	}
+	if err := d.DatabaseInsertRow(ctx, id, ins); err != nil {
+		t.Fatal(err)
+	}
+	del := database.RowEdit{Path: []string{"users"}, Key: map[string]*string{"id": s("7")}}
+	if err := d.DatabaseSetReadOnly(ctx, id, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.DatabaseDeleteRow(ctx, id, del); err == nil {
+		t.Fatal("a delete ran in read-only mode")
+	}
+	d.DatabaseSetReadOnly(ctx, id, false)
+	if err := d.DatabaseDeleteRow(ctx, id, del); err != nil {
+		t.Fatal(err)
+	}
+	q, _ := d.DatabaseQuery(id, "SELECT COUNT(*) FROM users")
+	if rows, err := readAll(t, d, q); err != nil || rows[0] != "0" {
+		t.Fatalf("rows left = %v, %v", rows, err)
+	}
+}

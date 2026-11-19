@@ -177,6 +177,9 @@ func Capabilities(e Engine) []string {
 	if _, ok := e.(Browser); ok {
 		caps = append(caps, "browse")
 	}
+	if _, ok := e.(RowWriter); ok {
+		caps = append(caps, "rowWrite")
+	}
 	return caps
 }
 

@@ -16,6 +16,7 @@ import { ObjectTree } from "./ObjectTree";
 import { QueryEditor } from "./QueryEditor";
 import { QueryLibrary } from "./QueryLibrary";
 import { ResultGrid } from "./ResultGrid";
+import { InsertDialog, ReviewDialog, type Pending } from "./RowChange";
 import { addPage } from "./rows";
 import { cancelled, clip, duration, failed, isRunning, type Shown } from "./shown";
 
@@ -35,6 +36,10 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
   const canEditDocs = caps.includes("documentEdit");
   const canAsk = caps.includes("askSql");
   const canBrowse = caps.includes("browse");
+  // Row changes Go can show before running go through a review step.
+  const canWrite = caps.includes("rowWrite");
+  const [pending, setPending] = useState<Pending | null>(null);
+  const [inserting, setInserting] = useState(false);
   const [insert, setInsert] = useState<{ sql: string; n: number }>();
   const { push } = useToast();
   const toast = useAsyncToast();
@@ -232,6 +237,7 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
             onRefresh={rerun}
             count={shown.count}
             onCount={() => count(shown)}
+            onInsert={canWrite && shown.table && !readOnly ? () => setInserting(true) : undefined}
           />
         )}
         <div className="flex-1 min-h-0">
@@ -248,6 +254,10 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
               }
               onEditRow={async (key, changes) => {
                 if (!shown.table) return false;
+                if (canWrite) {
+                  setPending({ op: "update", edit: { path: shown.table.path, key, set: changes } });
+                  return true;
+                }
                 try {
                   await api.databaseEditRow(databaseId, shown.table.path, key, changes);
                 } catch (e) {
@@ -259,11 +269,35 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
                 return true;
               }}
               onEditDocument={canEditDocs && shown.table ? (id) => setDoc({ path: shown.table!.path, id }) : undefined}
+              onDeleteRow={canWrite && shown.table ? (key) => setPending({ op: "delete", edit: { path: shown.table!.path, key } }) : undefined}
             />
           )}
         </div>
       </div>
       {library && <QueryLibrary databaseId={databaseId} current={text} onUse={putInEditor} onClose={() => setLibrary(false)} />}
+      {inserting && shown?.table && (
+        <InsertDialog
+          columns={columns}
+          onClose={() => setInserting(false)}
+          onReview={(set) => {
+            setInserting(false);
+            setPending({ op: "insert", edit: { path: shown.table!.path, set } });
+          }}
+        />
+      )}
+      {pending && (
+        <ReviewDialog
+          databaseId={databaseId}
+          pending={pending}
+          onClose={() => setPending(null)}
+          onDone={() => {
+            const { op, edit } = pending;
+            setPending(null);
+            push("success", { insert: t("database.inserted"), delete: t("database.deleted"), update: t("database.edited") }[op]);
+            openTable(edit.path, JSON.stringify(edit.path) === where ? shown?.browse : undefined);
+          }}
+        />
+      )}
       {doc && (
         <DocumentView
           databaseId={databaseId}

@@ -29,6 +29,7 @@ export function BrowseBar({
   onRefresh,
   count,
   onCount,
+  onInsert,
 }: {
   columns: DbColumn[];
   browse: DbBrowse;
@@ -37,6 +38,8 @@ export function BrowseBar({
   /** The row count: undefined until asked for, null while counting. */
   count: number | null | undefined;
   onCount: () => void;
+  /** Set when a row can be added (rowWrite, not read-only). */
+  onInsert?: () => void;
 }) {
   const [draft, setDraft] = useState<DbFilter[]>(browse.filters ?? []);
   const put = (i: number, f: Partial<DbFilter>) => setDraft((d) => d.map((x, j) => (j === i ? { ...x, ...f } : x)));
@@ -109,6 +112,11 @@ export function BrowseBar({
         </>
       )}
       <span className="ml-auto flex items-center gap-2">
+        {onInsert && (
+          <Button size="sm" variant="ghost" icon={AddIcon} disabled={!columns.length} onClick={onInsert}>
+            {t("database.insertRow")}
+          </Button>
+        )}
         <Button size="sm" variant="ghost" disabled={count === null} onClick={onCount}>
           {count === undefined ? t("database.countRows") : count === null ? t("database.counting") : t("database.counted", { n: count.toLocaleString() })}
         </Button>

@@ -789,6 +789,17 @@ export const databaseCloseQuery = (queryId: string) => DatabaseService.DatabaseC
 // Changes one row by the table's own key; null values are NULL.
 export const databaseEditRow = (databaseId: string, path: string[], key: Record<string, string | null>, set: Record<string, string | null>) =>
   DatabaseService.DatabaseEditRow(databaseId, { path, key, set });
+// With the rowWrite capability (SQL tables with a key): the statement a
+// row change would run, built in Go, for the review step; then the change.
+export type DbRowOp = "update" | "insert" | "delete";
+export type DbRowEdit = { path: string[]; key?: Record<string, string | null>; set?: Record<string, string | null> };
+export type DbRowPreview = { statement: string; values: (string | null)[] };
+export const databasePreviewRow = (databaseId: string, op: DbRowOp, edit: DbRowEdit) =>
+  DatabaseService.DatabasePreviewRow(databaseId, op, { key: {}, set: {}, ...edit }) as Promise<DbRowPreview>;
+export const databaseInsertRow = (databaseId: string, path: string[], set: Record<string, string | null>) =>
+  DatabaseService.DatabaseInsertRow(databaseId, { path, key: {}, set });
+export const databaseDeleteRow = (databaseId: string, path: string[], key: Record<string, string | null>) =>
+  DatabaseService.DatabaseDeleteRow(databaseId, { path, key, set: {} });
 // With the documentEdit capability, a collection or index opens like a table
 // keyed by "_id": databaseDocument returns a document in full as JSON (a
 // grid cell may be cut) with its version, and databaseSaveDocument

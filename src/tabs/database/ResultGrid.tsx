@@ -5,7 +5,7 @@ import { Button } from "../../ui/Button";
 import { Dialog } from "../../ui/Dialog";
 import { Field, Input } from "../../ui/Field";
 import { IconButton } from "../../ui/IconButton";
-import { EditIcon, ExpandedIcon } from "../../ui/icons";
+import { DeleteIcon, EditIcon, ExpandedIcon } from "../../ui/icons";
 import { Tabs } from "../../ui/Tabs";
 import { useContextMenu, type MenuItem } from "../../ui/contextmenu";
 import { clampWidth, copyText, rowText, windowRange } from "./grid";
@@ -67,6 +67,7 @@ export function ResultGrid({
   onSaveCell,
   onEditRow,
   onEditDocument,
+  onDeleteRow,
 }: {
   sets: ResultSet[];
   /** Every row has arrived, so an empty set means no rows match. */
@@ -79,6 +80,8 @@ export function ResultGrid({
   onEditRow: (key: Record<string, string | null>, set: Record<string, string | null>) => Promise<boolean>;
   /** Set when rows are documents, edited whole by their _id (documentEdit). */
   onEditDocument?: (id: string) => void;
+  /** Set when rows can be deleted (rowWrite): asks to delete the row named by its key. */
+  onDeleteRow?: (key: Record<string, string | null>) => void;
 }) {
   const [tab, setTab] = useState("0");
   const { menu, node: menuNode } = useContextMenu();
@@ -89,6 +92,8 @@ export function ResultGrid({
   const at = Math.min(Number(tab), Math.max(sets.length - 1, 0));
   const set = sets[at];
   const rowsEdit = !!table && at === 0;
+  const rowsDelete = rowsEdit && !!onDeleteRow && !onEditDocument;
+  const editCol = rowsDelete ? EDIT_COL * 2 : EDIT_COL;
   // Widths follow the set on screen; a new set starts from the defaults.
   const [widths, setWidths] = useState<number[]>([]);
   const cols = set?.columns ?? [];
@@ -135,9 +140,9 @@ export function ResultGrid({
           className="flex-1 min-h-0 overflow-auto allow-select"
           onScroll={(e) => setView({ top: e.currentTarget.scrollTop, height: e.currentTarget.clientHeight })}
         >
-          <table className="text-xs font-mono border-collapse" style={{ tableLayout: "fixed", width: (rowsEdit ? EDIT_COL : 0) + widths.reduce((a, b) => a + b, 0) }}>
+          <table className="text-xs font-mono border-collapse" style={{ tableLayout: "fixed", width: (rowsEdit ? editCol : 0) + widths.reduce((a, b) => a + b, 0) }}>
             <colgroup>
-              {rowsEdit && <col style={{ width: EDIT_COL }} />}
+              {rowsEdit && <col style={{ width: editCol }} />}
               {widths.map((w, i) => (
                 <col key={i} style={{ width: w }} />
               ))}
@@ -173,8 +178,20 @@ export function ResultGrid({
                 return (
                   <tr key={r} className="hover:bg-hover" style={{ height: ROW }} onDoubleClick={() => rowsEdit && edit(r)}>
                     {rowsEdit && (
-                      <td className="px-1 border-b border-line">
+                      <td className="px-1 border-b border-line whitespace-nowrap">
                         <IconButton size="sm" icon={EditIcon} label={onEditDocument ? t("database.editDocument") : t("database.editRow")} onClick={() => edit(r)} />
+                        {rowsDelete && (
+                          <IconButton
+                            size="sm"
+                            icon={DeleteIcon}
+                            label={t("database.deleteRow")}
+                            onClick={() => {
+                              const key = rowKey(table!, set.columns, row);
+                              if (key) onDeleteRow!(key);
+                            }}
+                            disabled={!rowKey(table!, set.columns, row)}
+                          />
+                        )}
                       </td>
                     )}
                     {row.map((c, i) => (

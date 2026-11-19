@@ -83,6 +83,15 @@ export interface RowEdit {
 }
 
 /**
+ * RowPreview is a row change's statement as Go would run it: placeholders
+ * in the text, and the values bound to them, in order (nil is NULL).
+ */
+export interface RowPreview {
+    "statement": string;
+    "values": (string | null)[] | null;
+}
+
+/**
  * Table names a table that can be edited by its key.
  */
 export interface Table {

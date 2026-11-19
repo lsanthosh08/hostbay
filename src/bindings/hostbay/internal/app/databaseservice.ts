@@ -81,6 +81,14 @@ export function DatabaseDeleteQuery(dbID: string, name: string): $CancellablePro
 }
 
 /**
+ * DatabaseDeleteRow deletes the one row the table's own key names, in a
+ * transaction that commits only when exactly one row went.
+ */
+export function DatabaseDeleteRow(dbID: string, edit: database$0.RowEdit): $CancellablePromise<void> {
+    return $Call.ByID(1081654505, dbID, edit);
+}
+
+/**
  * DatabaseDocument returns, as JSON, the whole document of a collection or
  * index opened with DatabaseOpenTable that its "_id" cell names, for the
  * document view: a cell shown in the grid may be cut.
@@ -119,6 +127,14 @@ export function DatabaseHistory(dbID: string): $CancellablePromise<string[] | nu
 }
 
 /**
+ * DatabaseInsertRow inserts one row of a table from the tree, its columns
+ * checked against the catalog and its values parameters.
+ */
+export function DatabaseInsertRow(dbID: string, edit: database$0.RowEdit): $CancellablePromise<void> {
+    return $Call.ByID(1134519731, dbID, edit);
+}
+
+/**
  * DatabaseNextPage returns a query's next page of rows.
  */
 export function DatabaseNextPage(queryID: string): $CancellablePromise<database$0.Page> {
@@ -141,6 +157,15 @@ export function DatabaseOpenTable(dbID: string, path: string[] | null, browse: d
  */
 export function DatabasePickFile(): $CancellablePromise<$models.FilePick> {
     return $Call.ByID(288939095);
+}
+
+/**
+ * DatabasePreviewRow returns the statement a row change would run (op
+ * "update", "insert" or "delete"), built in Go as it would be, with its
+ * values, for the page's review step; it changes nothing.
+ */
+export function DatabasePreviewRow(dbID: string, op: string, edit: database$0.RowEdit): $CancellablePromise<database$0.RowPreview> {
+    return $Call.ByID(3160637176, dbID, op, edit);
 }
 
 /**
