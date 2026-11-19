@@ -728,7 +728,18 @@ export function HostEditor({
           <Section title={t("hostForm.advanced")}>
             {kind === "ssh" && <SshAdvanced h={h} set={set} keepaliveError={err("keepalive")} />}
             {kind === "rdp" && (
-              <Field label={t("hostForm.rdpSecurity")}>
+              <Field
+                label={t("hostForm.rdpSecurity")}
+                hint={
+                  h.rdpSecurity === "tls" ? (
+                    <span className="text-warning">{t("hostForm.rdpSecurity.tlsHint")}</span>
+                  ) : h.rdpSecurity === "nla" ? (
+                    t("hostForm.rdpSecurity.nlaHint")
+                  ) : (
+                    t("hostForm.rdpSecurity.autoHint")
+                  )
+                }
+              >
                 <Select
                   className="w-full"
                   value={h.rdpSecurity ?? "auto"}
