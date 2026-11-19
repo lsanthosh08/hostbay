@@ -86,10 +86,13 @@ export function RdpTab({
     kind: Parameters<typeof api.rdpInput>[1],
     opts: Parameters<typeof api.rdpInput>[2]
   ) => {
-    if (rdpIdRef.current) api.rdpInput(rdpIdRef.current, kind, opts);
+    // Go refuses input once the session has ended, before onClosed arrives.
+    if (rdpIdRef.current) api.rdpInput(rdpIdRef.current, kind, opts).catch(() => {});
   };
 
   const connect = async () => {
+    // A session that closed on its own left its view and clipboard listeners.
+    cleanup();
     setStatus("connecting");
     onStatus?.("connecting");
     setErrMsg("");
