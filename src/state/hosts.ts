@@ -1,6 +1,7 @@
 import { createContext, createElement, useContext, useEffect, useState, type ReactNode } from "react";
 import * as api from "../api";
 import type { Folder, Host, Workspace } from "../api";
+import { useToast } from "../ui/toast";
 
 /** The hosts connected to most recently, newest first. */
 export const recentHosts = (hosts: Host[], n = 5) =>
@@ -31,9 +32,13 @@ export function HostsProvider({ children }: { children: ReactNode }) {
   const [hosts, setHosts] = useState<Host[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  // A failed read or tree edit says so: a silent one looked like lost hosts
+  // (an empty tree, the first-run page) or a drag that snapped back.
+  const { push } = useToast();
+  const fail = (e: unknown) => push("error", api.errorInfo(e).message);
 
-  const reloadHosts = () => api.listHosts().then(setHosts).catch(() => {});
-  const reloadFolders = () => api.listFolders().then(setFolders).catch(() => {});
+  const reloadHosts = () => api.listHosts().then(setHosts).catch(fail);
+  const reloadFolders = () => api.listFolders().then(setFolders).catch(fail);
   const reloadAll = () => {
     reloadHosts();
     reloadFolders();
@@ -44,20 +49,20 @@ export function HostsProvider({ children }: { children: ReactNode }) {
   useEffect(reloadWorkspaces, [hosts]);
 
   const clearRecent = async () => {
-    await api.clearRecent().catch(() => {});
+    await api.clearRecent().catch(fail);
     reloadHosts();
   };
 
   const moveHost = async (hostId: string, folderId: string | null) => {
     const h = hosts.find((x) => x.id === hostId);
     if (!h || (h.folderId ?? null) === folderId) return;
-    await api.saveHost({ ...h, folderId }).catch(() => {});
+    await api.saveHost({ ...h, folderId }).catch(fail);
     reloadHosts();
   };
   const moveFolder = async (folderId: string, parentId: string | null) => {
     const f = folders.find((x) => x.id === folderId);
     if (!f || (f.parentId ?? null) === parentId) return;
-    await api.saveFolder({ ...f, parentId }).catch(() => {});
+    await api.saveFolder({ ...f, parentId }).catch(fail);
     reloadFolders();
   };
 
@@ -81,7 +86,7 @@ export function HostsProvider({ children }: { children: ReactNode }) {
           ? Promise.resolve()
           : api.saveHost({ ...h, folderId, order: i }).then(() => {})
       )
-    ).catch(() => {});
+    ).catch(fail);
     reloadHosts();
   };
 
