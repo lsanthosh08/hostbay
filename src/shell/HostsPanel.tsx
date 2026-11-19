@@ -99,7 +99,9 @@ export function HostsPanel() {
     : undefined;
   const recent = recentHosts(hosts);
   const disconnectHost = (h: Host) => {
-    const c = sessions.find((x) => x.host.id === h.id);
+    // The host's workspace, as Connect finds it; an X11 desktop of the same
+    // host is a tab of its own.
+    const c = sessions.find((x) => x.host.id === h.id && !x.x11);
     if (c) disconnect(c.sessionId);
   };
 
