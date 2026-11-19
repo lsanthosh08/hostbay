@@ -117,6 +117,8 @@ export const en = {
   "sync.conflict.delete": "Delete it",
   "sync.conflict.restore": "Restore",
   "sync.conflict.restoreHint": "Bring this version back as a new change",
+  "sync.conflict.restoreConfirm": "Bring back this version of {name}? It replaces the current one on every computer.",
+  "sync.conflict.deleteConfirm": "Delete {name}? It is deleted on every computer, not moved to the Trash.",
   "sync.conflict.none": "No sync conflicts.",
   "sync.what.host": "Host",
   "sync.what.folder": "Folder",

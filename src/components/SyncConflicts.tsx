@@ -3,6 +3,7 @@ import { errorInfo, syncConflicts, syncDismissConflict, syncRestoreConflict, typ
 import { t, type MessageKey } from "../i18n";
 import { Button } from "../ui/Button";
 import { EmptyState } from "../ui/EmptyState";
+import { usePrompt } from "../ui/prompt";
 
 const what: Record<string, MessageKey> = {
   hosts: "sync.what.host",
@@ -17,6 +18,7 @@ const what: Record<string, MessageKey> = {
 export function SyncConflicts({ onChanged }: { onChanged?: () => void }) {
   const [items, setItems] = useState<SyncConflict[]>([]);
   const [error, setError] = useState("");
+  const { confirm } = usePrompt();
 
   const load = useCallback(() => {
     syncConflicts()
@@ -36,7 +38,8 @@ export function SyncConflicts({ onChanged }: { onChanged?: () => void }) {
     }
   };
 
-  if (items.length === 0) return <EmptyState>{t("sync.conflict.none")}</EmptyState>;
+  // A failed load is not "no conflicts".
+  if (items.length === 0) return error ? <p className="text-sm text-danger">{error}</p> : <EmptyState>{t("sync.conflict.none")}</EmptyState>;
   return (
     <div className="flex flex-col gap-2">
       {error && <p className="text-sm text-danger">{error}</p>}
@@ -54,7 +57,14 @@ export function SyncConflicts({ onChanged }: { onChanged?: () => void }) {
                 })}
               </div>
             </div>
-            <Button onClick={() => act(() => syncRestoreConflict(c.id))} title={t("sync.conflict.restoreHint")}>
+            <Button
+              onClick={async () => {
+                const name = c.label || c.itemId;
+                const ask = t(c.kind === "purge" ? "sync.conflict.deleteConfirm" : "sync.conflict.restoreConfirm", { name });
+                if (await confirm(ask)) act(() => syncRestoreConflict(c.id));
+              }}
+              title={t("sync.conflict.restoreHint")}
+            >
               {t(c.kind === "purge" ? "sync.conflict.delete" : "sync.conflict.restore")}
             </Button>
             <Button variant="ghost" onClick={() => act(() => syncDismissConflict(c.id))}>
