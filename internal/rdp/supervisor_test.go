@@ -169,6 +169,19 @@ func TestSizeCarriesSignedInWithoutNLA(t *testing.T) {
 	if len(got) == 0 || got[0][0] != MsgSize || len(got[0]) != 6 || got[0][5]&1 != 1 {
 		t.Fatalf("size message %v", got)
 	}
+	// A later size, after a desktop switch, keeps the warning.
+	sizes := 0
+	for _, m := range got {
+		if m[0] == MsgSize {
+			sizes++
+			if m[5]&1 != 1 {
+				t.Fatalf("size %d lost the flag: %v", sizes, m)
+			}
+		}
+	}
+	if sizes != 2 {
+		t.Fatalf("got %d size messages, want 2", sizes)
+	}
 }
 
 func kinds(msgs [][]byte) []byte {

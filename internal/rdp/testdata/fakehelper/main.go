@@ -74,6 +74,9 @@ func main() {
 	send(map[string]any{"t": "size", "width": 4, "height": 2, "noNla": mode == "nonla"})
 	frame(0, 0, 4, 2, 0xAA)
 	frame(1, 1, 1, 1, 0xBB)
+	if mode == "nonla" { // a desktop switch: the helper's own flag may be absent here
+		send(map[string]any{"t": "size", "width": 4, "height": 2})
+	}
 	// Report what this process was given, so the test can look for the
 	// password in its arguments and environment.
 	seen, _ := json.Marshal(map[string]any{
