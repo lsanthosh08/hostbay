@@ -307,7 +307,10 @@ func (r *Registry) Start(ctx context.Context, owner string, run func(context.Con
 	r.cursors[c.id] = c
 	r.mu.Unlock()
 	if n >= PerOwner {
+		// expire tells the tab of a cursor still open; one that finished or
+		// failed is released here all the same, ending its context.
 		r.expire(oldest)
+		r.release(oldest)
 	}
 	r.state(c, "running", "", true)
 	// The idle clock starts once the request has started: a running query
