@@ -12,6 +12,8 @@ import (
 // posix-rename@openssh.com, which replaces the file in one step.
 type SFTP struct{ c sftp.Conn }
 
+func (SFTP) keepsModes() {}
+
 // NewSFTP wraps c. Sources over the same SFTP client compare equal, so they
 // share one concurrency limit.
 func NewSFTP(c *sftp.Conn) SFTP { return SFTP{c: *c} }

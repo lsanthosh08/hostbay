@@ -189,6 +189,7 @@ type item struct {
 	src, rel string
 	size     int64
 	dir      bool
+	perm     fs.FileMode // the file's permission bits, 0 when unknown
 }
 
 func (t *task) run(paths []string) {
@@ -240,7 +241,7 @@ func (t *task) walk(paths []string) []item {
 	var add func(p, rel string, e Entry)
 	add = func(p, rel string, e Entry) {
 		if !e.IsDir {
-			items = append(items, item{src: p, rel: rel, size: int64(e.Size)})
+			items = append(items, item{src: p, rel: rel, size: int64(e.Size), perm: permOf(t.from, e)})
 			return
 		}
 		items = append(items, item{src: p, rel: rel, dir: true})
@@ -323,7 +324,7 @@ func (t *task) copy(it item) error {
 		return err
 	}
 	defer release()
-	return copyFile(t.ctx, t.from, it.src, t.to, t.toDir, rel, it.size, func(n int) {
+	return copyFile(t.ctx, t.from, it.src, t.to, t.toDir, rel, it.size, it.perm, func(n int) {
 		t.ev.Bytes += int64(n)
 		t.send(false)
 	})
@@ -400,10 +401,27 @@ func CopyFile(ctx context.Context, from Source, p string, to Source, dir, rel st
 	if err != nil {
 		return err
 	}
-	return copyFile(ctx, from, p, to, dir, rel, int64(e.Size), func(int) {})
+	return copyFile(ctx, from, p, to, dir, rel, int64(e.Size), permOf(from, e), func(int) {})
 }
 
-func copyFile(ctx context.Context, from Source, p string, to Source, dir, rel string, size int64, progress func(int)) error {
+// modeKeeper marks a source whose listed permission bits are the file's
+// own; S3, FTP, SMB and WebDAV list every file as 0644.
+type modeKeeper interface{ keepsModes() }
+
+// permOf is e's permission bits when from has real ones and e is no link
+// (a link's bits are not its target's), else 0.
+func permOf(from Source, e Entry) fs.FileMode {
+	if _, ok := from.(modeKeeper); !ok || isSymlink(e) {
+		return 0
+	}
+	return fs.FileMode(e.Mode) & fs.ModePerm
+}
+
+// permSetter is a writer that makes a new file: it takes the source
+// file's permission bits (0 when unknown) to cap its own.
+type permSetter interface{ setPerm(fs.FileMode) error }
+
+func copyFile(ctx context.Context, from Source, p string, to Source, dir, rel string, size int64, perm fs.FileMode, progress func(int)) error {
 	r, err := from.Open(ctx, p)
 	if err != nil {
 		return err
@@ -418,6 +436,12 @@ func copyFile(ctx context.Context, from Source, p string, to Source, dir, rel st
 	w, err := to.Create(ctx, dir, rel, size)
 	if err != nil {
 		return err
+	}
+	if s, ok := w.(permSetter); ok {
+		if err := s.setPerm(perm); err != nil {
+			w.Abort()
+			return err
+		}
 	}
 	// 256 KiB chunks, not io.Copy's 32 KiB: fewer writes and progress calls per file.
 	_, err = io.CopyBuffer(&counter{ctx: ctx, w: w, progress: progress}, r, make([]byte, 256<<10))

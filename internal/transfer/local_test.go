@@ -103,3 +103,37 @@ func TestLocalOverwriteFollowsASymlinkAndKeepsTheMode(t *testing.T) {
 		t.Fatalf("target %q mode %v", readFile(t, dir+"/run.sh"), fi.Mode())
 	}
 }
+
+// modeless hides a source's permission bits, as S3, FTP, SMB and WebDAV
+// have none of their own: they list every file as 0644.
+type modeless struct{ transfer.Source }
+
+// A new local file is never readable by more users than the file it was
+// copied from, never wider than 0644, and 0600 when the source has no
+// permission bits.
+func TestCopyToLocalNeverWidensTheMode(t *testing.T) {
+	ctx := context.Background()
+	src, dst := tempDir(t), tempDir(t)
+	for name, mode := range map[string]os.FileMode{"key": 0o600, "doc": 0o644, "run": 0o755} {
+		writeFile(t, src+"/"+name, name, mode)
+	}
+	for _, c := range []struct {
+		from transfer.Source
+		name string
+		want os.FileMode
+	}{
+		{transfer.Local{}, "key", 0o600},
+		{transfer.Local{}, "doc", 0o644},
+		{transfer.Local{}, "run", 0o644},
+		{modeless{transfer.Local{}}, "doc", 0o600},
+	} {
+		out := c.name + "-copy"
+		if err := transfer.CopyFile(ctx, c.from, src+"/"+c.name, transfer.Local{}, dst, out); err != nil {
+			t.Fatal(err)
+		}
+		if fi, err := os.Stat(filepath.FromSlash(dst + "/" + out)); err != nil || fi.Mode().Perm() != c.want {
+			t.Errorf("%s from %T: mode %v, %v; want %v", c.name, c.from, fi.Mode().Perm(), err, c.want)
+		}
+		os.Remove(filepath.FromSlash(dst + "/" + out))
+	}
+}
