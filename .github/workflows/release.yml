@@ -5,9 +5,15 @@ name: Release
 # signature and one SHA256SUMS file to a GitHub Release named after the tag.
 # Builds are not code-signed: macOS needs a Developer ID and notarization,
 # Windows an Authenticode certificate, before the OS stops warning about them.
+#
+# Started by hand from the Actions tab (workflow_dispatch), it is a test run:
+# it builds the installers for the chosen branch as version
+# 0.0.0-test.<run number> and keeps them as the run's artifacts, but signs no
+# manifest and publishes no release.
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -139,6 +145,7 @@ jobs:
       - name: Stamp version
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$GITHUB_EVENT_NAME" != push ]; then VERSION="0.0.0-test.$GITHUB_RUN_NUMBER"; fi
           NUMERIC="${VERSION%%-*}"
           CURRENT=$(sed -n 's/^  version: "\(.*\)".*/\1/p' build/config.yml)
           test -n "$CURRENT"
@@ -218,6 +225,7 @@ jobs:
   # before the job can read it (docs/release-signing.md). This job runs no
   # npm or third-party build step, and no Go cache, while it holds the key.
   sign:
+    if: github.event_name == 'push'
     needs: build
     runs-on: ubuntu-24.04
     environment: release-signing
@@ -264,6 +272,7 @@ jobs:
           if-no-files-found: ignore
 
   release:
+    if: github.event_name == 'push'
     needs: [build, sign]
     runs-on: ubuntu-24.04
     permissions:
