@@ -974,6 +974,19 @@ fn emit_rect(out: &Sink, image: &DecodedImage, rect: &InclusiveRectangle) {
     out.frame(x as u16, y as u16, w as u16, h as u16, &tight);
 }
 
+/// Split a sign-in name into account and domain the way Windows reads it.
+/// `DOMAIN\user`, `MACHINE\user` and `.\user` (a local account) split
+/// at the first `\`. A UPN (`user@example.com`) stays whole with no domain:
+/// its suffix need not be the NetBIOS domain, and NTLM, CredSSP and the
+/// logon screen all accept a UPN as the user name.
+fn split_account(name: &str) -> (String, Option<String>) {
+    match name.split_once('\\') {
+        Some(("", account)) => (account.to_owned(), None),
+        Some((domain, account)) => (account.to_owned(), Some(domain.to_owned())),
+        None => (name.to_owned(), None),
+    }
+}
+
 /// Connect and run the session until it ends. `tx` lets the clipboard poll
 /// feed the same queue Hostbay's messages arrive on.
 #[allow(clippy::too_many_arguments)]
@@ -988,15 +1001,7 @@ pub fn run(
     height: u16,
     security: String,
 ) -> AppResult<()> {
-    // Split a domain out of the username if present (DOMAIN\user or user@domain)
-    // — CredSSP/NTLM needs domain and user separated.
-    let (user, domain) = if let Some((d, u)) = user.split_once('\\') {
-        (u.to_string(), Some(d.to_string()))
-    } else if let Some((u, d)) = user.split_once('@') {
-        (u.to_string(), Some(d.to_string()))
-    } else {
-        (user, None)
-    };
+    let (user, domain) = split_account(&user);
 
     // RDP servers sometimes reset the very first TCP/negotiation attempt
     // ("connection reset by peer"); retry a couple of times before giving up.
@@ -1443,6 +1448,28 @@ mod tests {
         // A closed connection is not retried.
         let mut framed = ironrdp_blocking::Framed::new(Scripted(Vec::new().into()));
         assert!(read_by_hint_until(&mut framed, &LenHint, later).err().unwrap().starts_with("connection lost"));
+    }
+
+    #[test]
+    fn account_names_reach_the_server_in_the_form_windows_expects() {
+        use sspi::UserNameFormat::{DownLevelLogonName, UserPrincipalName};
+        let cases = [
+            ("CORP\\user", "user", Some("CORP"), DownLevelLogonName),
+            ("PC01\\user", "user", Some("PC01"), DownLevelLogonName),
+            (".\\user", "user", Some("."), DownLevelLogonName),
+            ("MicrosoftAccount\\a@example.com", "a@example.com", Some("MicrosoftAccount"), DownLevelLogonName),
+            // A UPN stays whole: its suffix need not be the NetBIOS domain.
+            ("user@example.com", "user@example.com", None, UserPrincipalName),
+            ("user", "user", None, DownLevelLogonName),
+            ("\\user", "user", None, DownLevelLogonName),
+        ];
+        for (input, account, domain, format) in cases {
+            let (a, d) = split_account(input);
+            assert_eq!((a.as_str(), d.as_deref()), (account, domain), "{input}");
+            // What CredSSP builds from the pair, as IronRDP does.
+            let name = sspi::Username::new(&a, d.as_deref()).unwrap();
+            assert_eq!(name.format(), format, "{input}");
+        }
     }
 
     #[test]
