@@ -16,6 +16,7 @@ import { useHosts } from "../state/hosts";
 import { t } from "../i18n";
 import { activeTab, layoutOf, SETTINGS_TAB, tabsOf, useSessions } from "../state/sessions";
 import { useTransferActions, useTransfersPanel } from "../state/transfers";
+import { dialogOpen } from "../ui/Dialog";
 import { usePrompt } from "../ui/prompt";
 import { useTheme } from "../ui/theme";
 import { useToast } from "../ui/toast";
@@ -171,7 +172,9 @@ export function AppShell() {
   live.current = app;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || e.isComposing) return;
+      // Not under a modal: Ctrl+Tab or Cmd+D would act on the session behind
+      // a host editor or a prompt.
+      if (e.defaultPrevented || e.isComposing || dialogOpen()) return;
       const a = findAction(
         bound().filter((x) => !x.hidden && (!x.available || x.available(live.current))),
         e,

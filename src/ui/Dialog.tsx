@@ -26,6 +26,9 @@ const FOCUSABLE =
 // so a prompt opened over a form closes alone.
 const stack: HTMLElement[] = [];
 
+/** Whether a modal dialog is open; app shortcuts stand down meanwhile. */
+export const dialogOpen = () => stack.length > 0;
+
 // Where each open dialog or menu hands focus back.
 export const focusReturn = new WeakMap<Element, () => HTMLElement | null>();
 
