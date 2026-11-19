@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"hostbay/internal/database"
@@ -146,5 +147,42 @@ func TestDatabaseExportThroughTheService(t *testing.T) {
 	d.pickSave = func(string, string) (string, error) { return "", nil }
 	if got, err := d.DatabaseExport(ctx, id, DatabaseExportRequest{Text: "SELECT 1", Format: "json"}); err != nil || got.Saved {
 		t.Fatalf("a cancelled dialog = %+v, %v", got, err)
+	}
+}
+
+// Each request run is kept in the host's history on this computer, once
+// when repeated and never when it looks like it holds a credential;
+// saved queries are kept by name per host.
+func TestDatabaseHistoryAndSavedQueries(t *testing.T) {
+	d, id := sqliteTab(t, `CREATE TABLE t (x INTEGER);`)
+	for _, q := range []string{"SELECT 1", "SELECT 1", "  SELECT 2  ", "CREATE USER bob PASSWORD 'pw'"} {
+		if _, err := d.DatabaseQuery(id, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if h, err := d.DatabaseHistory(id); err != nil || !slices.Equal(h, []string{"SELECT 1", "SELECT 2"}) {
+		t.Fatalf("history = %q, %v", h, err)
+	}
+	if err := d.DatabaseClearHistory(id); err != nil {
+		t.Fatal(err)
+	}
+	if h, _ := d.DatabaseHistory(id); len(h) != 0 {
+		t.Fatalf("history after clear = %q", h)
+	}
+	if _, err := d.DatabaseSaveQuery(id, "b", "SELECT 2"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.DatabaseSaveQuery(id, "a", "SELECT 1"); err != nil {
+		t.Fatal(err)
+	}
+	qs, err := d.DatabaseSaveQuery(id, "b", "SELECT 3")
+	if err != nil || len(qs) != 2 || qs[0].Name != "a" || qs[1].Text != "SELECT 3" {
+		t.Fatalf("saved = %+v, %v", qs, err)
+	}
+	if qs, err = d.DatabaseDeleteQuery(id, "a"); err != nil || len(qs) != 1 || qs[0].Name != "b" {
+		t.Fatalf("after delete = %+v, %v", qs, err)
+	}
+	if _, err := d.DatabaseSaveQuery(id, " ", "SELECT 1"); err == nil {
+		t.Fatal("a query was saved without a name")
 	}
 }

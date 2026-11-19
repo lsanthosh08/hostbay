@@ -14,6 +14,7 @@ import { databaseCapabilities } from "./capabilities";
 import { DocumentView } from "./DocumentView";
 import { ObjectTree } from "./ObjectTree";
 import { QueryEditor } from "./QueryEditor";
+import { QueryLibrary } from "./QueryLibrary";
 import { ResultGrid } from "./ResultGrid";
 import { addPage } from "./rows";
 import { cancelled, clip, duration, failed, isRunning, type Shown } from "./shown";
@@ -39,6 +40,8 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
   const toast = useAsyncToast();
   const { confirm } = usePrompt();
   const [readOnly, setReadOnly] = useState(false);
+  const [library, setLibrary] = useState(false);
+  const putInEditor = (sql: string) => setInsert((x) => ({ sql, n: (x?.n ?? 0) + 1 }));
   // The export running now; cancelling its promise stops it in Go.
   const [exporting, setExporting] = useState<{ cancel: () => void } | null>(null);
   const [text, setText] = useState("");
@@ -162,7 +165,7 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
         <ObjectTree databaseId={databaseId} onOpen={openTable} />
       </aside>
       <div className="flex-1 min-w-0 flex flex-col min-h-0">
-        {canAsk && <AskAI databaseId={databaseId} onSQL={(sql) => setInsert((x) => ({ sql, n: (x?.n ?? 0) + 1 }))} />}
+        {canAsk && <AskAI databaseId={databaseId} onSQL={putInEditor} />}
         <div className="h-2/5 min-h-32 border-b border-line">
           <QueryEditor
             insert={insert}
@@ -171,6 +174,7 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
             onRun={run}
             readOnly={readOnly}
             onReadOnly={setMode}
+            onLibrary={() => setLibrary(true)}
             running={running}
             onCancel={cancel}
           />
@@ -259,6 +263,7 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
           )}
         </div>
       </div>
+      {library && <QueryLibrary databaseId={databaseId} current={text} onUse={putInEditor} onClose={() => setLibrary(false)} />}
       {doc && (
         <DocumentView
           databaseId={databaseId}

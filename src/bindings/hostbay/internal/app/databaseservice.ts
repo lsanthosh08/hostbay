@@ -30,6 +30,13 @@ export function DatabaseCancel(queryID: string): $CancellablePromise<void> {
 }
 
 /**
+ * DatabaseClearHistory forgets this host's request history.
+ */
+export function DatabaseClearHistory(dbID: string): $CancellablePromise<void> {
+    return $Call.ByID(250767423, dbID);
+}
+
+/**
  * DatabaseClose closes a database tab: its queries, then its connection.
  * Unknown IDs are already closed.
  */
@@ -67,6 +74,13 @@ export function DatabaseCountRows(dbID: string, path: string[] | null, browse: d
 }
 
 /**
+ * DatabaseDeleteQuery removes the query saved under name for this host.
+ */
+export function DatabaseDeleteQuery(dbID: string, name: string): $CancellablePromise<$models.SavedQuery[] | null> {
+    return $Call.ByID(306571569, dbID, name);
+}
+
+/**
  * DatabaseDocument returns, as JSON, the whole document of a collection or
  * index opened with DatabaseOpenTable that its "_id" cell names, for the
  * document view: a cell shown in the grid may be cut.
@@ -94,6 +108,14 @@ export function DatabaseEditRow(dbID: string, edit: database$0.RowEdit): $Cancel
  */
 export function DatabaseExport(dbID: string, req: $models.DatabaseExportRequest): $CancellablePromise<$models.DatabaseExported> {
     return $Call.ByID(2871574206, dbID, req);
+}
+
+/**
+ * DatabaseHistory lists the requests run in this host's tabs on this
+ * computer, oldest first.
+ */
+export function DatabaseHistory(dbID: string): $CancellablePromise<string[] | null> {
+    return $Call.ByID(1119399072, dbID);
 }
 
 /**
@@ -165,6 +187,21 @@ export function DatabaseSaveCell(queryID: string, result: number, row: number, c
  */
 export function DatabaseSaveDocument(dbID: string, path: string[] | null, id: string, version: string, doc: string): $CancellablePromise<void> {
     return $Call.ByID(2657003396, dbID, path, id, version, doc);
+}
+
+/**
+ * DatabaseSaveQuery saves text under name for this host, replacing a
+ * query saved under that name; the connection's password is removed.
+ */
+export function DatabaseSaveQuery(dbID: string, name: string, text: string): $CancellablePromise<$models.SavedQuery[] | null> {
+    return $Call.ByID(2302964467, dbID, name, text);
+}
+
+/**
+ * DatabaseSavedQueries lists this host's saved queries, by name.
+ */
+export function DatabaseSavedQueries(dbID: string): $CancellablePromise<$models.SavedQuery[] | null> {
+    return $Call.ByID(2659210733, dbID);
 }
 
 /**

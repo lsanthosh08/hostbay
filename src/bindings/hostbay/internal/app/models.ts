@@ -700,6 +700,14 @@ export interface SSHConfigImport {
     "notes": string[] | null;
 }
 
+/**
+ * SavedQuery is a query saved under a name for its host.
+ */
+export interface SavedQuery {
+    "name": string;
+    "text": string;
+}
+
 export interface Script {
     "id": string;
     "label": string;

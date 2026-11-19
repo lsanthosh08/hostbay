@@ -111,6 +111,7 @@ export type {
     RoutingReport,
     RoutingState,
     SSHConfigImport,
+    SavedQuery,
     Script,
     StoreImport,
     SyncConflict,

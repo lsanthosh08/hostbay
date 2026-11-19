@@ -809,6 +809,16 @@ export const databaseSaveCell = (queryId: string, result: number, row: number, c
 // Asks for a SQLite file in Go's dialog; token is what a saved host's
 // filePick takes. A cancelled dialog returns an empty token.
 export const databasePickFile = () => DatabaseService.DatabasePickFile() as Promise<{ token: string; path: string }>;
+// Each host's request history and saved queries, kept on this computer
+// only; Go records a request as it runs, without the connection's
+// password and never one that looks like it holds a credential.
+export type DbSavedQuery = { name: string; text: string };
+export const databaseHistory = (databaseId: string) => list(DatabaseService.DatabaseHistory(databaseId));
+export const databaseClearHistory = (databaseId: string) => DatabaseService.DatabaseClearHistory(databaseId);
+export const databaseSavedQueries = (databaseId: string) => list(DatabaseService.DatabaseSavedQueries(databaseId)) as Promise<DbSavedQuery[]>;
+export const databaseSaveQuery = (databaseId: string, name: string, text: string) =>
+  list(DatabaseService.DatabaseSaveQuery(databaseId, name, text)) as Promise<DbSavedQuery[]>;
+export const databaseDeleteQuery = (databaseId: string, name: string) => list(DatabaseService.DatabaseDeleteQuery(databaseId, name)) as Promise<DbSavedQuery[]>;
 export const onQueryState = (queryId: string, cb: (s: QueryState) => void) => on<QueryState>(`query-state://${queryId}`, cb);
 
 // ---- Kubernetes (R57, KTD28) ----

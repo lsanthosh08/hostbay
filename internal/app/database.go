@@ -49,6 +49,7 @@ type dbSession struct {
 	ctx    context.Context // ends when the tab closes, with every query in it
 	cancel context.CancelFunc
 	kind   string // the host's kind, such as postgres
+	hostID string // whose history and saved queries the tab keeps
 
 	// readOnly refuses every request that may change data (DatabaseSetReadOnly);
 	// it is read and set under DatabaseService.mu.
@@ -119,7 +120,7 @@ func (s *DatabaseService) DatabaseConnect(ctx context.Context, hostID string) (D
 	ctx, cancel := context.WithCancel(context.Background())
 	id := newRequestID()
 	s.mu.Lock()
-	s.dbs[id] = &dbSession{engine: e, secret: c.Password, ctx: ctx, cancel: cancel, kind: c.Host.KindName()}
+	s.dbs[id] = &dbSession{engine: e, secret: c.Password, ctx: ctx, cancel: cancel, kind: c.Host.KindName(), hostID: hostID}
 	s.mu.Unlock()
 	s.creds.touch(hostID)
 	caps := database.Capabilities(e)
@@ -439,6 +440,7 @@ func (s *DatabaseService) DatabaseQuery(dbID, text string) (string, error) {
 			return "", err
 		}
 	}
+	s.remember(d, text)
 	return s.reg.Start(d.ctx, dbID, func(ctx context.Context) (database.Results, error) { return d.engine.Query(ctx, text) }), nil
 }
 

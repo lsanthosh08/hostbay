@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 import { t } from "../../i18n";
 import { applyEditorTheme } from "../../monaco";
 import { Button } from "../../ui/Button";
-import { StartIcon, StopIcon } from "../../ui/icons";
+import { LogsIcon, StartIcon, StopIcon } from "../../ui/icons";
 
 type MonacoEditor = Parameters<OnMount>[0];
 
@@ -22,6 +22,7 @@ export function QueryEditor({
   insert,
   readOnly,
   onReadOnly,
+  onLibrary,
 }: {
   value: string;
   onChange: (text: string) => void;
@@ -33,6 +34,8 @@ export function QueryEditor({
   /** The tab's read-only mode, which Go enforces. */
   readOnly: boolean;
   onReadOnly: (on: boolean) => void;
+  /** Opens the history and saved queries. */
+  onLibrary: () => void;
 }) {
   const editor = useRef<MonacoEditor | null>(null);
   // The latest onRun, for the key binding Monaco keeps from mount.
@@ -69,6 +72,9 @@ export function QueryEditor({
         </Button>
         <Button size="sm" icon={StopIcon} disabled={!running} onClick={onCancel}>
           {t("database.cancel")}
+        </Button>
+        <Button size="sm" variant="ghost" icon={LogsIcon} onClick={onLibrary}>
+          {t("database.history")}
         </Button>
         <span className="text-xs text-muted min-w-0 truncate" title={t("database.runHint")}>
           {t("database.runHint")}
