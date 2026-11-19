@@ -1,7 +1,8 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AIPending, VpnTier } from "../../api";
 import { t, type MessageKey } from "../../i18n";
 import { Button } from "../../ui/Button";
+import { useSettled } from "../../ui/settle";
 
 /** An MCP connect_vpn or disconnect_vpn request carries these too; Go
  *  refuses a profile name, gateway or tag a card could not show as it is. */
@@ -12,13 +13,6 @@ const TIER: Partial<Record<VpnTier, MessageKey>> = {
   system: "mcp.card.vpnTier.system",
   external: "mcp.card.vpnTier.external",
 };
-
-/** How long a card must sit still before Allow takes a click. Cards stack
- *  oldest first, so when one above is answered or expires every card below
- *  moves up, and a click aimed at the gone card's Allow would land on the
- *  next card's Allow: a command the user never read. */
-export const SETTLE_MS = 600;
-export const settled = (since: number, now: number) => now - since >= SETTLE_MS;
 
 const secondsLeft = (expires: string) => Math.max(0, Math.round((Date.parse(expires) - Date.now()) / 1000));
 
@@ -39,13 +33,13 @@ export function approvalLabel(p: AIPending): string {
  *  was picked by, what it reaches (the whole computer for a system-wide
  *  profile) and the gateway, and has no bytes (KTD6). Allow and Deny are
  *  plain buttons; neither is the default and neither takes focus. */
-export function ApprovalCard({ p, index = 0, onAnswer }: { p: VPNPending; index?: number; onAnswer: (allow: boolean) => void }) {
+export function ApprovalCard({ p, onAnswer }: { p: VPNPending; onAnswer: (allow: boolean) => void }) {
   const [left, setLeft] = useState(() => secondsLeft(p.expires));
-  // When the card last appeared or moved in the tray.
-  const since = useRef(0);
-  useLayoutEffect(() => {
-    since.current = Date.now();
-  }, [index]);
+  // The tray is pinned to the window's bottom, so answering or expiring a
+  // card slides the older ones down under the pointer: Allow waits until the
+  // card has stayed put (src/ui/settle.ts).
+  const card = useRef<HTMLElement>(null);
+  const ready = useSettled(card);
   useEffect(() => {
     const id = setInterval(() => setLeft(secondsLeft(p.expires)), 1000);
     return () => clearInterval(id);
@@ -55,7 +49,7 @@ export function ApprovalCard({ p, index = 0, onAnswer }: { p: VPNPending; index?
   const label = approvalLabel(p);
 
   return (
-    <article aria-label={label} className="panel rounded-card shadow-lg p-3 flex flex-col gap-2 text-sm">
+    <article ref={card} aria-label={label} className="panel rounded-card shadow-lg p-3 flex flex-col gap-2 text-sm">
       <header className="flex items-baseline gap-2">
         <h3 className="font-medium flex-1 min-w-0 break-words">{label}</h3>
         <span className="text-xs text-muted tabular-nums shrink-0">{t("ai.card.left", { n: left })}</span>
@@ -84,7 +78,7 @@ export function ApprovalCard({ p, index = 0, onAnswer }: { p: VPNPending; index?
         <Button type="button" variant="ghost" size="sm" onClick={() => onAnswer(false)}>
           {t("ai.card.deny")}
         </Button>
-        <Button type="button" size="sm" onClick={() => settled(since.current, Date.now()) && onAnswer(true)}>
+        <Button type="button" size="sm" onClick={() => ready() && onAnswer(true)}>
           {t("ai.card.allow")}
         </Button>
       </div>
