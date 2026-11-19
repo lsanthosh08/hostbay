@@ -78,7 +78,8 @@ export function useVpnConnect() {
       await api.connectVpn(id);
     } catch (e) {
       const cert = vpnCertPrompt(e);
-      if (cert) setQueue((q) => [...q, { id, cert, quiet }]);
+      // A second refusal of the same certificate asks nothing new.
+      if (cert) setQueue((q) => (q.some((x) => x.id === id && x.cert.pin === cert.pin) ? q : [...q, { id, cert, quiet }]));
       else if (!vpnCancelled(e)) {
         // The row shows a failed connect itself, but a refusal before it starts (a routing
         // conflict, bad settings) sets no state, so the panel says it here.
