@@ -26,6 +26,21 @@ const FOCUSABLE =
 // so a prompt opened over a form closes alone.
 const stack: HTMLElement[] = [];
 
+// Where each open dialog or menu hands focus back.
+export const focusReturn = new WeakMap<Element, () => HTMLElement | null>();
+
+/** Where to give focus back when what opens now closes: the element focused
+ *  now while it is still on the page. A dialog opened by a pick in the
+ *  palette or a menu outlives that element, so it then goes where the
+ *  palette or menu would have sent it, not to the page body. */
+export function focusTarget(): () => HTMLElement | null {
+  const a = document.activeElement as HTMLElement | null;
+  let owner: Element | null = a;
+  while (owner && !focusReturn.has(owner)) owner = owner.parentElement;
+  const up = owner ? focusReturn.get(owner)! : () => null;
+  return () => (a?.isConnected ? a : up());
+}
+
 /**
  * A modal dialog in a portal: focus moves in and is trapped, Escape and a
  * backdrop click close it while `dismissible`, and focus returns on close.
@@ -64,11 +79,12 @@ export function Dialog({
   live.current = { onClose, dismissible };
   const downOnBackdrop = useRef(false);
   // Read during render: autoFocus inside moves focus before effects run.
-  const [before] = useState(() => document.activeElement as HTMLElement | null);
+  const [back] = useState(focusTarget);
 
   useEffect(() => {
     const el = ref.current!;
     stack.push(el);
+    focusReturn.set(el, back);
     // autoFocus inside has already run; otherwise focus the body's first
     // control rather than the header's close button.
     if (!el.contains(document.activeElement))
@@ -99,9 +115,9 @@ export function Dialog({
     return () => {
       document.removeEventListener("keydown", onKey);
       stack.splice(stack.indexOf(el), 1);
-      before?.focus();
+      back()?.focus();
     };
-  }, [before]);
+  }, [back]);
 
   return createPortal(
     <div
