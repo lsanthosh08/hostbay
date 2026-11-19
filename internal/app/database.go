@@ -195,6 +195,28 @@ func (s *DatabaseService) schemaNames(ctx context.Context, dbID string) (string,
 	return d.kind, tables, nil
 }
 
+// SchemaTable is a table or view and its column names, for the editor's
+// completion (R8).
+type SchemaTable struct {
+	Name    string   `json:"name"`
+	Columns []string `json:"columns"`
+}
+
+// DatabaseSchema lists a SQL tab's tables and views with their columns,
+// as Ask AI reads them (up to 200 tables, catalog only), so the editor can
+// complete their names. It reads no row.
+func (s *DatabaseService) DatabaseSchema(ctx context.Context, dbID string) ([]SchemaTable, error) {
+	_, tables, err := s.schemaNames(ctx, dbID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]SchemaTable, len(tables))
+	for i, t := range tables {
+		out[i] = SchemaTable{Name: t.Name, Columns: t.Columns}
+	}
+	return out, nil
+}
+
 // DatabaseTest checks a SQL server or rqlite host from the editor's unsaved form,
 // signing in and out, the way TestConnection checks an SSH host (R53): the
 // form's typed password, or the saved one only while the form still

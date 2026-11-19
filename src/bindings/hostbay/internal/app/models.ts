@@ -708,6 +708,15 @@ export interface SavedQuery {
     "text": string;
 }
 
+/**
+ * SchemaTable is a table or view and its column names, for the editor's
+ * completion (R8).
+ */
+export interface SchemaTable {
+    "name": string;
+    "columns": string[] | null;
+}
+
 export interface Script {
     "id": string;
     "label": string;

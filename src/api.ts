@@ -798,6 +798,9 @@ export const databasePreviewRow = (databaseId: string, op: DbRowOp, edit: DbRowE
   DatabaseService.DatabasePreviewRow(databaseId, op, { key: {}, set: {}, ...edit }) as Promise<DbRowPreview>;
 export const databaseInsertRow = (databaseId: string, path: string[], set: Record<string, string | null>) =>
   DatabaseService.DatabaseInsertRow(databaseId, { path, key: {}, set });
+// A SQL tab's tables and views with their columns, for completion.
+export type DbSchemaTable = { name: string; columns: string[] | null };
+export const databaseSchema = (databaseId: string) => DatabaseService.DatabaseSchema(databaseId).then((t) => t ?? []) as Promise<DbSchemaTable[]>;
 export const databaseDeleteRow = (databaseId: string, path: string[], key: Record<string, string | null>) =>
   DatabaseService.DatabaseDeleteRow(databaseId, { path, key, set: {} });
 // With the documentEdit capability, a collection or index opens like a table

@@ -230,6 +230,15 @@ export function DatabaseSavedQueries(dbID: string): $CancellablePromise<$models.
 }
 
 /**
+ * DatabaseSchema lists a SQL tab's tables and views with their columns,
+ * as Ask AI reads them (up to 200 tables, catalog only), so the editor can
+ * complete their names. It reads no row.
+ */
+export function DatabaseSchema(dbID: string): $CancellablePromise<$models.SchemaTable[] | null> {
+    return $Call.ByID(2192174035, dbID);
+}
+
+/**
  * DatabaseSetReadOnly turns a tab's read-only mode on or off. While it is
  * on, Go runs only requests the engine judges read-only, and refuses row
  * and document edits; an engine that can also holds its session read-only

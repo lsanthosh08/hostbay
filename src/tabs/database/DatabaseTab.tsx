@@ -4,6 +4,8 @@ import type { DbBrowse, DbColumn, DbTable, UnlistenFn } from "../../api";
 import { t } from "../../i18n";
 import type { Connection } from "../../state/sessions";
 import { Button } from "../../ui/Button";
+import { IconButton } from "../../ui/IconButton";
+import { AddIcon } from "../../ui/icons";
 import { Spinner } from "../../ui/kit";
 import { usePrompt } from "../../ui/prompt";
 import { useAsyncToast, useToast } from "../../ui/toast";
@@ -15,10 +17,13 @@ import { DocumentView } from "./DocumentView";
 import { ObjectTree } from "./ObjectTree";
 import { QueryEditor } from "./QueryEditor";
 import { QueryLibrary } from "./QueryLibrary";
+import { firstLine } from "./library";
 import { ResultGrid } from "./ResultGrid";
 import { InsertDialog, ReviewDialog, type Pending } from "./RowChange";
 import { addPage } from "./rows";
 import { cancelled, clip, duration, failed, isRunning, type Shown } from "./shown";
+import { addTab, closeTab, completions, renameTab, setTabText, type Completion, type QueryTab } from "./tabs";
+import { Tabs } from "../../ui/Tabs";
 
 // A page with no rows moves to the next result set; this many in a row is
 // a request of empty statements, shown as they are.
@@ -43,13 +48,26 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
   const [insert, setInsert] = useState<{ sql: string; n: number }>();
   const { push } = useToast();
   const toast = useAsyncToast();
-  const { confirm } = usePrompt();
+  const { confirm, prompt } = usePrompt();
   const [readOnly, setReadOnly] = useState(false);
   const [library, setLibrary] = useState(false);
   const putInEditor = (sql: string) => setInsert((x) => ({ sql, n: (x?.n ?? 0) + 1 }));
   // The export running now; cancelling its promise stops it in Go.
   const [exporting, setExporting] = useState<{ cancel: () => void } | null>(null);
-  const [text, setText] = useState("");
+  // Query tabs share the session and the results area below them.
+  const [tabs, setTabs] = useState<QueryTab[]>(() => addTab([], (n) => t("database.queryTab", { n })).tabs);
+  const [activeTab, setActiveTab] = useState("1");
+  const tab = tabs.find((x) => x.id === activeTab) ?? tabs[0];
+  const text = tab.text;
+  const setText = (v: string) => setTabs((ts) => setTabText(ts, tab.id, v));
+  const [schema, setSchema] = useState<Completion[]>([]);
+  useEffect(() => {
+    if (canAsk)
+      api.databaseSchema(databaseId).then(
+        (s) => setSchema(completions(s)),
+        () => {}
+      );
+  }, [databaseId, canAsk]);
   const [shown, setShown] = useState<Shown | null>(null);
   const [doc, setDoc] = useState<{ path: string[]; id: string } | null>(null);
   const unlisten = useRef<UnlistenFn | null>(null);
@@ -171,21 +189,73 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
       </aside>
       <div className="flex-1 min-w-0 flex flex-col min-h-0">
         {canAsk && <AskAI databaseId={databaseId} onSQL={putInEditor} />}
-        <div className="h-2/5 min-h-32 border-b border-line">
-          <QueryEditor
-            insert={insert}
-            value={text}
-            onChange={setText}
-            onRun={run}
-            readOnly={readOnly}
-            onReadOnly={setMode}
-            onLibrary={() => setLibrary(true)}
-            running={running}
-            onCancel={cancel}
-          />
+        <div className="h-2/5 min-h-32 border-b border-line flex flex-col">
+          <div className="flex items-center gap-1 px-2 border-b border-line text-xs">
+            <Tabs
+              label={t("database.queryTabs")}
+              className="min-w-0"
+              value={tab.id}
+              onChange={setActiveTab}
+              items={tabs.map((x) => ({
+                id: x.id,
+                label: (
+                  <span
+                    onDoubleClick={async () => {
+                      const name = await prompt(t("database.renameTab"), x.name);
+                      if (name !== null && name !== undefined) setTabs((ts) => renameTab(ts, x.id, name));
+                    }}
+                  >
+                    {x.name}
+                  </span>
+                ),
+                title: t("database.renameTabHint"),
+                onClose:
+                  tabs.length > 1
+                    ? () => {
+                        const next = closeTab(tabs, x.id, tab.id);
+                        setTabs(next.tabs);
+                        setActiveTab(next.active);
+                      }
+                    : undefined,
+              }))}
+            />
+            <IconButton
+              size="sm"
+              icon={AddIcon}
+              label={t("database.newTab")}
+              onClick={() => {
+                const next = addTab(tabs, (n) => t("database.queryTab", { n }));
+                setTabs(next.tabs);
+                setActiveTab(next.id);
+              }}
+            />
+          </div>
+          <div className="flex-1 min-h-0">
+            <QueryEditor
+              path={`database/${databaseId}/${tab.id}.sql`}
+              schema={schema}
+              insert={insert}
+              value={text}
+              onChange={setText}
+              onRun={run}
+              readOnly={readOnly}
+              onReadOnly={setMode}
+              onLibrary={() => setLibrary(true)}
+              running={running}
+              onCancel={cancel}
+            />
+          </div>
         </div>
         <div role="status" aria-live="polite" className="flex flex-wrap items-center gap-2 px-2 py-1 text-xs border-b border-line min-h-8">
           {running && <Spinner />}
+          {shown && (shown.path || shown.text) && (
+            <span
+              className="text-muted truncate max-w-xs font-mono"
+              title={t("database.resultsOf", { what: shown.path ? shown.path.join(".") : clip(shown.text ?? "") })}
+            >
+              {shown.path ? shown.path.join(".") : firstLine(shown.text ?? "")}
+            </span>
+          )}
           {shown && !shown.error && <span className="text-muted">{t(rows === 1 ? "database.row" : "database.rows", { n: rows })}</span>}
           {elapsed !== undefined && <span className="text-muted tabular-nums">{t("database.took", { time: duration(Math.max(0, elapsed)) })}</span>}
           {state === "cancelled" && <span className="text-muted">{t("database.cancelled")}</span>}

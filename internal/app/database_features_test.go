@@ -216,3 +216,20 @@ func TestDatabaseInsertAndDeleteRows(t *testing.T) {
 		t.Fatalf("rows left = %v, %v", rows, err)
 	}
 }
+
+// The editor's completion names come from the catalog: every table and
+// view with its columns.
+func TestDatabaseSchema(t *testing.T) {
+	d, id := sqliteTab(t, `CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT); CREATE VIEW names AS SELECT name FROM users;`)
+	tables, err := d.DatabaseSchema(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string][]string{}
+	for _, tb := range tables {
+		got[tb.Name] = tb.Columns
+	}
+	if !slices.Equal(got["users"], []string{"id", "name"}) || !slices.Equal(got["names"], []string{"name"}) {
+		t.Fatalf("schema = %v", tables)
+	}
+}

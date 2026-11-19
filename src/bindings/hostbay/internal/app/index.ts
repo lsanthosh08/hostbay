@@ -112,6 +112,7 @@ export type {
     RoutingState,
     SSHConfigImport,
     SavedQuery,
+    SchemaTable,
     Script,
     StoreImport,
     SyncConflict,
