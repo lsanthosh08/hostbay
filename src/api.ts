@@ -752,6 +752,11 @@ export type DbPage = { result: number; columns?: DbColumn[] | null; row: number;
 /** edit: the only columns the engine changes (none named: every one);
  *  noNull: the engine refuses NULL. */
 export type DbTable = { path: string[]; key: string[]; edit?: string[]; noNull?: boolean };
+// A table browse (the "browse" capability): Go checks each column against
+// the table's catalog and passes values as parameters, never as SQL.
+export type DbFilterOp = "contains" | "equals" | "null" | "notNull";
+export type DbFilter = { column: string; op: DbFilterOp; value: string };
+export type DbBrowse = { sort?: string; desc?: boolean; filters?: DbFilter[] };
 export type QueryState = { queryId: string; state: "running" | "done" | "error" | "cancelled" | "expired"; rows: number; message?: string; rerun?: boolean };
 export const databaseConnect = (hostId: string) =>
   unlocking(() => DatabaseService.DatabaseConnect(hostId) as Promise<DatabaseInfo>);
@@ -771,9 +776,13 @@ export const databaseQuery = (databaseId: string, text: string) => DatabaseServi
 // document edit, until the mode is turned off or the tab closes.
 export const databaseReadOnly = (databaseId: string, text: string) => DatabaseService.DatabaseReadOnly(databaseId, text) as Promise<boolean>;
 export const databaseSetReadOnly = (databaseId: string, on: boolean) => DatabaseService.DatabaseSetReadOnly(databaseId, on);
-// Opens a table from the tree; table is null when it has no key and opens read-only.
-export const databaseOpenTable = (databaseId: string, path: string[]) =>
-  DatabaseService.DatabaseOpenTable(databaseId, path) as Promise<{ queryId: string; table: DbTable | null }>;
+// Opens a table from the tree, sorted and filtered by browse; table is null
+// when it has no key and opens read-only.
+export const databaseOpenTable = (databaseId: string, path: string[], browse: DbBrowse = {}) =>
+  DatabaseService.DatabaseOpenTable(databaseId, path, browse) as Promise<{ queryId: string; table: DbTable | null }>;
+// Counts the rows browse's filters keep, within Go's ten-second catalog limit.
+export const databaseCountRows = (databaseId: string, path: string[], browse: DbBrowse) =>
+  DatabaseService.DatabaseCountRows(databaseId, path, browse) as Promise<number>;
 export const databaseNextPage = (queryId: string) => DatabaseService.DatabaseNextPage(queryId) as Promise<DbPage>;
 export const databaseCancel = (queryId: string) => DatabaseService.DatabaseCancel(queryId);
 export const databaseCloseQuery = (queryId: string) => DatabaseService.DatabaseCloseQuery(queryId);

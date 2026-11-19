@@ -172,6 +172,9 @@ func Capabilities(e Engine) []string {
 	if _, ok := e.(DocumentEditor); ok {
 		caps = append(caps, "documentEdit")
 	}
+	if _, ok := e.(Browser); ok {
+		caps = append(caps, "browse")
+	}
 	return caps
 }
 

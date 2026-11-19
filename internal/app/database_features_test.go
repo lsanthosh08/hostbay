@@ -96,3 +96,28 @@ func TestDatabaseReadOnlyMode(t *testing.T) {
 		t.Fatalf("delete after read-only was turned off: %v", err)
 	}
 }
+
+// A table opened from the tree sorts and filters on the server, and its
+// filtered rows are counted.
+func TestDatabaseBrowseThroughTheService(t *testing.T) {
+	d, id := sqliteTab(t, `CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT); INSERT INTO users VALUES (1, 'ann'), (2, 'bob'), (3, 'anna');`)
+	ctx := context.Background()
+	b := database.Browse{Sort: "id", Desc: true, Filters: []database.Filter{{Column: "name", Op: "contains", Value: "an"}}}
+	tbl, err := d.DatabaseOpenTable(ctx, id, []string{"users"}, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows, err := readAll(t, d, tbl.QueryID); err != nil || len(rows) != 2 || rows[0] != "3" || rows[1] != "1" {
+		t.Fatalf("browse = %v, %v", rows, err)
+	}
+	if n, err := d.DatabaseCountRows(ctx, id, []string{"users"}, b); err != nil || n != 2 {
+		t.Fatalf("count = %d, %v", n, err)
+	}
+	bad, err := d.DatabaseOpenTable(ctx, id, []string{"users"}, database.Browse{Sort: "nope"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readAll(t, d, bad.QueryID); err == nil { // the refusal arrives with the first page
+		t.Fatal("a sort by an unknown column ran")
+	}
+}

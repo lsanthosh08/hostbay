@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as api from "../../api";
-import type { DbTable, UnlistenFn } from "../../api";
+import type { DbBrowse, DbColumn, DbTable, UnlistenFn } from "../../api";
 import { t } from "../../i18n";
 import type { Connection } from "../../state/sessions";
 import { Button } from "../../ui/Button";
@@ -8,6 +8,8 @@ import { Spinner } from "../../ui/kit";
 import { usePrompt } from "../../ui/prompt";
 import { useAsyncToast, useToast } from "../../ui/toast";
 import { AskAI } from "./AskAI";
+import { nextSort } from "./browse";
+import { BrowseBar } from "./BrowseBar";
 import { databaseCapabilities } from "./capabilities";
 import { DocumentView } from "./DocumentView";
 import { ObjectTree } from "./ObjectTree";
@@ -31,6 +33,7 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
   const canEdit = caps.includes("rowEdit");
   const canEditDocs = caps.includes("documentEdit");
   const canAsk = caps.includes("askSql");
+  const canBrowse = caps.includes("browse");
   const [insert, setInsert] = useState<{ sql: string; n: number }>();
   const { push } = useToast();
   const toast = useAsyncToast();
@@ -70,7 +73,7 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
     }
   };
 
-  const start = async (open: () => Promise<{ queryId: string; table: DbTable | null }>, what: { text?: string; path?: string[] }) => {
+  const start = async (open: () => Promise<{ queryId: string; table: DbTable | null }>, what: { text?: string; path?: string[]; browse?: DbBrowse }) => {
     forget();
     const mine = seq.current;
     const started = Date.now();
@@ -104,7 +107,23 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
       () => setReadOnly(on),
       (e) => push("error", api.errorInfo(e).message)
     );
-  const openTable = (path: string[]) => start(() => api.databaseOpenTable(databaseId, path), { path });
+  const openTable = (path: string[], browse: DbBrowse = {}) => start(() => api.databaseOpenTable(databaseId, path, browse), { path, browse });
+  const count = (s: Shown) => {
+    update(s.queryId, (x) => ({ ...x, count: null }));
+    api.databaseCountRows(databaseId, s.path!, s.browse ?? {}).then(
+      (n) => update(s.queryId, (x) => ({ ...x, count: n })),
+      (e) => {
+        update(s.queryId, (x) => ({ ...x, count: undefined }));
+        push("error", api.errorInfo(e).message);
+      }
+    );
+  };
+  // The table's columns, kept across its browses: a browse that fails
+  // returns none, and the filters still need them.
+  const tableCols = useRef<{ path: string; columns: DbColumn[] }>({ path: "", columns: [] });
+  const where = JSON.stringify(shown?.path ?? null);
+  if (shown?.path && shown.sets[0]?.columns.length) tableCols.current = { path: where, columns: shown.sets[0].columns };
+  const columns = tableCols.current.path === where ? tableCols.current.columns : [];
   // A request still opening has no query ID to cancel yet: drop it, so the
   // query it starts is closed as it arrives.
   const cancel = () => {
@@ -112,7 +131,7 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
     forget();
     setShown((s) => s && cancelled(s));
   };
-  const rerun = () => shown && (shown.path ? openTable(shown.path) : shown.text && runQuery(shown.text));
+  const rerun = () => shown && (shown.path ? openTable(shown.path, shown.browse) : shown.text && runQuery(shown.text));
 
   const state = shown?.state?.state;
   // While a request runs, the status line counts up a few times a second.
@@ -167,11 +186,25 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
             </Button>
           )}
         </div>
+        {shown?.path && canBrowse && (
+          <BrowseBar
+            key={where}
+            columns={columns}
+            browse={shown.browse ?? {}}
+            onApply={(b) => openTable(shown.path!, b)}
+            onRefresh={rerun}
+            count={shown.count}
+            onCount={() => count(shown)}
+          />
+        )}
         <div className="flex-1 min-h-0">
           {shown && (
             <ResultGrid
               key={shown.queryId}
               sets={shown.sets}
+              done={shown.done}
+              sort={shown.path && canBrowse ? (shown.browse ?? {}) : undefined}
+              onSort={shown.path && canBrowse ? (column) => openTable(shown.path!, nextSort(shown.browse ?? {}, column)) : undefined}
               table={readOnly ? null : shown.table}
               onSaveCell={(result, row, col) =>
                 toast(() => api.databaseSaveCell(shown.queryId, result, row, col)).then((saved) => saved && push("success", t("database.saved")))
@@ -185,7 +218,7 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
                   return false;
                 }
                 push("success", t("database.edited"));
-                openTable(shown.table.path);
+                openTable(shown.table.path, shown.browse);
                 return true;
               }}
               onEditDocument={canEditDocs && shown.table ? (id) => setDoc({ path: shown.table!.path, id }) : undefined}
@@ -202,7 +235,7 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
           onSaved={() => {
             setDoc(null);
             push("success", t("database.documentSaved"));
-            openTable(doc.path);
+            openTable(doc.path, JSON.stringify(doc.path) === where ? shown?.browse : undefined);
           }}
         />
       )}

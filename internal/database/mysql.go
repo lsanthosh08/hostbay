@@ -120,7 +120,9 @@ var mysqlDialect = dialect{
 			WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND NON_UNIQUE = 0
 			ORDER BY INDEX_NAME = 'PRIMARY' DESC, INDEX_NAME, SEQ_IN_INDEX`, path[0], path[1]))
 	},
-	tablePath: func(path []string) bool { return len(path) == 2 },
+	tablePath:   func(path []string) bool { return len(path) == 2 },
+	asText:      func(col string) string { return "CAST(" + col + " AS CHAR)" },
+	likeSpecial: "%_",
 	readOnly: func(on bool) string {
 		if on {
 			return "SET SESSION TRANSACTION READ ONLY"

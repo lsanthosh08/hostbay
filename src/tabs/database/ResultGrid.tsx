@@ -1,11 +1,11 @@
 import { useState } from "react";
-import type { DbCell, DbColumn, DbTable } from "../../api";
+import type { DbBrowse, DbCell, DbColumn, DbTable } from "../../api";
 import { t } from "../../i18n";
 import { Button } from "../../ui/Button";
 import { Dialog } from "../../ui/Dialog";
 import { Field, Input } from "../../ui/Field";
 import { IconButton } from "../../ui/IconButton";
-import { EditIcon } from "../../ui/icons";
+import { EditIcon, ExpandedIcon } from "../../ui/icons";
 import { Tabs } from "../../ui/Tabs";
 import { canEdit, CellText, editable, rowKey, type ResultSet } from "./rows";
 
@@ -17,12 +17,20 @@ import { canEdit, CellText, editable, rowKey, type ResultSet } from "./rows";
  */
 export function ResultGrid({
   sets,
+  done,
+  sort,
+  onSort,
   table,
   onSaveCell,
   onEditRow,
   onEditDocument,
 }: {
   sets: ResultSet[];
+  /** Every row has arrived, so an empty set means no rows match. */
+  done: boolean;
+  /** A browsed table's sort; a header click asks onSort to change it. */
+  sort?: DbBrowse;
+  onSort?: (column: string) => void;
   table: DbTable | null;
   onSaveCell: (result: number, row: number, col: number) => void;
   onEditRow: (key: Record<string, string | null>, set: Record<string, string | null>) => Promise<boolean>;
@@ -59,8 +67,21 @@ export function ResultGrid({
               <tr>
                 {rowsEdit && <th className="border-b border-line" aria-label={t("database.editRow")} />}
                 {set.columns.map((c, i) => (
-                  <th key={i} scope="col" className="text-left font-semibold px-2 py-1 border-b border-line whitespace-nowrap" title={c.type}>
-                    {c.name}
+                  <th
+                    key={i}
+                    scope="col"
+                    className="text-left font-semibold px-2 py-1 border-b border-line whitespace-nowrap"
+                    title={c.type}
+                    aria-sort={sort?.sort === c.name && at === 0 ? (sort.desc ? "descending" : "ascending") : undefined}
+                  >
+                    {onSort && at === 0 ? (
+                      <button type="button" className="flex items-center gap-1 hover:underline" title={t("database.sortBy", { name: c.name })} onClick={() => onSort(c.name)}>
+                        {c.name}
+                        {sort?.sort === c.name && <ExpandedIcon className={`size-3 ${sort.desc ? "" : "rotate-180"}`} aria-hidden />}
+                      </button>
+                    ) : (
+                      c.name
+                    )}
                   </th>
                 ))}
               </tr>
@@ -98,6 +119,7 @@ export function ResultGrid({
               ))}
             </tbody>
           </table>
+          {done && !set.rows.length && <p className="p-3 text-sm text-muted">{t("database.noMatch")}</p>}
         </div>
       ) : null}
       {editing !== null && table && set && (

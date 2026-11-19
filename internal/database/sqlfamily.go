@@ -75,6 +75,11 @@ type dialect struct {
 	// connection of db, for a driver whose cancel only drops its
 	// connection (MySQL).
 	killer func(ctx context.Context, db *sql.DB, session *sql.Conn) (kill func(), err error)
+	// asText casts a quoted column to text, for a "contains" filter.
+	asText func(col string) string
+	// likeSpecial are the characters LIKE treats as wildcards, escaped in
+	// a filter's value: SQL Server's LIKE also takes [ranges].
+	likeSpecial string
 	// readOnly, when set, is the statement that turns the session's own
 	// read-only mode on or off on the server.
 	readOnly func(on bool) string
@@ -155,6 +160,11 @@ func (e *sqlEngine) Children(ctx context.Context, path []string, offset int) ([]
 }
 
 func (e *sqlEngine) Query(ctx context.Context, text string) (Results, error) {
+	return e.query(ctx, text)
+}
+
+// query runs text with args, values for its placeholders, on the session.
+func (e *sqlEngine) query(ctx context.Context, text string, args ...any) (Results, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.active != nil { // one request at a time on the session
@@ -203,7 +213,7 @@ func (e *sqlEngine) Query(ctx context.Context, text string) (Results, error) {
 			// armed before it is sent.
 			stopKill = context.AfterFunc(ctx, e.kill)
 		}
-		rows, err = e.session.QueryContext(ctx, text)
+		rows, err = e.session.QueryContext(ctx, text, args...)
 		if err != nil && stopKill != nil && !stopKill() {
 			e.dropSession()
 		}

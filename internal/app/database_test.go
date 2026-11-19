@@ -330,7 +330,7 @@ func TestSQLiteThroughTheService(t *testing.T) {
 	if err != nil || len(tree.Nodes) != 1 || tree.Nodes[0].Name != "users" {
 		t.Fatalf("tree = %+v, %v", tree, err)
 	}
-	tbl, err := d.DatabaseOpenTable(ctx, info.DatabaseID, tree.Nodes[0].Path)
+	tbl, err := d.DatabaseOpenTable(ctx, info.DatabaseID, tree.Nodes[0].Path, database.Browse{})
 	if err != nil || tbl.Table == nil || !slices.Equal(tbl.Table.Key, []string{"id"}) {
 		t.Fatalf("table = %+v, %v", tbl, err)
 	}

@@ -69,7 +69,9 @@ var sqliteDialect = dialect{
 		}
 		return "", nil
 	},
-	key: sqliteKey,
+	key:         sqliteKey,
+	asText:      func(col string) string { return "CAST(" + col + " AS TEXT)" },
+	likeSpecial: "%_",
 	readOnly: func(on bool) string {
 		if on {
 			return "PRAGMA query_only = ON"

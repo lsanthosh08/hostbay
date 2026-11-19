@@ -1,4 +1,4 @@
-import type { AppError, DbTable, QueryState } from "../../api";
+import type { AppError, DbBrowse, DbTable, QueryState } from "../../api";
 import type { ResultSet } from "./rows";
 
 /** The request on screen: a query's text, or a table opened from the tree. */
@@ -6,6 +6,10 @@ export type Shown = {
   queryId: string;
   text?: string;
   path?: string[];
+  /** A table's sort and filters (the "browse" capability). */
+  browse?: DbBrowse;
+  /** Its row count: undefined until asked for, null while counting. */
+  count?: number | null;
   table: DbTable | null;
   sets: ResultSet[];
   state?: QueryState;

@@ -442,9 +442,11 @@ func (s *DatabaseService) DatabaseQuery(dbID, text string) (string, error) {
 	return s.reg.Start(d.ctx, dbID, func(ctx context.Context) (database.Results, error) { return d.engine.Query(ctx, text) }), nil
 }
 
-// DatabaseOpenTable shows a table from the tree. Its key comes from the
-// database's own catalog, so DatabaseEditRow never trusts the page for it.
-func (s *DatabaseService) DatabaseOpenTable(ctx context.Context, dbID string, path []string) (DatabaseTable, error) {
+// DatabaseOpenTable shows a table from the tree, sorted and filtered by
+// browse on an engine with the "browse" capability (the zero browse shows
+// it as it is). Its key comes from the database's own catalog, so
+// DatabaseEditRow never trusts the page for it.
+func (s *DatabaseService) DatabaseOpenTable(ctx context.Context, dbID string, path []string, browse database.Browse) (DatabaseTable, error) {
 	d, err := s.session(dbID)
 	if err != nil {
 		return DatabaseTable{}, err
@@ -462,9 +464,28 @@ func (s *DatabaseService) DatabaseOpenTable(ctx context.Context, dbID string, pa
 	if err != nil {
 		return DatabaseTable{}, s.pageErr(err)
 	}
-	text := ed.SelectTable(path)
-	id := s.reg.Start(d.ctx, dbID, func(ctx context.Context) (database.Results, error) { return d.engine.Query(ctx, text) })
-	return DatabaseTable{QueryID: id, Table: t}, nil
+	run := func(ctx context.Context) (database.Results, error) { return d.engine.Query(ctx, ed.SelectTable(path)) }
+	if b, ok := d.engine.(database.Browser); ok {
+		run = func(ctx context.Context) (database.Results, error) { return b.BrowseTable(ctx, path, browse) }
+	} else if len(browse.Filters) > 0 || browse.Sort != "" {
+		return DatabaseTable{}, errors.New("this database cannot sort or filter a table")
+	}
+	return DatabaseTable{QueryID: s.reg.Start(d.ctx, dbID, run), Table: t}, nil
+}
+
+// DatabaseCountRows counts a table's rows that browse's filters keep,
+// within the catalog timeout, for an engine with the "browse" capability.
+func (s *DatabaseService) DatabaseCountRows(ctx context.Context, dbID string, path []string, browse database.Browse) (int64, error) {
+	d, err := s.session(dbID)
+	if err != nil {
+		return 0, err
+	}
+	b, ok := d.engine.(database.Browser)
+	if !ok {
+		return 0, errors.New("this database cannot count a table's rows")
+	}
+	n, err := b.CountRows(ctx, path, browse)
+	return n, s.pageErr(err)
 }
 
 // DatabaseNextPage returns a query's next page of rows.

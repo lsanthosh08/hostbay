@@ -59,6 +59,14 @@ export function DatabaseConnect(hostID: string): $CancellablePromise<$models.Dat
 }
 
 /**
+ * DatabaseCountRows counts a table's rows that browse's filters keep,
+ * within the catalog timeout, for an engine with the "browse" capability.
+ */
+export function DatabaseCountRows(dbID: string, path: string[] | null, browse: database$0.Browse): $CancellablePromise<number> {
+    return $Call.ByID(2046354978, dbID, path, browse);
+}
+
+/**
  * DatabaseDocument returns, as JSON, the whole document of a collection or
  * index opened with DatabaseOpenTable that its "_id" cell names, for the
  * document view: a cell shown in the grid may be cut.
@@ -84,11 +92,13 @@ export function DatabaseNextPage(queryID: string): $CancellablePromise<database$
 }
 
 /**
- * DatabaseOpenTable shows a table from the tree. Its key comes from the
- * database's own catalog, so DatabaseEditRow never trusts the page for it.
+ * DatabaseOpenTable shows a table from the tree, sorted and filtered by
+ * browse on an engine with the "browse" capability (the zero browse shows
+ * it as it is). Its key comes from the database's own catalog, so
+ * DatabaseEditRow never trusts the page for it.
  */
-export function DatabaseOpenTable(dbID: string, path: string[] | null): $CancellablePromise<$models.DatabaseTable> {
-    return $Call.ByID(2615698020, dbID, path);
+export function DatabaseOpenTable(dbID: string, path: string[] | null, browse: database$0.Browse): $CancellablePromise<$models.DatabaseTable> {
+    return $Call.ByID(2615698020, dbID, path, browse);
 }
 
 /**
