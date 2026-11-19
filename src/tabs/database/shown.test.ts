@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cancelled, clip, duration, failed, isRunning, type Shown } from "./shown";
+import { cancelled, clip, duration, failed, isRunning, once, type Shown } from "./shown";
 
 const shown = (over: Partial<Shown> = {}): Shown => ({ queryId: "q", table: null, sets: [], done: false, loading: false, ...over });
 
@@ -46,4 +46,22 @@ it("formats how long a request took", () => {
   expect(duration(250)).toBe("0.25 s");
   expect(duration(12_340)).toBe("12.3 s");
   expect(duration(125_000)).toBe("2 min 5 s");
+});
+
+it("drops a second run while the first still waits", async () => {
+  const busy = { current: false };
+  let release!: () => void;
+  let runs = 0;
+  const f = () =>
+    new Promise<void>((r) => {
+      runs++;
+      release = r;
+    });
+  const first = once(busy, f);
+  await once(busy, f);
+  expect(runs).toBe(1);
+  release();
+  await first;
+  await once(busy, async () => void runs++);
+  expect(runs).toBe(2);
 });

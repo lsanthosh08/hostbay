@@ -49,3 +49,16 @@ export function duration(ms: number): string {
   const s = Math.round(ms / 1000);
   return `${Math.floor(s / 60)} min ${s % 60} s`;
 }
+
+/** Runs f unless a call through the same busy flag is still waiting;
+ *  a second Run (button or key) while the first awaits Go's judgement or
+ *  its confirm is dropped, so one request asks once. */
+export async function once(busy: { current: boolean }, f: () => Promise<void>): Promise<void> {
+  if (busy.current) return;
+  busy.current = true;
+  try {
+    await f();
+  } finally {
+    busy.current = false;
+  }
+}

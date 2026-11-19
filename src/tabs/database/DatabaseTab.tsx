@@ -21,7 +21,7 @@ import { firstLine } from "./library";
 import { ResultGrid } from "./ResultGrid";
 import { InsertDialog, ReviewDialog, type Pending } from "./RowChange";
 import { addPage } from "./rows";
-import { cancelled, clip, duration, failed, isRunning, type Shown } from "./shown";
+import { cancelled, clip, duration, failed, isRunning, once, type Shown } from "./shown";
 import { addTab, closeTab, completions, renameTab, setTabText, type Completion, type QueryTab } from "./tabs";
 import { Tabs } from "../../ui/Tabs";
 
@@ -126,13 +126,15 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
   const explain = (q: string) => start(() => api.databaseExplain(databaseId, q).then((queryId) => ({ queryId, table: null })), { text: q, explain: true });
   // A request Go does not judge read-only runs only once confirmed, and not
   // at all in read-only mode, where Go would refuse it anyway.
-  const run = async (q: string) => {
-    if (!(await api.databaseReadOnly(databaseId, q).catch(() => false))) {
-      if (readOnly) return push("error", t("database.readOnlyRefused"));
-      if (!(await confirm(t("database.confirmWrite", { text: clip(q) }), { confirmLabel: t("database.runAnyway") }))) return;
-    }
-    runQuery(q);
-  };
+  const asking = useRef(false);
+  const run = (q: string) =>
+    once(asking, async () => {
+      if (!(await api.databaseReadOnly(databaseId, q).catch(() => false))) {
+        if (readOnly) return void push("error", t("database.readOnlyRefused"));
+        if (!(await confirm(t("database.confirmWrite", { text: clip(q) }), { confirmLabel: t("database.runAnyway") }))) return;
+      }
+      runQuery(q);
+    });
   const setMode = (on: boolean) =>
     api.databaseSetReadOnly(databaseId, on).then(
       () => setReadOnly(on),
