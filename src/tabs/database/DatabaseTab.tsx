@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as api from "../../api";
-import type { DbTable, QueryState, UnlistenFn } from "../../api";
+import type { DbTable, UnlistenFn } from "../../api";
 import { t } from "../../i18n";
 import type { Connection } from "../../state/sessions";
 import { Button } from "../../ui/Button";
@@ -12,20 +12,8 @@ import { DocumentView } from "./DocumentView";
 import { ObjectTree } from "./ObjectTree";
 import { QueryEditor } from "./QueryEditor";
 import { ResultGrid } from "./ResultGrid";
-import { addPage, type ResultSet } from "./rows";
-
-/** The request on screen: a query's text, or a table opened from the tree. */
-type Shown = {
-  queryId: string;
-  text?: string;
-  path?: string[];
-  table: DbTable | null;
-  sets: ResultSet[];
-  state?: QueryState;
-  done: boolean;
-  loading: boolean;
-  error?: string;
-};
+import { addPage } from "./rows";
+import { isRunning, type Shown } from "./shown";
 
 // A page with no rows moves to the next result set; this many in a row is
 // a request of empty statements, shown as they are.
@@ -102,7 +90,7 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
   const rerun = () => shown && (shown.path ? openTable(shown.path) : shown.text && runQuery(shown.text));
 
   const state = shown?.state?.state;
-  const running = !!shown && (shown.loading || state === "running") && !shown.error && state !== "cancelled";
+  const running = isRunning(shown);
   const rows = shown?.sets.reduce((n, s) => n + s.rows.length, 0) ?? 0;
 
   return (
