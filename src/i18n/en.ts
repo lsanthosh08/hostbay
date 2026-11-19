@@ -260,6 +260,8 @@ export const en = {
   "rdp.notConnected": "not connected",
   "rdp.connecting": "connecting…",
   "rdp.connected": "connected · {w}×{h}",
+  "rdp.connectedNoNla": "connected without NLA · {w}×{h}",
+  "rdp.noNlaHint": "The server opened this session before it checked the account (no Network Level Authentication). The certificate was checked.",
   "rdp.closed": "session closed",
   "rdp.closedWith": "session closed: {reason}",
   "rdp.error": "error: {reason}",

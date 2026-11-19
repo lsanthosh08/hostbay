@@ -52,6 +52,9 @@ export function RdpTab({
   const [status, setStatus] = useState<"idle" | "connecting" | "live" | "closed" | "error">("idle");
   const [errMsg, setErrMsg] = useState("");
   const size = useRef({ w: 1280, h: 1024 });
+  // The server opened this session without NLA: it did not check the
+  // account first. Shown beside "connected" for as long as it lasts.
+  const [noNla, setNoNla] = useState(false);
   const unlistenersRef = useRef<(() => void)[]>([]);
   // Backend-made id of the live session; every RDP call and event uses it.
   const rdpIdRef = useRef<string | null>(null);
@@ -96,6 +99,7 @@ export function RdpTab({
     setStatus("connecting");
     onStatus?.("connecting");
     setErrMsg("");
+    setNoNla(false);
     const canvas = canvasRef.current!;
     const ctx = canvas.getContext("2d")!;
 
@@ -124,8 +128,9 @@ export function RdpTab({
       // Frames sent since connect were held for us; they arrive in order.
       unlistenersRef.current.push(
         api.rdpView(id, {
-          onSize: ({ width, height }) => {
+          onSize: ({ width, height, noNla }) => {
             size.current = { w: width, h: height };
+            setNoNla(noNla);
             canvas.width = width;
             canvas.height = height;
           },
@@ -242,7 +247,12 @@ export function RdpTab({
         <span className="text-muted">
           {status === "idle" && t("rdp.notConnected")}
           {status === "connecting" && t("rdp.connecting")}
-          {status === "live" && t("rdp.connected", { w: size.current.w, h: size.current.h })}
+          {status === "live" && !noNla && t("rdp.connected", { w: size.current.w, h: size.current.h })}
+          {status === "live" && noNla && (
+            <span className="text-warning" title={t("rdp.noNlaHint")}>
+              {t("rdp.connectedNoNla", { w: size.current.w, h: size.current.h })}
+            </span>
+          )}
           {status === "closed" && (errMsg ? t("rdp.closedWith", { reason: errMsg }) : t("rdp.closed"))}
           {status === "error" && t("rdp.error", { reason: errMsg })}
         </span>

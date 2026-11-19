@@ -71,7 +71,7 @@ func main() {
 		}
 		return
 	}
-	send(map[string]any{"t": "size", "width": 4, "height": 2})
+	send(map[string]any{"t": "size", "width": 4, "height": 2, "noNla": mode == "nonla"})
 	frame(0, 0, 4, 2, 0xAA)
 	frame(1, 1, 1, 1, 0xBB)
 	// Report what this process was given, so the test can look for the

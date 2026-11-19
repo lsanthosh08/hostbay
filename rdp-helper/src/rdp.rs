@@ -808,8 +808,9 @@ fn await_trust(rx: &Receiver<In>) -> AppResult<()> {
     }
 }
 
-/// A connected session, ready for the active stage.
-type Connected = (connector::ConnectionResult, UpgradedFramed, Arc<Mutex<ClipShared>>, crate::audin::Mic);
+/// A connected session, ready for the active stage, and whether it opened
+/// without NLA.
+type Connected = (connector::ConnectionResult, UpgradedFramed, Arc<Mutex<ClipShared>>, crate::audin::Mic, bool);
 
 /// Full connect: TCP → begin → TLS → certificate trust → finalize (CredSSP).
 fn connect(
@@ -861,6 +862,8 @@ fn connect(
     await_trust(rx)?;
 
     let upgraded = ironrdp_blocking::mark_as_upgraded(should_upgrade, &mut connector);
+    // Only now does the connector know whether the server chose CredSSP.
+    let no_nla = !connector.should_perform_credssp();
     let mut upgraded_framed = ironrdp_blocking::Framed::new(upgraded_stream);
 
     let mut net = sspi::network_client::reqwest_network_client::ReqwestNetworkClient;
@@ -883,7 +886,7 @@ fn connect(
         let _ = s.set_read_timeout(Some(Duration::from_millis(12)));
     }
 
-    Ok((result, upgraded_framed, shared, mic))
+    Ok((result, upgraded_framed, shared, mic, no_nla))
 }
 
 /// The host form's labels for each RDP security choice, named in messages
@@ -1150,7 +1153,7 @@ pub fn run(
     let mut attempt = 0;
     let mut mode = security.as_str();
     let mut nla_refusal: Option<String> = None;
-    let (conn_result, framed, clip, mic) = loop {
+    let (conn_result, framed, clip, mic, no_nla) = loop {
         attempt += 1;
         let cfg = build_config(user.clone(), password.clone(), domain.clone(), width, height, mode);
         match connect(&out, &rx, &ep, cfg, mode) {
@@ -1183,7 +1186,7 @@ pub fn run(
         conn_result.desktop_size.width,
         conn_result.desktop_size.height,
     );
-    run_active(&out, conn_result, framed, &mut image, rx, clip, mic)
+    run_active(&out, conn_result, framed, &mut image, rx, clip, mic, no_nla)
 }
 
 /// Poll the native clipboard (macOS, Windows); when its contents change (and
@@ -1243,6 +1246,7 @@ fn input_ops(kind: &str, x: u16, y: u16, button: u8, down: bool, scancode: u16, 
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_active(
     out: &Sink,
     conn_result: connector::ConnectionResult,
@@ -1251,9 +1255,14 @@ fn run_active(
     rx: Receiver<In>,
     clip: Arc<Mutex<ClipShared>>,
     mic: crate::audin::Mic,
+    no_nla: bool,
 ) -> AppResult<()> {
     let lost = |e: std::io::Error| format!("connection lost: {e}");
-    out.send(&Out::Size { width: conn_result.desktop_size.width, height: conn_result.desktop_size.height });
+    let size = |width, height| Out::Size { width, height, no_nla };
+    if no_nla {
+        eprintln!("[rdp-helper] signed in without NLA: the server did not check the account before opening the session");
+    }
+    out.send(&size(conn_result.desktop_size.width, conn_result.desktop_size.height));
     let activation = conn_result.activation_factory;
     let mut stage = ActiveStageBuilder {
         static_channels: conn_result.static_channels,
@@ -1428,7 +1437,7 @@ fn run_active(
                                 return Err("the server's desktop switch sent an invalid channel chunk size".into());
                             }
                             *image = DecodedImage::new(PixelFormat::RgbA32, desktop_size.width, desktop_size.height);
-                            out.send(&Out::Size { width: desktop_size.width, height: desktop_size.height });
+                            out.send(&size(desktop_size.width, desktop_size.height));
                         }
                         _ => {}
                     }

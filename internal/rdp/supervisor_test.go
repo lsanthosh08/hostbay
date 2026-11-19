@@ -143,12 +143,31 @@ func TestHandshakeTrustAndHeldFramesReachTheUI(t *testing.T) {
 	if w, h := binary.LittleEndian.Uint16(got[0][1:]), binary.LittleEndian.Uint16(got[0][3:]); w != 4 || h != 2 {
 		t.Fatalf("size %dx%d", w, h)
 	}
+	if len(got[0]) != 6 || got[0][5] != 0 {
+		t.Fatalf("an NLA session's size message is %v", got[0])
+	}
 	f := got[2]
 	if x, y, w, h := binary.LittleEndian.Uint16(f[1:]), binary.LittleEndian.Uint16(f[3:]), binary.LittleEndian.Uint16(f[5:]), binary.LittleEndian.Uint16(f[7:]); x != 1 || y != 1 || w != 1 || h != 1 || len(f) != 9+4 || f[9] != 0xBB {
 		t.Fatalf("frame %v", f)
 	}
 	if reason := recv(t, r.exited); reason != "" {
 		t.Fatalf("a requested close reported %q", reason)
+	}
+}
+
+// A session that opened without NLA says so on every size message, so the
+// page can show that the server did not check the account first.
+func TestSizeCarriesSignedInWithoutNLA(t *testing.T) {
+	r := newRecorder()
+	s, err := start(t, "nonla", r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recv(t, r.certs)
+	s.Close()
+	got := collect(t, s)
+	if len(got) == 0 || got[0][0] != MsgSize || len(got[0]) != 6 || got[0][5]&1 != 1 {
+		t.Fatalf("size message %v", got)
 	}
 }
 

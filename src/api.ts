@@ -657,13 +657,15 @@ export const rdpInput = (
   );
 // Frames, desktop size and the session's end arrive over the "rdp" GoStream
 // (internal/rdp: MsgFrame=1, MsgSize=2, MsgClosed=3; uint16 little-endian).
+// MsgSize ends with a flags byte; bit 0 means the session opened without
+// NLA, so the server did not check the account before opening it.
 // The backend holds them from connect until this subscribes. onClosed gets
 // the reason, empty when the user closed the session.
 export function rdpView(
   rdpId: string,
   h: {
     onFrame: (f: RdpFrame) => void;
-    onSize: (s: { width: number; height: number }) => void;
+    onSize: (s: { width: number; height: number; noNla: boolean }) => void;
     onClosed: (reason: string) => void;
   }
 ): UnlistenFn {
@@ -687,7 +689,7 @@ export function rdpView(
       const rgba = new Uint8ClampedArray(buf, 9);
       if (rgba.length === width * height * 4) h.onFrame({ x: u16(1), y: u16(3), width, height, rgba });
     } else if (b[0] === 2 && b.length >= 5) {
-      h.onSize({ width: u16(1), height: u16(3) });
+      h.onSize({ width: u16(1), height: u16(3), noNla: b.length >= 6 && (b[5] & 1) === 1 });
     } else if (b[0] === 3) {
       end(new TextDecoder().decode(b.subarray(1)));
     }
