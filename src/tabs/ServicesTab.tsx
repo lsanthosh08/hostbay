@@ -9,11 +9,13 @@ import { controlCls, Input } from "../ui/Field";
 import { IconButton } from "../ui/IconButton";
 import { AddIcon, DeleteIcon } from "../ui/icons";
 import { Panel, Spinner, Badge } from "../ui/kit";
+import { usePrompt } from "../ui/prompt";
 import { useToast, useAsyncToast } from "../ui/toast";
 
 export function ServicesTab({ conn }: { conn: Connection }) {
   const { push } = useToast();
   const run = useAsyncToast();
+  const { confirm } = usePrompt();
   const [units, setUnits] = useState<SystemdUnit[]>([]);
   const [filter, setFilter] = useState("");
   const [loading, setLoading] = useState(false);
@@ -40,6 +42,8 @@ export function ServicesTab({ conn }: { conn: Connection }) {
   }, [conn.sessionId]);
 
   const systemd = async (unit: string, action: string) => {
+    if (action === "stop" && !(await confirm(t("services.confirmStop", { unit })))) return;
+    if (action === "restart" && !(await confirm(t("services.confirmRestart", { unit })))) return;
     const res = await run(() => api.systemdAction(conn.sessionId, unit, action), `${action} ${unit}`);
     if (res) setOutput((res.stdout + "\n" + res.stderr).trim());
     loadUnits();

@@ -7,6 +7,7 @@ import { EmptyState } from "../ui/EmptyState";
 import { Panel, Spinner, Badge } from "../ui/kit";
 import { useAsyncToast } from "../ui/toast";
 import { usePrompt } from "../ui/prompt";
+import { t } from "../i18n";
 
 const td = "px-3 py-1.5 border-t border-line align-top";
 const th = "px-3 py-2 text-left text-xs opacity-60";
@@ -39,12 +40,14 @@ export function IisTab({ conn }: { conn: Connection }) {
   }, [refresh]);
 
   const siteAct = async (name: string, action: string) => {
-    if (action === "stop" && !(await confirm(`Stop site "${name}"?`))) return;
+    const ask = action === "stop" ? "iis.confirmSiteStop" : action === "restart" ? "iis.confirmSiteRestart" : null;
+    if (ask && !(await confirm(t(ask, { name })))) return;
     await run(() => api.iisSiteAction(sid, name, action), `${action} ${name}`);
     refresh();
   };
   const poolAct = async (name: string, action: string) => {
-    if (action === "stop" && !(await confirm(`Stop app pool "${name}"?`))) return;
+    const ask = action === "stop" ? "iis.confirmPoolStop" : action === "recycle" ? "iis.confirmPoolRecycle" : null;
+    if (ask && !(await confirm(t(ask, { name })))) return;
     await run(() => api.iisPoolAction(sid, name, action), `${action} ${name}`);
     refresh();
   };
