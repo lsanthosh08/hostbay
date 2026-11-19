@@ -1394,6 +1394,8 @@ export const en = {
   "history.noTerminal": "Click in a terminal to see its host's history.",
   "history.off": "History is off in this terminal, because it shows typed text itself (local echo).",
   "history.clear": "Clear this host's history",
+  "terminal.pasteRuns": "This shell runs each line of a paste as it lands, so pasting this runs {n} command lines at once. Paste it?",
+  "terminal.paste": "Paste",
   "terminal.log": "Log",
   "terminal.logOn": "Logging to {path}",
   "terminal.logOff": "Log this tab's output to a file",

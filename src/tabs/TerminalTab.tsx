@@ -12,13 +12,14 @@ import { AddIcon, CloseIcon, LogsIcon, RefreshIcon, StopIcon } from "../ui/icons
 import { Badge } from "../ui/kit";
 import { Tabs } from "../ui/Tabs";
 import { onThemeChange } from "../ui/theme";
+import { usePrompt } from "../ui/prompt";
 import { useToast } from "../ui/toast";
 import { terminalPalette, terminalTheme } from "../theme/terminal";
 import { termFontSize } from "../shell/settings/Terminal";
 import { backgroundImage, loadBackground, onSettingsChange, settings } from "../state/settings";
 import { humanSize } from "./files/paths";
 import { activeTerminal, clearActiveTerminal, notifyActiveTerminal, setActiveTerminal, type ActiveTerm } from "./terminal/active";
-import { InputLine, pasteText } from "./terminal/inputLine";
+import { InputLine, linesRun, pasteText } from "./terminal/inputLine";
 import { accepts, AI_PAUSE_MS, completionRest, historySuggestion, mayAskAI } from "./terminal/suggestions";
 import {
   startZmodem,
@@ -132,6 +133,7 @@ const makeId = () => `t${nextId++}`;
 /** One xterm + one pty, owned for the component's lifetime. */
 function TermPane({ conn }: { conn: Connection }) {
   const { push } = useToast();
+  const { confirm } = usePrompt();
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const ptyRef = useRef<string | null>(null);
@@ -202,13 +204,18 @@ function TermPane({ conn }: { conn: Connection }) {
     const active: ActiveTerm = { sessionId: conn.sessionId, ptyId: () => ptyId, bracketed: () => term.modes.bracketedPasteMode, focus: () => term.focus() };
     term.textarea?.addEventListener("focus", () => setActiveTerminal(active));
     // xterm brackets a paste as it is; clean it first (see pasteText). The
-    // capture listener runs before xterm's own on the textarea.
-    const onPaste = (e: ClipboardEvent) => {
-      const text = e.clipboardData?.getData("text/plain");
-      if (text === undefined) return;
+    // capture listener runs before xterm's own on the textarea. A shell
+    // without bracketed paste runs each line as it lands, so several lines
+    // ask first, as other terminals do.
+    const onPaste = async (e: ClipboardEvent) => {
+      const raw = e.clipboardData?.getData("text/plain");
+      if (raw === undefined) return;
       e.preventDefault();
       e.stopImmediatePropagation();
-      term.paste(pasteText(text));
+      const text = pasteText(raw);
+      const n = linesRun(text.replace(/(\r\n|\r|\n)$/, ""), term.modes.bracketedPasteMode);
+      if (n > 0 && !(await confirm(t("terminal.pasteRuns", { n: n + 1 }), { confirmLabel: t("terminal.paste") }))) return;
+      if (!disposed) term.paste(text);
     };
     el.addEventListener("paste", onPaste, true);
 

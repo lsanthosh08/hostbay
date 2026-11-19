@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { InputLine, pasteText, quickBytes, type BufferLike } from "./inputLine";
+import { InputLine, linesRun, pasteText, quickBytes, type BufferLike } from "./inputLine";
 
 /** A screen of plain rows with a cursor, standing in for xterm's buffer. */
 function screen(rows: string[], cursorX: number, cursorY = rows.length - 1) {
@@ -85,6 +85,16 @@ describe("quickBytes", () => {
   });
   it("cannot end its own bracketed paste early, so no line runs on its own", () => {
     expect(quickBytes("echo a\x1b[201~\nrm -rf ~\n", "paste", true)).toBe("\x1b[200~echo a[201~\rrm -rf ~\x1b[201~");
+  });
+});
+
+describe("linesRun", () => {
+  it("counts each line break a shell without bracketed paste runs", () => {
+    expect(linesRun("ls\r\npwd\nid\r", false)).toBe(3);
+    expect(linesRun("uptime", false)).toBe(0);
+  });
+  it("is none when the shell holds the paste for Enter", () => {
+    expect(linesRun("ls\npwd\n", true)).toBe(0);
   });
 });
 

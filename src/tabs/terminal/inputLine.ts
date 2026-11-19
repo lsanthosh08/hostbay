@@ -61,6 +61,10 @@ export class InputLine {
  *  such as VTE drop them from a paste for the same reason. */
 export const pasteText = (text: string) => text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g, "");
 
+/** How many lines a paste would run as it lands: each line break is Enter
+ *  unless the shell asked for bracketed paste, which holds them all. */
+export const linesRun = (text: string, bracketed: boolean) => (bracketed ? 0 : (text.match(/\r\n|\r|\n/g) ?? []).length);
+
 /** What a quick command sends: Run is the text and Enter, Paste the text
  *  alone. Several lines go as one bracketed paste when the shell asked for
  *  bracketed paste, so none of them runs on its own. */
