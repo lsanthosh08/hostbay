@@ -35,8 +35,13 @@ func (e *sqlEngine) Explain(text string) (string, error) {
 	if !ok || len(stmts) != 1 {
 		return "", &Error{Category: "syntax", Err: errors.New("select exactly one statement to explain")}
 	}
-	if !slices.Contains(explainLead, stmts[0][0]) {
-		return "", &Error{Category: "syntax", Err: errors.New("only SELECT, WITH, VALUES, TABLE, INSERT, UPDATE, DELETE or MERGE can be explained")}
+	lead := stmts[0][0]
+	// The lead word must open the text: the lexer skips quotes and
+	// brackets, so `("analyze") DELETE` reads as DELETE, while after the
+	// prefix PostgreSQL reads the quoted name as its ANALYZE option.
+	text = strings.TrimSpace(text)
+	if !slices.Contains(explainLead, lead) || !strings.EqualFold(text[:min(len(text), len(lead))], lead) {
+		return "", &Error{Category: "syntax", Err: errors.New("only a statement starting with SELECT, WITH, VALUES, TABLE, INSERT, UPDATE, DELETE or MERGE can be explained")}
 	}
-	return e.d.explain + strings.TrimSpace(text), nil
+	return e.d.explain + text, nil
 }

@@ -27,6 +27,10 @@ func TestExplain(t *testing.T) {
 	for _, text := range []string{
 		"SELECT 1; DELETE FROM t",
 		"ANALYZE DELETE FROM t",
+		// PostgreSQL reads a quoted option name as the option itself.
+		`("analyze") DELETE FROM t`,
+		"(analyze) DELETE FROM t",
+		"/* x */ (analyze) DELETE FROM t",
 		"EXPLAIN ANALYZE DELETE FROM t",
 		"DROP TABLE t",
 		"SELECT 1 /*! ; DELETE FROM t */",
