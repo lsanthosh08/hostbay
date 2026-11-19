@@ -117,12 +117,34 @@ of each:
     Kevin Cernekee, with LibTomCrypt and LibTomMath (https://www.libtom.net),
     public domain under The Unlicense, where the build links them.
 On macOS, libxml2 and zlib come from the operating system and are not bundled.
-The Windows installer, when a release includes OpenConnect for the system-wide
-path, carries openconnect.exe with Windows builds of the same libraries and
-also libxml2 (https://gitlab.gnome.org/GNOME/libxml2, MIT License, Copyright
-Daniel Veillard), zlib (https://zlib.net, zlib License, Copyright Jean-loup
-Gailly and Mark Adler) and GNU libiconv (LGPL-2.1 or later). On Linux, Hostbay
-uses the distribution's openconnect package and ships none of these.
+The Windows installer carries openconnect.exe beside hostbay.exe, built by
+Hostbay's release workflow from OpenConnect's unmodified release tarball
+(build/windows/bundle-openconnect.sh), without stoken. Beside it are the DLLs
+it loads, taken unmodified from MSYS2's UCRT64 packages (https://www.msys2.org,
+built from https://github.com/msys2/MINGW-packages): GnuTLS, Nettle and
+Hogweed, GMP, libtasn1, p11-kit, libidn2, libunistring and libintl as above,
+and these:
+  libxml2 (https://gitlab.gnome.org/GNOME/libxml2), MIT License, Copyright
+    Daniel Veillard;
+  zlib (https://zlib.net), zlib License, Copyright Jean-loup Gailly and Mark
+    Adler;
+  GNU libiconv (https://www.gnu.org/software/libiconv/), LGPL-2.1 or later,
+    Copyright the Free Software Foundation, Inc.;
+  libffi (https://sourceware.org/libffi/), MIT License, Copyright Anthony
+    Green, Red Hat, Inc. and others;
+  Brotli (https://github.com/google/brotli), MIT License, Copyright the Brotli
+    Authors;
+  Zstandard (https://github.com/facebook/zstd), BSD 3-Clause License, Copyright
+    Meta Platforms, Inc. and affiliates;
+  winpthreads from mingw-w64 (https://www.mingw-w64.org), MIT License,
+    Copyright the mingw-w64 project;
+  libgcc, the GCC runtime library (https://gcc.gnu.org), GPL-3.0 or later with
+    the GCC Runtime Library Exception, version 3.1, Copyright the Free Software
+    Foundation, Inc.
+The OpenConnect folder in Hostbay's install folder holds versions.txt, which
+names the MSYS2 package and exact version each DLL came from, and each one's
+licence texts. On Linux, Hostbay uses the distribution's openconnect package
+and ships none of these.
 
 You may replace any of these libraries or the openconnect program in your copy
 of Hostbay with your own build of the same interface. Their source is available

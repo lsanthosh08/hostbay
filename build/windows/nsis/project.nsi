@@ -101,8 +101,13 @@ Section
     File "..\..\..\bin\hostbay-vpn.exe"
     # System-wide OpenConnect runs openconnect.exe from beside hostbay.exe with its
     # DLLs and wintun.dll. Release CI stages them in bin\openconnect-windows
-    # (.github/workflows/release.yml); a build without them installs without OpenConnect.
+    # (build/windows/bundle-openconnect.sh), and fails without them; a local
+    # build without them installs without OpenConnect.
     File /nonfatal "..\..\..\bin\openconnect-windows\*"
+    # Their versions and licence texts, for the source offer in NOTICE.
+    SetOutPath "$INSTDIR\OpenConnect"
+    File /nonfatal /r "..\..\..\bin\openconnect-windows-notices\*"
+    SetOutPath $INSTDIR
     # AWS Client VPN SSO profiles run openvpn-aws.exe, which hostbay-netd copies
     # at install with tapctl.exe to create its ovpn-dco adapter. Release CI
     # builds them into bin\openvpn-aws-windows (build/openvpn-aws/build.ps1).

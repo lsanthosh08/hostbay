@@ -1,0 +1,23 @@
+# Every DLL the Windows installer may ship beside openconnect.exe, as a
+# lower-case shell pattern, then the name NOTICE gives the library.
+# bundle-openconnect.sh --check fails the build on a DLL no line matches,
+# and a Go test (internal/vpn/openconnect) fails when NOTICE lacks a name.
+wintun.dll Wintun
+libgnutls-*.dll GnuTLS
+libnettle-*.dll Nettle
+libhogweed-*.dll Hogweed
+libgmp-*.dll GMP
+libtasn1-*.dll libtasn1
+libp11-kit-*.dll p11-kit
+libffi-*.dll libffi
+libidn2-*.dll libidn2
+libunistring-*.dll libunistring
+libintl-*.dll libintl
+libiconv-*.dll libiconv
+libcharset-*.dll libiconv
+libxml2-*.dll libxml2
+zlib1.dll zlib
+libbrotli*.dll Brotli
+libzstd.dll Zstandard
+libwinpthread-*.dll winpthreads
+libgcc_s_*.dll libgcc

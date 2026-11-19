@@ -87,31 +87,38 @@ jobs:
           curl -fsSL -o bin/ovpn-dco-windows/LICENSE.txt https://raw.githubusercontent.com/OpenVPN/ovpn-dco-win/2.8.14/COPYRIGHT.MIT
           rm ovpn-dco.zip
 
-      # OpenConnect publishes Windows builds only as unversioned artifacts of
-      # its master branch, which cannot be pinned. To ship it, a maintainer
-      # makes a zip of openconnect.exe and its DLLs (from a tested
-      # openconnect-installer-MinGW64-GnuTLS.exe, files at the zip's top
-      # level), hosts it, and sets the repository variables
-      # OPENCONNECT_WINDOWS_URL and OPENCONNECT_WINDOWS_SHA256, first checking
-      # that NOTICE lists every library among the zip's DLLs. Without them
-      # the installer ships without OpenConnect.
-      - name: Fetch OpenConnect for Windows
+      # openconnect.exe for system-wide OpenConnect, with exactly the DLLs it
+      # loads and their versions and licence texts for NOTICE's source offer:
+      # build/windows/bundle-openconnect.sh builds OpenConnect's release
+      # tarball in the runner's MSYS2 (UCRT64) from the files
+      # build/windows/openconnect-packages.txt pins by SHA-256. A maintainer
+      # may ship their own zip of openconnect.exe and its DLLs instead (files
+      # at the zip's top level) by setting the repository variables
+      # OPENCONNECT_WINDOWS_URL and OPENCONNECT_WINDOWS_SHA256. Either way,
+      # NOTICE must cover every DLL, and a build without openconnect.exe fails.
+      - name: Bundle OpenConnect for Windows
         if: runner.os == 'Windows'
         env:
           OPENCONNECT_WINDOWS_URL: ${{ vars.OPENCONNECT_WINDOWS_URL }}
           OPENCONNECT_WINDOWS_SHA256: ${{ vars.OPENCONNECT_WINDOWS_SHA256 }}
         run: |
-          if [ -z "$OPENCONNECT_WINDOWS_URL" ]; then
-            echo "::notice::OPENCONNECT_WINDOWS_URL is not set; the installer ships without OpenConnect"
-            exit 0
+          if [ -n "$OPENCONNECT_WINDOWS_URL" ]; then
+            test -n "$OPENCONNECT_WINDOWS_SHA256"
+            curl -fsSL -o openconnect.zip "$OPENCONNECT_WINDOWS_URL"
+            echo "$OPENCONNECT_WINDOWS_SHA256  openconnect.zip" | sha256sum -c -
+            mkdir -p bin/openconnect-windows
+            python -m zipfile -e openconnect.zip bin/openconnect-windows
+            rm openconnect.zip
+            bash build/windows/bundle-openconnect.sh --check bin/openconnect-windows
+          else
+            # Git Bash sets MSYSTEM=MINGW64 itself; the login shell takes
+            # UCRT64's PATH from MSYSTEM and stays in this folder.
+            MSYSTEM=UCRT64 CHERE_INVOKING=1 /c/msys64/usr/bin/bash.exe -l build/windows/bundle-openconnect.sh bin/openconnect-windows bin/openconnect-windows-notices
           fi
-          test -n "$OPENCONNECT_WINDOWS_SHA256"
-          curl -fsSL -o openconnect.zip "$OPENCONNECT_WINDOWS_URL"
-          echo "$OPENCONNECT_WINDOWS_SHA256  openconnect.zip" | sha256sum -c -
-          mkdir -p bin/openconnect-windows
-          python -m zipfile -e openconnect.zip bin/openconnect-windows
-          test -f bin/openconnect-windows/openconnect.exe
-          rm openconnect.zip
+          if [ ! -f bin/openconnect-windows/openconnect.exe ]; then
+            echo "::error::bin/openconnect-windows has no openconnect.exe; the installer would ship without OpenConnect"
+            exit 1
+          fi
 
       # The same Wails CLI version as the library in go.mod. On Linux it is
       # built with the gtk3 tag, as the app is: without it the CLI links GTK4
