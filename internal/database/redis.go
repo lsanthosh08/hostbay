@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"net"
 	"strconv"
@@ -536,7 +537,13 @@ func (e *redisEngine) EditableTable(ctx context.Context, path []string) (*Table,
 	e.types[path[0]] = t
 	e.mu.Unlock()
 	if col, ok := redisKeyColumn[t]; ok {
-		return &Table{Path: path, Key: []string{col}, Edit: []string{redisValueColumn[t]}, NoNull: true}, nil
+		key := []string{col}
+		if t == "list" {
+			// An index alone names whatever sits there now; the value as
+			// shown pins the element the user saw.
+			key = append(key, "value")
+		}
+		return &Table{Path: path, Key: key, Edit: []string{redisValueColumn[t]}, NoNull: true}, nil
 	}
 	return nil, nil
 }
@@ -595,8 +602,13 @@ func (e *redisEngine) EditRow(ctx context.Context, edit RowEdit) error {
 			}
 			return fmt.Errorf("a %s cannot be edited here", t)
 		}
-		row, err := one(edit.Key, col)
-		if err != nil {
+		shown := edit.Key
+		if t == "list" {
+			shown = maps.Clone(edit.Key)
+			delete(shown, "value")
+		}
+		row, err := one(shown, col)
+		if err != nil || t == "list" && (len(edit.Key) != 2 || edit.Key["value"] == nil) {
 			return errors.New("the row's key does not match the key's type; reload it")
 		}
 		v, err := one(edit.Set, redisValueColumn[t])
@@ -619,9 +631,14 @@ func (e *redisEngine) EditRow(ctx context.Context, edit RowEdit) error {
 			if perr != nil {
 				return errors.New("the row's index is not a number")
 			}
-			var n int64
-			n, err = tx.LLen(ctx, key).Result()
-			exists = i >= 0 && i < n
+			// The element must still be the one shown, not only the index
+			// still be in range: a push or pop meanwhile moves elements.
+			var cur string
+			cur, err = tx.LIndex(ctx, key, i).Result()
+			exists = err == nil && i >= 0 && cur == *edit.Key["value"]
+			if errors.Is(err, redis.Nil) {
+				err = nil
+			}
 			apply = func(p redis.Pipeliner) { p.LSet(ctx, key, i, v) }
 		case "set":
 			exists, err = tx.SIsMember(ctx, key, row).Result()

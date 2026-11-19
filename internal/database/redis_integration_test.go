@@ -181,7 +181,11 @@ func TestRedisThroughATwoHopChain(t *testing.T) {
 		if rows := allRows(t, e, ed.SelectTable([]string{tc.key})); len(rows) == 0 {
 			t.Fatalf("%s shows no rows", tc.key)
 		}
-		if err := ed.EditRow(ctx, RowEdit{Path: []string{tc.key}, Key: map[string]*string{tc.col: s(tc.row)}, Set: map[string]*string{tc.setCol: s(tc.val)}}); err != nil {
+		key := map[string]*string{tc.col: s(tc.row)}
+		if tc.key == "l" {
+			key["value"] = s("y") // a list row is named by its index and shown value
+		}
+		if err := ed.EditRow(ctx, RowEdit{Path: []string{tc.key}, Key: key, Set: map[string]*string{tc.setCol: s(tc.val)}}); err != nil {
 			t.Fatalf("%s: %v", tc.key, err)
 		}
 		if rows := allRows(t, e, tc.check); rows[0][len(rows[0])-1].Text != tc.want {

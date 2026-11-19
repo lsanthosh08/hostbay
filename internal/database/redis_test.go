@@ -260,3 +260,34 @@ func TestRedisKeyOpensWithOnlyItsValueEditable(t *testing.T) {
 		}
 	}
 }
+
+// A list row is named by its index and its value as shown: an index alone
+// names whatever element sits there now, so a push by another client
+// would make an edit overwrite an element the user never saw.
+func TestRedisListEditChecksTheShownValue(t *testing.T) {
+	srv := dbtest.NewRedis(t, nil)
+	for k, v := range map[string]string{
+		"type l": "+list\r\n", "llen l": ":3\r\n", "lindex l 1": "$1\r\nx\r\n",
+		"watch l": "+OK\r\n", "unwatch": "+OK\r\n", "multi": "+OK\r\n", "lset l 1 Y": "+QUEUED\r\n", "exec": "*1\r\n+OK\r\n",
+	} {
+		srv.Replies[k] = v
+	}
+	var dials atomic.Int32
+	ed := openFakeRedis(t, srv, "", &dials).(RowEditor)
+	if tb, err := ed.EditableTable(context.Background(), []string{"l"}); err != nil || !slices.Equal(tb.Key, []string{"index", "value"}) {
+		t.Fatalf("list opens as %+v, %v", tb, err)
+	}
+	s := func(v string) *string { return &v }
+	edit := func(key map[string]*string) error {
+		return ed.EditRow(context.Background(), RowEdit{Path: []string{"l"}, Key: key, Set: map[string]*string{"value": s("Y")}})
+	}
+	if err := edit(map[string]*string{"index": s("1")}); err == nil || sent(srv, "LSET") {
+		t.Fatalf("an edit by index alone: %v", err)
+	}
+	if err := edit(map[string]*string{"index": s("1"), "value": s("q")}); err == nil || sent(srv, "LSET") {
+		t.Fatalf("an edit of an element that changed: %v", err)
+	}
+	if err := edit(map[string]*string{"index": s("1"), "value": s("x")}); err != nil || !sent(srv, "LSET") {
+		t.Fatalf("an edit of the shown element: %v", err)
+	}
+}
