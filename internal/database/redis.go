@@ -245,6 +245,26 @@ var redisReadOnly = map[string]bool{
 	"SCAN": true, "HSCAN": true, "SSCAN": true, "ZSCAN": true, "DBSIZE": true, "INFO": true, "PING": true,
 }
 
+// ReadOnly reports a request whose every command is in redisReadOnly.
+// Text that does not split is judged as writing.
+func (e *redisEngine) ReadOnly(text string) bool {
+	n := 0
+	for line := range strings.Lines(text) {
+		args, err := splitRedis(line)
+		if err != nil {
+			return false
+		}
+		if len(args) == 0 {
+			continue
+		}
+		if !redisReadOnly[strings.ToUpper(args[0])] {
+			return false
+		}
+		n++
+	}
+	return n > 0
+}
+
 // Query runs each line of text as one command, split into arguments in Go
 // the way redis-cli splits them, as its own result set. Every line is
 // checked before any is sent. A key's whole value (HGETALL, SMEMBERS,

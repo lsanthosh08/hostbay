@@ -75,6 +75,9 @@ type dialect struct {
 	// connection of db, for a driver whose cancel only drops its
 	// connection (MySQL).
 	killer func(ctx context.Context, db *sql.DB, session *sql.Conn) (kill func(), err error)
+	// readOnly, when set, is the statement that turns the session's own
+	// read-only mode on or off on the server.
+	readOnly func(on bool) string
 }
 
 // sqlEngine is the one SQL implementation (KTD23). User requests run on
@@ -90,6 +93,9 @@ type sqlEngine struct {
 	session *sql.Conn
 	kill    func() // the session's killer (dialect.killer), or nil
 	active  *sqlResults
+	// readOnly holds each new session read-only on the server too
+	// (dialect.readOnly), as SetReadOnly last asked.
+	readOnly bool
 }
 
 func newSQLEngine(db *sql.DB, d dialect, onClose func()) *sqlEngine {
@@ -173,6 +179,14 @@ func (e *sqlEngine) Query(ctx context.Context, text string) (Results, error) {
 				return nil, e.wrap(err)
 			}
 			e.kill = nil
+			if e.readOnly && e.d.readOnly != nil {
+				if _, err = e.session.ExecContext(ctx, e.d.readOnly(true)); err != nil {
+					e.session.Close()
+					e.session = nil
+					cancel()
+					return nil, e.wrap(err)
+				}
+			}
 			if e.d.killer != nil {
 				if e.kill, err = e.d.killer(ctx, e.db, e.session); err != nil {
 					e.session.Close()
@@ -211,6 +225,33 @@ func (e *sqlEngine) Query(ctx context.Context, text string) (Results, error) {
 	r.load()
 	e.active = r
 	return r, nil
+}
+
+// ReadOnly judges text by the dialect's lexer (rerunnable).
+func (e *sqlEngine) ReadOnly(text string) bool { return rerunnable(text, e.d) }
+
+// SetReadOnly holds the session read-only on the server, for a dialect
+// that can: the open session now, and each one opened later.
+func (e *sqlEngine) SetReadOnly(ctx context.Context, on bool) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.readOnly = on
+	if e.d.readOnly == nil || e.session == nil {
+		return nil
+	}
+	if e.active != nil { // a cursor still open on the session would block it
+		e.active.Close()
+		if e.active.killed {
+			e.dropSession()
+			return nil
+		}
+		e.active = nil
+	}
+	if _, err := e.session.ExecContext(ctx, e.d.readOnly(on)); err != nil {
+		// The next request opens a session in the mode asked for.
+		e.dropSession()
+	}
+	return nil
 }
 
 // dropSession closes the session's connection instead of returning it to

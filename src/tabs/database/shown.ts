@@ -28,3 +28,6 @@ export const cancelled = (s: Shown): Shown => ({ ...s, loading: false, state: { 
  *  reports it as one ("context canceled") to the page that was reading. */
 export const failed = (s: Shown, e: AppError): Shown =>
   e.details?.category === "cancelled" ? cancelled(s) : { ...s, loading: false, error: e.message };
+
+/** text cut to n characters for a dialog that quotes it. */
+export const clip = (text: string, n = 600) => (text.length > n ? text.slice(0, n) + "…" : text);

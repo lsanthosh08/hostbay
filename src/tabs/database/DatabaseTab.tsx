@@ -5,6 +5,7 @@ import { t } from "../../i18n";
 import type { Connection } from "../../state/sessions";
 import { Button } from "../../ui/Button";
 import { Spinner } from "../../ui/kit";
+import { usePrompt } from "../../ui/prompt";
 import { useAsyncToast, useToast } from "../../ui/toast";
 import { AskAI } from "./AskAI";
 import { databaseCapabilities } from "./capabilities";
@@ -13,7 +14,7 @@ import { ObjectTree } from "./ObjectTree";
 import { QueryEditor } from "./QueryEditor";
 import { ResultGrid } from "./ResultGrid";
 import { addPage } from "./rows";
-import { cancelled, failed, isRunning, type Shown } from "./shown";
+import { cancelled, clip, failed, isRunning, type Shown } from "./shown";
 
 // A page with no rows moves to the next result set; this many in a row is
 // a request of empty statements, shown as they are.
@@ -33,6 +34,8 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
   const [insert, setInsert] = useState<{ sql: string; n: number }>();
   const { push } = useToast();
   const toast = useAsyncToast();
+  const { confirm } = usePrompt();
+  const [readOnly, setReadOnly] = useState(false);
   const [text, setText] = useState("");
   const [shown, setShown] = useState<Shown | null>(null);
   const [doc, setDoc] = useState<{ path: string[]; id: string } | null>(null);
@@ -86,6 +89,20 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
   };
 
   const runQuery = (q: string) => start(() => api.databaseQuery(databaseId, q).then((queryId) => ({ queryId, table: null })), { text: q });
+  // A request Go does not judge read-only runs only once confirmed, and not
+  // at all in read-only mode, where Go would refuse it anyway.
+  const run = async (q: string) => {
+    if (!(await api.databaseReadOnly(databaseId, q).catch(() => false))) {
+      if (readOnly) return push("error", t("database.readOnlyRefused"));
+      if (!(await confirm(t("database.confirmWrite", { text: clip(q) }), { confirmLabel: t("database.runAnyway") }))) return;
+    }
+    runQuery(q);
+  };
+  const setMode = (on: boolean) =>
+    api.databaseSetReadOnly(databaseId, on).then(
+      () => setReadOnly(on),
+      (e) => push("error", api.errorInfo(e).message)
+    );
   const openTable = (path: string[]) => start(() => api.databaseOpenTable(databaseId, path), { path });
   // A request still opening has no query ID to cancel yet: drop it, so the
   // query it starts is closed as it arrives.
@@ -112,7 +129,9 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
             insert={insert}
             value={text}
             onChange={setText}
-            onRun={runQuery}
+            onRun={run}
+            readOnly={readOnly}
+            onReadOnly={setMode}
             running={running}
             onCancel={cancel}
           />
@@ -127,6 +146,7 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
               {t("database.rerun")}
             </Button>
           )}
+          {readOnly && <span className="text-warning">{t("database.readOnlyOn")}</span>}
           {shown?.path && !shown.table && !shown.loading && !shown.error && canEdit && (
             <span className="text-muted">{t("database.readOnly")}</span>
           )}
@@ -141,7 +161,7 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
             <ResultGrid
               key={shown.queryId}
               sets={shown.sets}
-              table={shown.table}
+              table={readOnly ? null : shown.table}
               onSaveCell={(result, row, col) =>
                 toast(() => api.databaseSaveCell(shown.queryId, result, row, col)).then((saved) => saved && push("success", t("database.saved")))
               }

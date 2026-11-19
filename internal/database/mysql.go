@@ -121,6 +121,12 @@ var mysqlDialect = dialect{
 			ORDER BY INDEX_NAME = 'PRIMARY' DESC, INDEX_NAME, SEQ_IN_INDEX`, path[0], path[1]))
 	},
 	tablePath: func(path []string) bool { return len(path) == 2 },
+	readOnly: func(on bool) string {
+		if on {
+			return "SET SESSION TRANSACTION READ ONLY"
+		}
+		return "SET SESSION TRANSACTION READ WRITE"
+	},
 	binary: func(t string) bool {
 		t = strings.ToUpper(t)
 		return strings.HasSuffix(t, "BLOB") || t == "BINARY" || t == "VARBINARY" || t == "BIT" || t == "GEOMETRY"

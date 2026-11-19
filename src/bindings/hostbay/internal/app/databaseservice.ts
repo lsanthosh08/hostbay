@@ -102,10 +102,20 @@ export function DatabasePickFile(): $CancellablePromise<$models.FilePick> {
 /**
  * DatabaseQuery runs text (the selection or the whole editor) as one
  * request and returns its query ID at once. Its state arrives as
- * query-state events and its rows from DatabaseNextPage.
+ * query-state events and its rows from DatabaseNextPage. In read-only
+ * mode a request the engine does not judge read-only is refused.
  */
 export function DatabaseQuery(dbID: string, text: string): $CancellablePromise<string> {
     return $Call.ByID(287028732, dbID, text);
+}
+
+/**
+ * DatabaseReadOnly reports whether the engine judges text read-only, so
+ * the page can ask before running anything else. Text it cannot judge is
+ * reported as writing.
+ */
+export function DatabaseReadOnly(dbID: string, text: string): $CancellablePromise<boolean> {
+    return $Call.ByID(306164934, dbID, text);
 }
 
 /**
@@ -132,6 +142,18 @@ export function DatabaseSaveCell(queryID: string, result: number, row: number, c
  */
 export function DatabaseSaveDocument(dbID: string, path: string[] | null, id: string, doc: string): $CancellablePromise<void> {
     return $Call.ByID(2657003396, dbID, path, id, doc);
+}
+
+/**
+ * DatabaseSetReadOnly turns a tab's read-only mode on or off. While it is
+ * on, Go runs only requests the engine judges read-only, and refuses row
+ * and document edits; an engine that can also holds its session read-only
+ * on the server, which catches a function that writes called from a
+ * SELECT. The mode protects against accidents, not against a user set on
+ * writing: it lasts until the tab closes.
+ */
+export function DatabaseSetReadOnly(dbID: string, on: boolean): $CancellablePromise<void> {
+    return $Call.ByID(1665258854, dbID, on);
 }
 
 /**

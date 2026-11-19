@@ -141,6 +141,27 @@ type DocumentEditor interface {
 	EditDocument(ctx context.Context, path []string, id, doc string) error
 }
 
+// Classifier is the optional capability that judges a request before it
+// runs: ReadOnly reports text that, judged by its text alone, changes
+// nothing. It is the same judgement Results.Rerunnable gives afterwards.
+type Classifier interface {
+	ReadOnly(text string) bool
+}
+
+// ReadOnly reports whether e judges text read-only. An engine that cannot
+// judge treats every request as one that writes.
+func ReadOnly(e Engine, text string) bool {
+	c, ok := e.(Classifier)
+	return ok && c.ReadOnly(text)
+}
+
+// SessionGuard is the optional capability of an engine that can also hold
+// its own session read-only on the server, which catches what a judgement
+// by text misses, such as a function that writes called from a SELECT.
+type SessionGuard interface {
+	SetReadOnly(ctx context.Context, on bool) error
+}
+
 // Capabilities lists what e offers the page beyond browsing and queries;
 // the page reads these and never branches on the engine name.
 func Capabilities(e Engine) []string {

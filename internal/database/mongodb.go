@@ -231,7 +231,7 @@ func (e *mongoEngine) Query(ctx context.Context, text string) (Results, error) {
 		return nil, &Error{Category: "syntax", Err: errors.New("the command is empty")}
 	}
 	name := cmd[0].Key
-	rerun := slices.Contains(mongoReadOnly, name) && !strings.Contains(text, "$out") && !strings.Contains(text, "$merge")
+	rerun := mongoReads(name, text)
 	if slices.Contains(mongoCursors, name) {
 		cur, err := e.c.Database(db).RunCommandCursor(ctx, cmd)
 		if err != nil {
@@ -252,6 +252,23 @@ func (e *mongoEngine) Query(ctx context.Context, text string) (Results, error) {
 		return nil, mongoError(err)
 	}
 	return &memResults{rerun: rerun, sets: []resultSet{{cols: []Column{{Name: "reply", Type: "document"}}, next: rowList([][]any{{mongoJSON(reply)}})}}}, nil
+}
+
+// mongoReads reports a command, named name in text, that changes nothing:
+// one in mongoReadOnly without an $out or $merge stage anywhere in it.
+func mongoReads(name, text string) bool {
+	return slices.Contains(mongoReadOnly, name) && !strings.Contains(text, "$out") && !strings.Contains(text, "$merge")
+}
+
+// ReadOnly judges a command as Query parses it; text that does not parse
+// is judged as writing.
+func (e *mongoEngine) ReadOnly(text string) bool {
+	var cmd bson.D
+	if err := bson.UnmarshalExtJSON([]byte(text), false, &cmd); err != nil {
+		return false
+	}
+	cmd = slices.DeleteFunc(cmd, func(el bson.E) bool { return el.Key == "$db" })
+	return len(cmd) > 0 && mongoReads(cmd[0].Key, text)
 }
 
 // mongoJSON is a document as canonical Extended JSON, which keeps every

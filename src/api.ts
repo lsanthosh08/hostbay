@@ -766,6 +766,11 @@ export const databaseTree = (databaseId: string, path: string[] | null, offset: 
 // Runs text as one request and returns its queryId at once; state arrives on
 // onQueryState and rows from databaseNextPage.
 export const databaseQuery = (databaseId: string, text: string) => DatabaseService.DatabaseQuery(databaseId, text);
+// Whether Go judges text read-only; anything else asks before it runs. In
+// read-only mode (databaseSetReadOnly) Go refuses it, and every row or
+// document edit, until the mode is turned off or the tab closes.
+export const databaseReadOnly = (databaseId: string, text: string) => DatabaseService.DatabaseReadOnly(databaseId, text) as Promise<boolean>;
+export const databaseSetReadOnly = (databaseId: string, on: boolean) => DatabaseService.DatabaseSetReadOnly(databaseId, on);
 // Opens a table from the tree; table is null when it has no key and opens read-only.
 export const databaseOpenTable = (databaseId: string, path: string[]) =>
   DatabaseService.DatabaseOpenTable(databaseId, path) as Promise<{ queryId: string; table: DbTable | null }>;

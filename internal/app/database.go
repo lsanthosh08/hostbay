@@ -49,6 +49,10 @@ type dbSession struct {
 	ctx    context.Context // ends when the tab closes, with every query in it
 	cancel context.CancelFunc
 	kind   string // the host's kind, such as postgres
+
+	// readOnly refuses every request that may change data (DatabaseSetReadOnly);
+	// it is read and set under DatabaseService.mu.
+	readOnly bool
 }
 
 // DatabaseInfo is an open database: its ID, and the capabilities the tab
@@ -377,13 +381,63 @@ func (s *DatabaseService) DatabaseTree(ctx context.Context, dbID string, path []
 	return DatabaseTree{Nodes: nodes, More: more}, nil
 }
 
+// errReadOnly refuses a change in a tab whose read-only mode is on.
+var errReadOnly = errors.New("read-only mode is on, so nothing that may change data runs here; turn read-only off to run it.")
+
+// writable refuses when dbID's read-only mode is on.
+func (s *DatabaseService) writable(d *dbSession) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if d.readOnly {
+		return errReadOnly
+	}
+	return nil
+}
+
+// DatabaseSetReadOnly turns a tab's read-only mode on or off. While it is
+// on, Go runs only requests the engine judges read-only, and refuses row
+// and document edits; an engine that can also holds its session read-only
+// on the server, which catches a function that writes called from a
+// SELECT. The mode protects against accidents, not against a user set on
+// writing: it lasts until the tab closes.
+func (s *DatabaseService) DatabaseSetReadOnly(ctx context.Context, dbID string, on bool) error {
+	d, err := s.session(dbID)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	d.readOnly = on
+	s.mu.Unlock()
+	if g, ok := d.engine.(database.SessionGuard); ok {
+		return s.pageErr(g.SetReadOnly(ctx, on))
+	}
+	return nil
+}
+
+// DatabaseReadOnly reports whether the engine judges text read-only, so
+// the page can ask before running anything else. Text it cannot judge is
+// reported as writing.
+func (s *DatabaseService) DatabaseReadOnly(dbID, text string) (bool, error) {
+	d, err := s.session(dbID)
+	if err != nil {
+		return false, err
+	}
+	return database.ReadOnly(d.engine, text), nil
+}
+
 // DatabaseQuery runs text (the selection or the whole editor) as one
 // request and returns its query ID at once. Its state arrives as
-// query-state events and its rows from DatabaseNextPage.
+// query-state events and its rows from DatabaseNextPage. In read-only
+// mode a request the engine does not judge read-only is refused.
 func (s *DatabaseService) DatabaseQuery(dbID, text string) (string, error) {
 	d, err := s.session(dbID)
 	if err != nil {
 		return "", err
+	}
+	if !database.ReadOnly(d.engine, text) {
+		if err := s.writable(d); err != nil {
+			return "", err
+		}
 	}
 	return s.reg.Start(d.ctx, dbID, func(ctx context.Context) (database.Results, error) { return d.engine.Query(ctx, text) }), nil
 }
@@ -448,27 +502,30 @@ func (s *DatabaseService) DatabaseEditRow(ctx context.Context, dbID string, edit
 	if !ok {
 		return errors.New("this database cannot edit rows")
 	}
+	if err := s.writable(d); err != nil {
+		return err
+	}
 	return s.pageErr(ed.EditRow(ctx, edit))
 }
 
 // documents is dbID's document editor.
-func (s *DatabaseService) documents(dbID string) (database.DocumentEditor, error) {
+func (s *DatabaseService) documents(dbID string) (database.DocumentEditor, *dbSession, error) {
 	d, err := s.session(dbID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	ed, ok := d.engine.(database.DocumentEditor)
 	if !ok {
-		return nil, errors.New("this database cannot edit documents")
+		return nil, nil, errors.New("this database cannot edit documents")
 	}
-	return ed, nil
+	return ed, d, nil
 }
 
 // DatabaseDocument returns, as JSON, the whole document of a collection or
 // index opened with DatabaseOpenTable that its "_id" cell names, for the
 // document view: a cell shown in the grid may be cut.
 func (s *DatabaseService) DatabaseDocument(ctx context.Context, dbID string, path []string, id string) (string, error) {
-	ed, err := s.documents(dbID)
+	ed, _, err := s.documents(dbID)
 	if err != nil {
 		return "", err
 	}
@@ -479,8 +536,11 @@ func (s *DatabaseService) DatabaseDocument(ctx context.Context, dbID string, pat
 // DatabaseSaveDocument replaces that document with doc, by its _id; it
 // fails when the document no longer exists or doc names another _id.
 func (s *DatabaseService) DatabaseSaveDocument(ctx context.Context, dbID string, path []string, id, doc string) error {
-	ed, err := s.documents(dbID)
+	ed, d, err := s.documents(dbID)
 	if err != nil {
+		return err
+	}
+	if err := s.writable(d); err != nil {
 		return err
 	}
 	return s.pageErr(ed.EditDocument(ctx, path, id, doc))

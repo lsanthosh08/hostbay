@@ -69,6 +69,10 @@ func OpenRqlite(ctx context.Context, c ServerConfig) (Engine, error) {
 // rqliteDialect is SQLite's, with rqlite's errors.
 var rqliteDialect = func() dialect {
 	d := sqliteDialect
+	// rqlite's connection is the node's, shared by every client, so a
+	// PRAGMA query_only would stop everyone's writes: the text judgement
+	// alone holds a read-only tab.
+	d.readOnly = nil
 	d.category = func(err error) string {
 		msg := err.Error()
 		if strings.Contains(msg, "syntax error") || strings.Contains(msg, "no such ") {

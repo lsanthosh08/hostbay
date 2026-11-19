@@ -20,6 +20,8 @@ export function QueryEditor({
   running,
   onCancel,
   insert,
+  readOnly,
+  onReadOnly,
 }: {
   value: string;
   onChange: (text: string) => void;
@@ -28,6 +30,9 @@ export function QueryEditor({
   onCancel: () => void;
   /** SQL to insert; n changes for each insert. */
   insert?: { sql: string; n: number };
+  /** The tab's read-only mode, which Go enforces. */
+  readOnly: boolean;
+  onReadOnly: (on: boolean) => void;
 }) {
   const editor = useRef<MonacoEditor | null>(null);
   // The latest onRun, for the key binding Monaco keeps from mount.
@@ -65,7 +70,13 @@ export function QueryEditor({
         <Button size="sm" icon={StopIcon} disabled={!running} onClick={onCancel}>
           {t("database.cancel")}
         </Button>
-        <span className="text-xs text-muted">{t("database.runHint")}</span>
+        <span className="text-xs text-muted min-w-0 truncate" title={t("database.runHint")}>
+          {t("database.runHint")}
+        </span>
+        <label className="ml-auto flex items-center gap-1.5 text-xs shrink-0" title={t("database.readOnlyModeHint")}>
+          <input type="checkbox" className="accent-accent size-3.5" checked={readOnly} onChange={(e) => onReadOnly(e.target.checked)} />
+          {t("database.readOnlyMode")}
+        </label>
       </div>
       <div className="flex-1 min-h-0" aria-label={t("database.editor")}>
         <Editor

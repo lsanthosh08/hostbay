@@ -217,6 +217,29 @@ func (e *esEngine) Children(ctx context.Context, path []string, offset int) ([]N
 	return nodes, end < len(list), nil
 }
 
+// esReads reports a request that changes nothing: GET, HEAD, or a POST
+// search or count.
+func esReads(method string, segs []string) bool {
+	last := ""
+	if len(segs) > 0 {
+		last = segs[len(segs)-1]
+	}
+	return method == "GET" || method == "HEAD" || (method == "POST" && (strings.HasPrefix(last, "_search") || last == "_count"))
+}
+
+// ReadOnly judges a request as Query parses its first line; text that
+// does not parse is judged as writing.
+func (e *esEngine) ReadOnly(text string) bool {
+	first, _, _ := strings.Cut(strings.TrimSpace(text), "\n")
+	f := strings.Fields(first)
+	if len(f) != 2 {
+		return false
+	}
+	rawPath, _, _ := strings.Cut(f[1], "?")
+	segs, err := esPath(rawPath)
+	return err == nil && slices.Contains(esMethods, strings.ToUpper(f[0])) && esReads(strings.ToUpper(f[0]), segs)
+}
+
 // Query sends one request: a first line of a method and a path, such as
 // "GET /logs/_search?q=error", then an optional JSON body. A search's hits
 // show a document a row; any other response shows as its status and body,
@@ -241,11 +264,7 @@ func (e *esEngine) Query(ctx context.Context, text string) (Results, error) {
 	if err != nil {
 		return nil, esError(err)
 	}
-	last := ""
-	if len(segs) > 0 {
-		last = segs[len(segs)-1]
-	}
-	rerun := method == "GET" || method == "HEAD" || (method == "POST" && (strings.HasPrefix(last, "_search") || last == "_count"))
+	rerun := esReads(method, segs)
 	if hits, ok := esHits(resp, cut); ok {
 		return &memResults{rerun: rerun, sets: []resultSet{hits}}, nil
 	}
