@@ -1,7 +1,7 @@
 // Windows .rdp files are `key:type:value` lines (type s = text, i = number).
 // The password is never stored in one.
 
-export type RdpSecurity = "auto" | "tls" | "nla";
+import type { Host } from "../api";
 
 export type RdpFile = {
   hostname: string;
@@ -29,6 +29,6 @@ export function parseRdpFile(text: string): RdpFile {
 
 // The security choice after importing a file: a file may turn NLA off for a
 // new or Automatic host, but never lowers a host the user set to NLA only.
-export function importedRdpSecurity(current: RdpSecurity | null | undefined, fromFile: RdpFile["rdpSecurity"]) {
+export function importedRdpSecurity(current: Host["rdpSecurity"], fromFile: RdpFile["rdpSecurity"]) {
   return fromFile === "tls" && (current == null || current === "auto") ? "tls" : current;
 }
