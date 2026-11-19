@@ -34,6 +34,7 @@ func TestExplain(t *testing.T) {
 		"EXPLAIN ANALYZE DELETE FROM t",
 		"DROP TABLE t",
 		"SELECT 1 /*! ; DELETE FROM t */",
+		"SELECT 1 /*M! ; DELETE FROM t */",
 		"SELECT 'unclosed",
 		"",
 	} {

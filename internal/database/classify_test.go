@@ -31,6 +31,7 @@ func TestReadOnlyJudgement(t *testing.T) {
 		{"t-sql disable trigger", &sqlEngine{d: mssqlDialect}, "SELECT 1 DISABLE TRIGGER tr ON t", false},
 		{"t-sql show-led batch", &sqlEngine{d: mssqlDialect}, "SHOW x DELETE FROM t", false},
 		{"mysql executable comment", &sqlEngine{d: mysqlDialect}, "/*!40000 ALTER TABLE t DISABLE KEYS */; SELECT 1", false},
+		{"mariadb executable comment", &sqlEngine{d: mysqlDialect}, "SELECT 1 /*M! ; DELETE FROM t */", false},
 		{"mysql show create", &sqlEngine{d: mysqlDialect}, "SHOW CREATE TABLE t", true},
 		{"mysql show then drop", &sqlEngine{d: mysqlDialect}, "SHOW TABLES; DROP TABLE t", false},
 		{"mysql plain comment", &sqlEngine{d: mysqlDialect}, "/* note */ SELECT 1", true},

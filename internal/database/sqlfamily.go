@@ -382,9 +382,9 @@ var (
 // rerunnable judges by its text whether a request changes nothing: every
 // statement starts with a reading keyword and no writing keyword appears
 // outside quotes and comments. Anything the lexer cannot follow is not,
-// and neither is a MySQL /*! comment, whose text the server runs.
+// and neither is an executable comment, whose text the server runs.
 func rerunnable(text string, d dialect) bool {
-	if strings.Contains(text, "/*!") {
+	if execComment(text) {
 		return false
 	}
 	stmts, ok := statements(text, d)
@@ -415,6 +415,12 @@ func rerunnable(text string, d dialect) bool {
 // text. "1--1" is 1 minus minus 1 there, and what follows is still SQL.
 func dashComment(rest string) bool {
 	return rest == "" || rest[0] <= ' '
+}
+
+// execComment reports a comment the server runs as SQL: MySQL's /*! … */
+// and MariaDB's /*M! … */.
+func execComment(text string) bool {
+	return strings.Contains(text, "/*!") || strings.Contains(text, "/*M!")
 }
 
 // statements splits text at semicolons into each statement's words,

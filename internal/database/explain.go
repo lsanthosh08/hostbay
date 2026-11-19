@@ -28,8 +28,8 @@ func (e *sqlEngine) Explain(text string) (string, error) {
 	if e.d.explain == "" {
 		return "", errors.New("this database cannot show a plan here")
 	}
-	if strings.Contains(text, "/*!") {
-		return "", &Error{Category: "syntax", Err: errors.New("a MySQL /*! comment cannot be explained")}
+	if execComment(text) {
+		return "", &Error{Category: "syntax", Err: errors.New("an executable comment (/*! or /*M!) cannot be explained")}
 	}
 	stmts, ok := statements(text, e.d)
 	if !ok || len(stmts) != 1 {
