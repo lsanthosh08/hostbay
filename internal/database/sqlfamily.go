@@ -193,14 +193,6 @@ func (e *sqlEngine) query(ctx context.Context, text string, args ...any) (Result
 				return nil, e.wrap(err)
 			}
 			e.kill = nil
-			if e.readOnly && e.d.readOnly != nil {
-				if _, err = e.session.ExecContext(ctx, e.d.readOnly(true)); err != nil {
-					e.session.Close()
-					e.session = nil
-					cancel()
-					return nil, e.wrap(err)
-				}
-			}
 			if e.d.killer != nil {
 				if e.kill, err = e.d.killer(ctx, e.db, e.session); err != nil {
 					e.session.Close()
@@ -208,6 +200,21 @@ func (e *sqlEngine) query(ctx context.Context, text string, args ...any) (Result
 					cancel()
 					return nil, e.wrap(err)
 				}
+			}
+		}
+		if e.readOnly && e.d.readOnly != nil {
+			// Before every request, not only when the session opens: a
+			// request judged read-only by its text can still change the
+			// session's default (a settings function called from a
+			// SELECT), and the server guard must hold for the next one.
+			if _, err = e.session.ExecContext(ctx, e.d.readOnly(true)); err != nil {
+				e.session.Close()
+				e.session = nil
+				if try == 0 && (errors.Is(err, driver.ErrBadConn) || errors.Is(err, sql.ErrConnDone)) {
+					continue // a dead session: the request runs on a new one
+				}
+				cancel()
+				return nil, e.wrap(err)
 			}
 		}
 		if e.kill != nil {
@@ -245,7 +252,7 @@ func (e *sqlEngine) query(ctx context.Context, text string, args ...any) (Result
 func (e *sqlEngine) ReadOnly(text string) bool { return rerunnable(text, e.d) }
 
 // SetReadOnly holds the session read-only on the server, for a dialect
-// that can: the open session now, and each one opened later.
+// that can: the open session now, and again before each request (query).
 func (e *sqlEngine) SetReadOnly(ctx context.Context, on bool) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
