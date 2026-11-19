@@ -27,9 +27,11 @@ describe("focusTarget", () => {
 
   it("stays inside a dialog that is still open", () => {
     const editor = node();
-    focusReturn.set(editor as unknown as Element, () => node());
+    const editorBack = vi.fn(() => node());
+    focusReturn.set(editor as unknown as Element, editorBack);
     const field = node(editor, true);
     focused(field);
     expect(focusTarget()()).toBe(field);
+    expect(editorBack).not.toHaveBeenCalled();
   });
 });
