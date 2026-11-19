@@ -350,17 +350,25 @@ func (r *sqlResults) Close() error {
 	return err
 }
 
-// readOnlyLead are the statements that only read; readOnlyAny never appear
-// in one that only reads.
+// readOnlyLead are the statements that only read; writeWords never appear
+// in one that only reads. A SQL Server batch needs no semicolons, so
+// "SELECT 1 DROP TABLE t" is one statement to the lexer: every word that
+// starts a change of data, schema or rights is listed, not only the DML.
 var (
 	readOnlyLead = []string{"SELECT", "VALUES", "TABLE", "SHOW", "WITH", "EXPLAIN"}
-	writeWords   = []string{"INSERT", "UPDATE", "DELETE", "MERGE", "INTO", "ANALYZE", "CALL", "COPY", "LOCK"}
+	writeWords   = []string{"INSERT", "UPDATE", "DELETE", "MERGE", "INTO", "ANALYZE", "CALL", "COPY", "LOCK",
+		"DROP", "CREATE", "ALTER", "TRUNCATE", "RENAME", "GRANT", "REVOKE", "DENY", "EXEC", "EXECUTE",
+		"DBCC", "BACKUP", "RESTORE", "KILL", "SHUTDOWN", "SET", "BEGIN", "COMMIT", "ROLLBACK", "SAVEPOINT"}
 )
 
 // rerunnable judges by its text whether a request changes nothing: every
 // statement starts with a reading keyword and no writing keyword appears
-// outside quotes and comments. Anything the lexer cannot follow is not.
+// outside quotes and comments. Anything the lexer cannot follow is not,
+// and neither is a MySQL /*! comment, whose text the server runs.
 func rerunnable(text string, d dialect) bool {
+	if strings.Contains(text, "/*!") {
+		return false
+	}
 	stmts, ok := statements(text, d)
 	if !ok || len(stmts) == 0 {
 		return false
