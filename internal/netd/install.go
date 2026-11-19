@@ -81,13 +81,35 @@ func ClientPath(dir, name string) string {
 	return filepath.Join(clientDir(dir, runtime.GOOS), exeName(name))
 }
 
+// ocScriptName is the JScript wrapper install writes beside the Windows
+// helper. openconnect on Windows never runs its --script itself: it runs
+// cscript.exe "<script>" (/e:JScript for a .js file), so the helper cannot
+// be the script directly. The wrapper runs "hostbay-netd.exe oc-script"
+// from its own folder, hidden, with the environment openconnect gave
+// cscript, and exits with its code. It names no path, so its text is fixed.
+const ocScriptName = "oc-script.js"
+
+const ocScript = `// Hostbay: openconnect runs its --script through cscript; run the helper beside this file.
+var dir = WScript.ScriptFullName.replace(/[^\\]+$/, "");
+var sh = WScript.CreateObject("WScript.Shell");
+WScript.Quit(sh.Run('"' + dir + 'hostbay-netd.exe" oc-script', 0, true));
+`
+
+// OCScriptPath is the wrapper openconnect runs as its script on Windows.
+func OCScriptPath(dir string) string { return filepath.Join(dir, ocScriptName) }
+
 // CheckClient refuses to start VPN client name unless its copy and every
 // library beside it belong to owner (root outside tests) and nobody else
-// can write them (checkOwned).
+// can write them (checkOwned); on Windows, openconnect's script wrapper too.
 func CheckClient(dir, name string, owner int) error {
 	p := ClientPath(dir, name)
 	if err := checkOwned(p, owner); err != nil {
 		return err
+	}
+	if name == "openconnect" && runtime.GOOS == "windows" {
+		if err := checkOwned(OCScriptPath(dir), owner); err != nil {
+			return err
+		}
 	}
 	_, libs, suffix := libDir(dir, "", runtime.GOOS)
 	if libs == "" {
@@ -405,6 +427,11 @@ func copyClients(dir, appDir, goos string) error {
 			if err := copyFile(src, filepath.Join(cdir, name), 0o755); err != nil {
 				return err
 			}
+		}
+	}
+	if goos == "windows" {
+		if err := writeFile(OCScriptPath(dir), []byte(ocScript), 0o644); err != nil {
+			return err
 		}
 	}
 	src, dst, suffix := libDir(dir, appDir, goos)

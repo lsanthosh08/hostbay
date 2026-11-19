@@ -3,6 +3,7 @@ package tunnel
 import (
 	"fmt"
 	"io"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -12,7 +13,8 @@ import (
 )
 
 // Windows: OpenConnect starts on the Wintun adapter the helper created,
-// named by --interface, with the password on stdin; it is up once
+// named by --interface, with the password on stdin and the install's cscript
+// wrapper, a bare path openconnect quotes itself, as its script; it is up once
 // openconnect says it is configured, and the adapter goes with it.
 func TestOpenConnectRunsOnTheHelpersAdapter(t *testing.T) {
 	e := newEnv(t)
@@ -32,6 +34,7 @@ func TestOpenConnectRunsOnTheHelpersAdapter(t *testing.T) {
 	const name = "Hostbay AB12CD34"
 	s := <-e.starts
 	if r.Iface != name || !slices.Equal(made, []string{name}) || !slices.Contains(s.args, "--interface="+name) || s.stdin != "pw\n" ||
+		!slices.Contains(s.args, "--script="+filepath.Join(e.dir, "oc-script.js")) ||
 		slices.ContainsFunc(s.args, func(a string) bool { return strings.Contains(a, "pw") && !strings.Contains(a, "passwd") }) {
 		t.Fatalf("reply %+v, adapters %v, args %q, stdin %q", r, made, s.args, s.stdin)
 	}

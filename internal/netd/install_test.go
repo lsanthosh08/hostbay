@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -121,7 +122,7 @@ func TestWindowsInstallRefusesBadSID(t *testing.T) {
 func TestCopyClientsKeepsTheirLibraries(t *testing.T) {
 	for goos, want := range map[string][]string{
 		"darwin":  {"bin/openvpn", "bin/openconnect", "bin/openvpn-aws", "Frameworks/libgnutls.30.dylib"},
-		"windows": {"openvpn.exe", "openconnect.exe", "openvpn-aws.exe", "tapctl.exe", "wintun.dll", "libopenconnect-5.dll"},
+		"windows": {"openvpn.exe", "openconnect.exe", "openvpn-aws.exe", "tapctl.exe", "wintun.dll", "libopenconnect-5.dll", "oc-script.js"},
 		"linux":   {"openvpn", "openconnect", "openvpn-aws"},
 	} {
 		app := t.TempDir()
@@ -145,6 +146,9 @@ func TestCopyClientsKeepsTheirLibraries(t *testing.T) {
 				t.Errorf("%s: %s not copied: %v", goos, f, err)
 			}
 		}
+		if _, err := os.Stat(OCScriptPath(dir)); goos != "windows" && err == nil {
+			t.Errorf("%s: openconnect's Windows script wrapper was written", goos)
+		}
 		if goos == "darwin" {
 			if _, err := os.Stat(filepath.Join(dir, "Frameworks", "libstale.dylib")); err == nil {
 				t.Error("a reinstall kept a library the new Hostbay no longer ships")
@@ -153,6 +157,47 @@ func TestCopyClientsKeepsTheirLibraries(t *testing.T) {
 				t.Error("a file that is no library was copied")
 			}
 		}
+	}
+}
+
+// openconnect on Windows runs its --script as cscript.exe /e:JScript
+// "<script>", so the wrapper must be plain-ASCII JScript that runs the helper
+// from its own folder, hidden, waits for it and exits with its code.
+func TestOCScriptRunsTheHelperBesideIt(t *testing.T) {
+	if strings.ContainsFunc(ocScript, func(r rune) bool { return r > 0x7e || r < 0x20 && r != '\n' }) {
+		t.Error("the wrapper is not plain ASCII, which cscript may misread")
+	}
+	for _, want := range []string{
+		`WScript.ScriptFullName.replace(/[^\\]+$/, "")`,
+		`WScript.CreateObject("WScript.Shell")`,
+		`WScript.Quit(sh.Run('"' + dir + 'hostbay-netd.exe" oc-script', 0, true));`,
+	} {
+		if !strings.Contains(ocScript, want) {
+			t.Errorf("the wrapper lacks %s:\n%s", want, ocScript)
+		}
+	}
+	if got := OCScriptPath(filepath.Join("x", "HostbayNetd")); got != filepath.Join("x", "HostbayNetd", "oc-script.js") {
+		t.Errorf("OCScriptPath = %s", got)
+	}
+}
+
+// On Windows, openconnect is not started without the wrapper the install
+// wrote beside it.
+func TestCheckClientNeedsTheOpenConnectWrapperOnWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the wrapper is Windows only")
+	}
+	dir, app := t.TempDir(), t.TempDir()
+	os.WriteFile(filepath.Join(app, "openconnect.exe"), []byte("x"), 0o755)
+	if err := copyClients(dir, app, "windows"); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckClient(dir, "openconnect", 0); err != nil {
+		t.Fatal(err)
+	}
+	os.Remove(OCScriptPath(dir))
+	if err := CheckClient(dir, "openconnect", 0); err == nil {
+		t.Error("openconnect passed without its script wrapper")
 	}
 }
 

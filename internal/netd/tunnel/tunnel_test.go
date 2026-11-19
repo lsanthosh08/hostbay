@@ -84,6 +84,7 @@ func newEnv(t *testing.T) *env {
 	for _, c := range []string{"openvpn", "openconnect", "openvpn-aws"} {
 		os.WriteFile(netd.ClientPath(dir, c), []byte("#!/bin/false\n"), 0o755)
 	}
+	os.WriteFile(netd.OCScriptPath(dir), []byte("// openconnect's Windows script wrapper\n"), 0o644)
 	e := &env{dir: dir, starts: make(chan started, 4), events: make(chan netd.Msg, 8)}
 	e.m = New(netd.TunnelEnv{Dir: dir, User: strconv.Itoa(os.Getuid()), Owner: os.Getuid()}).(*Manager)
 	e.m.start = func(path string, args []string, stdin io.Reader, stdout io.Writer) (process, error) {

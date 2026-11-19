@@ -16,7 +16,8 @@ import (
 // chose (ocTarget): on Windows, where openconnect has no unprivileged mode,
 // a Wintun adapter it creates; on macOS a free utun, which openconnect
 // creates. openconnect calls the helper back as its script ("hostbay-netd
-// oc-script", Script), which puts the tunnel's addresses on that interface;
+// oc-script", Script; on Windows through a cscript wrapper,
+// netd.OCScriptPath), which puts the tunnel's addresses on that interface;
 // Hostbay's routing engine routes through it. The password goes on stdin.
 func (m *Manager) openConnect(h string, oc *netd.OpenConnect, up func(string, []string), ended func(string)) (netd.Msg, *netd.Error) {
 	if err := netd.CheckClient(m.env.Dir, "openconnect", m.env.Owner); err != nil {

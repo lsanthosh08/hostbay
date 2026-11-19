@@ -6,12 +6,13 @@ import (
 	"io"
 	"net/netip"
 	"os"
-	"path/filepath"
 	"strconv"
 
 	"golang.zx2c4.com/wintun"
 	"golang.zx2c4.com/wireguard/tun"
 	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
+
+	"hostbay/internal/netd"
 )
 
 func tunName(h string) string { return "Hostbay " + h[:8] }
@@ -25,10 +26,11 @@ func setAddrs(dev tun.Device, _ string, addrs []netip.Prefix) error {
 	return winipcfg.LUID(nt.LUID()).SetIPAddresses(addrs)
 }
 
-// ocTarget is the Wintun adapter openconnect runs on and its script, the
-// helper itself, a command line Windows runs without a shell.
+// ocTarget is the Wintun adapter openconnect runs on and its script: the
+// install's JScript wrapper, a bare path, since openconnect quotes it and
+// runs it through cscript, which in turn runs "hostbay-netd.exe oc-script".
 func ocTarget(dir, h string, _ []string) (iface, script, caFile string, err error) {
-	return tunName(h), `"` + filepath.Join(dir, "hostbay-netd.exe") + `" oc-script`, "", nil
+	return tunName(h), netd.OCScriptPath(dir), "", nil
 }
 
 // createAdapter creates the Wintun adapter openconnect opens by name;
@@ -41,10 +43,10 @@ func createAdapter(name string) (io.Closer, error) {
 	return a, nil
 }
 
-// Script is "hostbay-netd oc-script", openconnect's script: on connect it
-// puts the tunnel's addresses, from openconnect's environment (see
-// vpnc-script), on the adapter. Routes come from Hostbay (U11); nothing
-// else is changed.
+// Script is "hostbay-netd oc-script", which openconnect's script (the
+// wrapper, through cscript) runs: on connect it puts the tunnel's
+// addresses, from openconnect's environment (see vpnc-script), on the
+// adapter. Routes come from Hostbay (U11); nothing else is changed.
 func Script([]string) error {
 	if os.Getenv("reason") != "connect" {
 		return nil
