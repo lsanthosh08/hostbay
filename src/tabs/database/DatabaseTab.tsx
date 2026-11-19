@@ -13,7 +13,7 @@ import { ObjectTree } from "./ObjectTree";
 import { QueryEditor } from "./QueryEditor";
 import { ResultGrid } from "./ResultGrid";
 import { addPage } from "./rows";
-import { isRunning, type Shown } from "./shown";
+import { cancelled, failed, isRunning, type Shown } from "./shown";
 
 // A page with no rows moves to the next result set; this many in a row is
 // a request of empty statements, shown as they are.
@@ -63,7 +63,7 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
       }
       update(queryId, (s) => ({ ...s, loading: false }));
     } catch (e) {
-      update(queryId, (s) => ({ ...s, loading: false, error: api.errorInfo(e).message }));
+      update(queryId, (s) => failed(s, api.errorInfo(e)));
     }
   };
 
@@ -81,12 +81,19 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
       else off();
       await fetchPage(queryId);
     } catch (e) {
-      if (mine === seq.current) setShown((s) => s && { ...s, loading: false, error: api.errorInfo(e).message });
+      if (mine === seq.current) setShown((s) => s && failed(s, api.errorInfo(e)));
     }
   };
 
   const runQuery = (q: string) => start(() => api.databaseQuery(databaseId, q).then((queryId) => ({ queryId, table: null })), { text: q });
   const openTable = (path: string[]) => start(() => api.databaseOpenTable(databaseId, path), { path });
+  // A request still opening has no query ID to cancel yet: drop it, so the
+  // query it starts is closed as it arrives.
+  const cancel = () => {
+    if (shown?.queryId) return void api.databaseCancel(shown.queryId).catch(() => {});
+    forget();
+    setShown((s) => s && cancelled(s));
+  };
   const rerun = () => shown && (shown.path ? openTable(shown.path) : shown.text && runQuery(shown.text));
 
   const state = shown?.state?.state;
@@ -107,7 +114,7 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
             onChange={setText}
             onRun={runQuery}
             running={running}
-            onCancel={() => shown?.queryId && api.databaseCancel(shown.queryId).catch(() => {})}
+            onCancel={cancel}
           />
         </div>
         <div role="status" aria-live="polite" className="flex flex-wrap items-center gap-2 px-2 py-1 text-xs border-b border-line min-h-8">
