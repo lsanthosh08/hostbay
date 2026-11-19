@@ -799,6 +799,11 @@ export const databaseSaveDocument = (databaseId: string, path: string[], id: str
   DatabaseService.DatabaseSaveDocument(databaseId, path, id, version, doc);
 // Writes a cut or binary cell in full to a file chosen in Go's dialog;
 // false when the user cancelled.
+// Runs a read again (editor text, or a table with its browse) and writes
+// every row in full to a file chosen in Go's dialog; cancelling the
+// promise stops it and removes the partial file.
+export type DbExportRequest = { text?: string; path?: string[]; browse: DbBrowse; format: "csv" | "json" };
+export const databaseExport = (databaseId: string, req: DbExportRequest) => DatabaseService.DatabaseExport(databaseId, req);
 export const databaseSaveCell = (queryId: string, result: number, row: number, col: number) =>
   DatabaseService.DatabaseSaveCell(queryId, result, row, col);
 // Asks for a SQLite file in Go's dialog; token is what a saved host's

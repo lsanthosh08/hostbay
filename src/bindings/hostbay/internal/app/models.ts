@@ -287,6 +287,31 @@ export interface DatabaseDocument {
 }
 
 /**
+ * DatabaseExportRequest names what an export runs again: the editor's
+ * text, or a table from the tree with its sort and filters.
+ */
+export interface DatabaseExportRequest {
+    "text"?: string;
+    "path"?: string[] | null;
+    "browse": database$0.Browse;
+
+    /**
+     * "csv" or "json"
+     */
+    "format": string;
+}
+
+/**
+ * DatabaseExported is a finished export: false when the user cancelled
+ * the dialog, else the file and the rows written.
+ */
+export interface DatabaseExported {
+    "saved": boolean;
+    "path"?: string;
+    "rows": number;
+}
+
+/**
  * DatabaseInfo is an open database: its ID, and the capabilities the tab
  * shows controls for (database.Capabilities).
  */

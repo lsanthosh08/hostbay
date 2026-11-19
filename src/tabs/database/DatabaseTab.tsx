@@ -39,6 +39,8 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
   const toast = useAsyncToast();
   const { confirm } = usePrompt();
   const [readOnly, setReadOnly] = useState(false);
+  // The export running now; cancelling its promise stops it in Go.
+  const [exporting, setExporting] = useState<{ cancel: () => void } | null>(null);
   const [text, setText] = useState("");
   const [shown, setShown] = useState<Shown | null>(null);
   const [doc, setDoc] = useState<{ path: string[]; id: string } | null>(null);
@@ -131,6 +133,14 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
     forget();
     setShown((s) => s && cancelled(s));
   };
+  const exportAs = (s: Shown, format: "csv" | "json") => {
+    const p = api.databaseExport(databaseId, { text: s.path ? undefined : s.text, path: s.path, browse: s.browse ?? {}, format });
+    setExporting({ cancel: () => p.cancel() });
+    p.then(
+      (r) => r?.saved && push("success", t("database.exported", { n: r.rows.toLocaleString(), path: r.path ?? "" })),
+      (e) => api.errorInfo(e).details?.category !== "cancelled" && push("error", api.errorInfo(e).message)
+    ).finally(() => setExporting(null));
+  };
   const rerun = () => shown && (shown.path ? openTable(shown.path, shown.browse) : shown.text && runQuery(shown.text));
 
   const state = shown?.state?.state;
@@ -184,6 +194,29 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
             <Button size="sm" onClick={() => fetchPage(shown.queryId)}>
               {t("database.loadMore")}
             </Button>
+          )}
+          {shown && !shown.error && (shown.path || shown.text) && (
+            <span className="ml-auto flex items-center gap-1">
+              {exporting ? (
+                <>
+                  <Spinner />
+                  <span className="text-muted">{t("database.exporting")}</span>
+                  <Button size="sm" variant="ghost" onClick={exporting.cancel}>
+                    {t("database.cancel")}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <span className="text-muted">{t("database.export")}</span>
+                  <Button size="sm" variant="ghost" title={t("database.exportHint")} onClick={() => exportAs(shown, "csv")}>
+                    CSV
+                  </Button>
+                  <Button size="sm" variant="ghost" title={t("database.exportHint")} onClick={() => exportAs(shown, "json")}>
+                    JSON
+                  </Button>
+                </>
+              )}
+            </span>
           )}
         </div>
         {shown?.path && canBrowse && (

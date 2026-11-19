@@ -36,7 +36,7 @@ type DatabaseService struct {
 	// pickOpen and pickSave run Go's own file dialogs, so the page never
 	// names a path that is opened or written.
 	pickOpen func() (string, error)
-	pickSave func() (string, error)
+	pickSave func(message, name string) (string, error)
 	reg      *database.Registry
 
 	mu  sync.Mutex
@@ -96,8 +96,8 @@ func pickDatabaseFile() (string, error) {
 	return application.Get().Dialog.OpenFile().CanChooseFiles(true).SetTitle("Choose a SQLite database").PromptForSingleSelection()
 }
 
-func pickSaveFile() (string, error) {
-	return application.Get().Dialog.SaveFile().CanCreateDirectories(true).SetMessage("Save the full value").PromptForSingleSelection()
+func pickSaveFile(message, name string) (string, error) {
+	return application.Get().Dialog.SaveFile().CanCreateDirectories(true).SetMessage(message).SetFilename(name).PromptForSingleSelection()
 }
 
 // DatabaseConnect opens a database host and returns its database ID. A
@@ -579,7 +579,7 @@ func (s *DatabaseService) DatabaseSaveDocument(ctx context.Context, dbID string,
 // query's last page to a file the user chooses in Go's dialog. It reports
 // false when the user cancelled.
 func (s *DatabaseService) DatabaseSaveCell(queryID string, result, row, col int) (bool, error) {
-	path, err := s.pickSave()
+	path, err := s.pickSave("Save the full value", "")
 	if err != nil || path == "" {
 		return false, err
 	}
@@ -596,6 +596,83 @@ func (s *DatabaseService) DatabaseSaveCell(queryID string, result, row, col int)
 		return false, s.pageErr(err)
 	}
 	return true, nil
+}
+
+// DatabaseExportRequest names what an export runs again: the editor's
+// text, or a table from the tree with its sort and filters.
+type DatabaseExportRequest struct {
+	Text   string          `json:"text,omitempty"`
+	Path   []string        `json:"path,omitempty"`
+	Browse database.Browse `json:"browse"`
+	Format string          `json:"format"` // "csv" or "json"
+}
+
+// DatabaseExported is a finished export: false when the user cancelled
+// the dialog, else the file and the rows written.
+type DatabaseExported struct {
+	Saved bool   `json:"saved"`
+	Path  string `json:"path,omitempty"`
+	Rows  int64  `json:"rows"`
+}
+
+// DatabaseExport runs a request again and writes every row of its first
+// result set with full values, never values cut for the grid, to a file
+// the user chooses in Go's dialog. Only a request the engine judges
+// read-only is run again, and a SQL one runs on a connection of its own,
+// so the grid's cursor and an open transaction are left alone. Cancelling
+// the call, or closing the tab, stops it and removes the partial file.
+func (s *DatabaseService) DatabaseExport(ctx context.Context, dbID string, req DatabaseExportRequest) (DatabaseExported, error) {
+	d, err := s.session(dbID)
+	if err != nil {
+		return DatabaseExported{}, err
+	}
+	if req.Format != "csv" && req.Format != "json" {
+		return DatabaseExported{}, errors.New("export as csv or json")
+	}
+	table := len(req.Path) > 0
+	if !table && !database.ReadOnly(d.engine, req.Text) {
+		return DatabaseExported{}, errors.New("only a request that reads can be exported, since an export runs it again")
+	}
+	path, err := s.pickSave("Export the results", "results."+req.Format)
+	if err != nil || path == "" {
+		return DatabaseExported{}, err
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	defer context.AfterFunc(d.ctx, cancel)()
+	var res database.Results
+	ex, isSQL := d.engine.(database.Exporter)
+	switch {
+	case table && isSQL:
+		res, err = ex.ExportTable(ctx, req.Path, req.Browse)
+	case isSQL:
+		res, err = ex.ExportQuery(ctx, req.Text)
+	case table:
+		ed, ok := d.engine.(interface{ SelectTable([]string) string })
+		if !ok {
+			return DatabaseExported{}, errors.New("this database cannot export a table")
+		}
+		res, err = d.engine.Query(ctx, ed.SelectTable(req.Path))
+	default:
+		res, err = d.engine.Query(ctx, req.Text)
+	}
+	if err != nil {
+		return DatabaseExported{}, s.pageErr(err)
+	}
+	defer res.Close()
+	f, err := os.Create(path)
+	if err != nil {
+		return DatabaseExported{}, err
+	}
+	n, err := database.Export(ctx, f, res, req.Format)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		os.Remove(path)
+		return DatabaseExported{}, s.pageErr(err)
+	}
+	return DatabaseExported{Saved: true, Path: path, Rows: n}, nil
 }
 
 // DatabaseClose closes a database tab: its queries, then its connection.

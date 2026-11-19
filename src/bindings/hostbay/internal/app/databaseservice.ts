@@ -85,6 +85,18 @@ export function DatabaseEditRow(dbID: string, edit: database$0.RowEdit): $Cancel
 }
 
 /**
+ * DatabaseExport runs a request again and writes every row of its first
+ * result set with full values, never values cut for the grid, to a file
+ * the user chooses in Go's dialog. Only a request the engine judges
+ * read-only is run again, and a SQL one runs on a connection of its own,
+ * so the grid's cursor and an open transaction are left alone. Cancelling
+ * the call, or closing the tab, stops it and removes the partial file.
+ */
+export function DatabaseExport(dbID: string, req: $models.DatabaseExportRequest): $CancellablePromise<$models.DatabaseExported> {
+    return $Call.ByID(2871574206, dbID, req);
+}
+
+/**
  * DatabaseNextPage returns a query's next page of rows.
  */
 export function DatabaseNextPage(queryID: string): $CancellablePromise<database$0.Page> {

@@ -80,6 +80,8 @@ export type {
     DashboardInfo,
     DataFolder,
     DatabaseDocument,
+    DatabaseExportRequest,
+    DatabaseExported,
     DatabaseInfo,
     DatabaseTable,
     DatabaseTree,

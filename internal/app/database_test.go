@@ -360,7 +360,7 @@ func TestSQLiteThroughTheService(t *testing.T) {
 		t.Fatalf("long cell = %v, %v", p.Rows[0][0].Size, err)
 	}
 	out := filepath.Join(t.TempDir(), "cell.txt")
-	d.pickSave = func() (string, error) { return out, nil }
+	d.pickSave = func(string, string) (string, error) { return out, nil }
 	if saved, err := d.DatabaseSaveCell(long, 0, 0, 0); err != nil || !saved {
 		t.Fatalf("save = %v, %v", saved, err)
 	}

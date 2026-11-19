@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"database/sql"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -119,5 +120,31 @@ func TestDatabaseBrowseThroughTheService(t *testing.T) {
 	}
 	if _, err := readAll(t, d, bad.QueryID); err == nil { // the refusal arrives with the first page
 		t.Fatal("a sort by an unknown column ran")
+	}
+}
+
+// An export reruns a read and writes every row in full to the chosen
+// file; a request that writes is refused before the dialog, and a
+// cancelled dialog writes nothing.
+func TestDatabaseExportThroughTheService(t *testing.T) {
+	d, id := sqliteTab(t, `CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT); INSERT INTO users VALUES (1, 'ann'), (2, 'bob');`)
+	ctx := context.Background()
+	out := filepath.Join(t.TempDir(), "users.csv")
+	d.pickSave = func(string, string) (string, error) { return out, nil }
+	got, err := d.DatabaseExport(ctx, id, DatabaseExportRequest{Path: []string{"users"}, Browse: database.Browse{Sort: "id", Desc: true}, Format: "csv"})
+	if err != nil || !got.Saved || got.Rows != 2 {
+		t.Fatalf("export = %+v, %v", got, err)
+	}
+	if b, _ := os.ReadFile(out); string(b) != "id,name\n2,bob\n1,ann\n" {
+		t.Fatalf("file = %q", b)
+	}
+	asked := false
+	d.pickSave = func(string, string) (string, error) { asked = true; return out, nil }
+	if _, err := d.DatabaseExport(ctx, id, DatabaseExportRequest{Text: "DELETE FROM users", Format: "csv"}); err == nil || asked {
+		t.Fatalf("a writing request was exported: %v, dialog %v", err, asked)
+	}
+	d.pickSave = func(string, string) (string, error) { return "", nil }
+	if got, err := d.DatabaseExport(ctx, id, DatabaseExportRequest{Text: "SELECT 1", Format: "json"}); err != nil || got.Saved {
+		t.Fatalf("a cancelled dialog = %+v, %v", got, err)
 	}
 }
