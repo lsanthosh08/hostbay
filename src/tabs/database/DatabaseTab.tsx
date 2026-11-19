@@ -58,6 +58,7 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
   // Query tabs share the session and the results area below them.
   const [tabs, setTabs] = useState<QueryTab[]>(() => addTab([], (n) => t("database.queryTab", { n })).tabs);
   const [activeTab, setActiveTab] = useState("1");
+  const lastTab = useRef(1);
   const tab = tabs.find((x) => x.id === activeTab) ?? tabs[0];
   const text = tab.text;
   const setText = (v: string) => setTabs((ts) => setTabText(ts, tab.id, v));
@@ -229,7 +230,8 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
               icon={AddIcon}
               label={t("database.newTab")}
               onClick={() => {
-                const next = addTab(tabs, (n) => t("database.queryTab", { n }));
+                const next = addTab(tabs, (n) => t("database.queryTab", { n }), lastTab.current);
+                lastTab.current = Number(next.id);
                 setTabs(next.tabs);
                 setActiveTab(next.id);
               }}

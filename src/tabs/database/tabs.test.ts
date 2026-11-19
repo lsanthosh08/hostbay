@@ -12,6 +12,15 @@ it("adds tabs by the next free number", () => {
   expect(addTab(tabs, name).id).toBe("3");
 });
 
+it("never reuses the id of a closed tab", () => {
+  let { tabs, id } = addTab([], name);
+  ({ tabs, id } = addTab(tabs, name, Number(id)));
+  ({ tabs } = closeTab(tabs, id, id));
+  // Each tab is its own Monaco model by id: a reused id would bring back
+  // the closed tab's text.
+  expect(addTab(tabs, name, 2).id).toBe("3");
+});
+
 it("closes a tab, keeping the last and moving the active one", () => {
   const tabs = [1, 2, 3].map((n) => ({ id: String(n), name: name(n), text: "" }));
   expect(closeTab(tabs, "2", "2")).toMatchObject({ active: "3" });

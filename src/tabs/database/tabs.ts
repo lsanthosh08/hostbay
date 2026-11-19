@@ -3,10 +3,13 @@ import type { DbSchemaTable } from "../../api";
 /** One query tab of a database tab: its own text, run on the one session. */
 export type QueryTab = { id: string; name: string; text: string };
 
-/** Adds a tab after the others, named by the next free number. */
-export function addTab(tabs: QueryTab[], name: (n: number) => string): { tabs: QueryTab[]; id: string } {
+/** Adds a tab after the others, numbered after every tab so far: last is
+ *  the highest number given out, closed tabs included, since each tab's
+ *  number names its Monaco model and a reused one would bring back a
+ *  closed tab's text. */
+export function addTab(tabs: QueryTab[], name: (n: number) => string, last = 0): { tabs: QueryTab[]; id: string } {
   const ids = tabs.map((t) => Number(t.id));
-  const n = Math.max(0, ...ids) + 1;
+  const n = Math.max(last, ...ids) + 1;
   const id = String(n);
   return { tabs: [...tabs, { id, name: name(n), text: "" }], id };
 }
