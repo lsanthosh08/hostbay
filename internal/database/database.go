@@ -180,6 +180,9 @@ func Capabilities(e Engine) []string {
 	if _, ok := e.(RowWriter); ok {
 		caps = append(caps, "rowWrite")
 	}
+	if x, ok := e.(Explainer); ok && x.CanExplain() {
+		caps = append(caps, "explain")
+	}
 	return caps
 }
 

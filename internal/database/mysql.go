@@ -123,6 +123,7 @@ var mysqlDialect = dialect{
 	tablePath:   func(path []string) bool { return len(path) == 2 },
 	asText:      func(col string) string { return "CAST(" + col + " AS CHAR)" },
 	likeSpecial: "%_",
+	explain:     "EXPLAIN ",
 	readOnly: func(on bool) string {
 		if on {
 			return "SET SESSION TRANSACTION READ ONLY"

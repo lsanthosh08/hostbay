@@ -107,6 +107,16 @@ export function DatabaseEditRow(dbID: string, edit: database$0.RowEdit): $Cancel
 }
 
 /**
+ * DatabaseExplain shows the plan of one statement without running it, on
+ * an engine with the "explain" capability (R10). Go builds the statement
+ * (KTD8), and text that writes passes the same read-only gate as a
+ * request, though only its plan is read. It is not added to the history.
+ */
+export function DatabaseExplain(dbID: string, text: string): $CancellablePromise<string> {
+    return $Call.ByID(2274105263, dbID, text);
+}
+
+/**
  * DatabaseExport runs a request again and writes every row of its first
  * result set with full values, never values cut for the grid, to a file
  * the user chooses in Go's dialog. Only a request the engine judges

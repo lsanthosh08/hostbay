@@ -182,6 +182,7 @@ var pgDialect = dialect{
 	key:         pgKey,
 	asText:      func(col string) string { return "CAST(" + col + " AS text)" },
 	likeSpecial: "%_",
+	explain:     "EXPLAIN ",
 	readOnly: func(on bool) string {
 		if on {
 			return "SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY"

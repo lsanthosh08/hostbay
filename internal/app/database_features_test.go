@@ -233,3 +233,33 @@ func TestDatabaseSchema(t *testing.T) {
 		t.Fatalf("schema = %v", tables)
 	}
 }
+
+// Explain shows a DELETE's plan without deleting anything, refuses a
+// second statement, and in read-only mode refuses text that writes.
+func TestDatabaseExplain(t *testing.T) {
+	d, id := sqliteTab(t, `CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT); INSERT INTO users VALUES (1, 'ann');`)
+	ctx := context.Background()
+	q, err := d.DatabaseExplain(id, "DELETE FROM users WHERE id = 1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan, err := readAll(t, d, q); err != nil || len(plan) == 0 {
+		t.Fatalf("plan = %v, %v", plan, err)
+	}
+	if _, err := d.DatabaseExplain(id, "SELECT 1; DELETE FROM users"); err == nil {
+		t.Fatal("a second statement was explained")
+	}
+	q, _ = d.DatabaseQuery(id, "SELECT name FROM users")
+	if rows, _ := readAll(t, d, q); len(rows) != 1 {
+		t.Fatalf("rows after explain = %v", rows)
+	}
+	if err := d.DatabaseSetReadOnly(ctx, id, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.DatabaseExplain(id, "DELETE FROM users"); err == nil {
+		t.Fatal("explain of a DELETE ran in read-only mode")
+	}
+	if _, err := d.DatabaseExplain(id, "SELECT * FROM users"); err != nil {
+		t.Fatalf("explain of a SELECT in read-only mode: %v", err)
+	}
+}

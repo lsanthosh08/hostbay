@@ -83,6 +83,9 @@ type dialect struct {
 	// readOnly, when set, is the statement that turns the session's own
 	// read-only mode on or off on the server.
 	readOnly func(on bool) string
+	// explain, when set, is the prefix that shows a statement's plan
+	// without running it (R10).
+	explain string
 }
 
 // sqlEngine is the one SQL implementation (KTD23). User requests run on

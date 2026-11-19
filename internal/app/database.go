@@ -466,6 +466,31 @@ func (s *DatabaseService) DatabaseQuery(dbID, text string) (string, error) {
 	return s.reg.Start(d.ctx, dbID, func(ctx context.Context) (database.Results, error) { return d.engine.Query(ctx, text) }), nil
 }
 
+// DatabaseExplain shows the plan of one statement without running it, on
+// an engine with the "explain" capability (R10). Go builds the statement
+// (KTD8), and text that writes passes the same read-only gate as a
+// request, though only its plan is read. It is not added to the history.
+func (s *DatabaseService) DatabaseExplain(dbID, text string) (string, error) {
+	d, err := s.session(dbID)
+	if err != nil {
+		return "", err
+	}
+	x, ok := d.engine.(database.Explainer)
+	if !ok || !x.CanExplain() {
+		return "", errors.New("this database cannot show a plan here")
+	}
+	q, err := x.Explain(text)
+	if err != nil {
+		return "", s.pageErr(err)
+	}
+	if !database.ReadOnly(d.engine, text) {
+		if err := s.writable(d); err != nil {
+			return "", err
+		}
+	}
+	return s.reg.Start(d.ctx, dbID, func(ctx context.Context) (database.Results, error) { return d.engine.Query(ctx, q) }), nil
+}
+
 // DatabaseOpenTable shows a table from the tree, sorted and filtered by
 // browse on an engine with the "browse" capability (the zero browse shows
 // it as it is). Its key comes from the database's own catalog, so

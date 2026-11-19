@@ -27,6 +27,7 @@ export function QueryEditor({
   readOnly,
   onReadOnly,
   onLibrary,
+  onExplain,
   path,
   schema,
 }: {
@@ -42,6 +43,8 @@ export function QueryEditor({
   onReadOnly: (on: boolean) => void;
   /** Opens the history and saved queries. */
   onLibrary: () => void;
+  /** Shows the selection's plan instead of running it (the explain capability). */
+  onExplain?: (text: string) => void;
   /** The active query tab's model path; models under one tab share a prefix. */
   path: string;
   /** Names to complete; empty offers none. */
@@ -90,6 +93,11 @@ export function QueryEditor({
         <Button size="sm" icon={StopIcon} disabled={!running} onClick={onCancel}>
           {t("database.cancel")}
         </Button>
+        {onExplain && (
+          <Button size="sm" disabled={running} title={t("database.explainHint")} onClick={() => text() && onExplain(text())}>
+            {t("database.explain")}
+          </Button>
+        )}
         <Button size="sm" variant="ghost" icon={LogsIcon} onClick={onLibrary}>
           {t("database.history")}
         </Button>

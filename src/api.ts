@@ -771,6 +771,8 @@ export const databaseTree = (databaseId: string, path: string[] | null, offset: 
 // Runs text as one request and returns its queryId at once; state arrives on
 // onQueryState and rows from databaseNextPage.
 export const databaseQuery = (databaseId: string, text: string) => DatabaseService.DatabaseQuery(databaseId, text);
+// With the explain capability: one statement's plan, without running it.
+export const databaseExplain = (databaseId: string, text: string) => DatabaseService.DatabaseExplain(databaseId, text);
 // Whether Go judges text read-only; anything else asks before it runs. In
 // read-only mode (databaseSetReadOnly) Go refuses it, and every row or
 // document edit, until the mode is turned off or the tab closes.

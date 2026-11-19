@@ -41,6 +41,7 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
   const canEditDocs = caps.includes("documentEdit");
   const canAsk = caps.includes("askSql");
   const canBrowse = caps.includes("browse");
+  const canExplain = caps.includes("explain");
   // Row changes Go can show before running go through a review step.
   const canWrite = caps.includes("rowWrite");
   const [pending, setPending] = useState<Pending | null>(null);
@@ -101,7 +102,7 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
     }
   };
 
-  const start = async (open: () => Promise<{ queryId: string; table: DbTable | null }>, what: { text?: string; path?: string[]; browse?: DbBrowse }) => {
+  const start = async (open: () => Promise<{ queryId: string; table: DbTable | null }>, what: Pick<Shown, "text" | "explain" | "path" | "browse">) => {
     forget();
     const mine = seq.current;
     const started = Date.now();
@@ -121,6 +122,8 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
   };
 
   const runQuery = (q: string) => start(() => api.databaseQuery(databaseId, q).then((queryId) => ({ queryId, table: null })), { text: q });
+  // Go plans the statement without running it, so no confirm is asked.
+  const explain = (q: string) => start(() => api.databaseExplain(databaseId, q).then((queryId) => ({ queryId, table: null })), { text: q, explain: true });
   // A request Go does not judge read-only runs only once confirmed, and not
   // at all in read-only mode, where Go would refuse it anyway.
   const run = async (q: string) => {
@@ -167,7 +170,7 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
       (e) => api.errorInfo(e).details?.category !== "cancelled" && push("error", api.errorInfo(e).message)
     ).finally(() => setExporting(null));
   };
-  const rerun = () => shown && (shown.path ? openTable(shown.path, shown.browse) : shown.text && runQuery(shown.text));
+  const rerun = () => shown && (shown.path ? openTable(shown.path, shown.browse) : shown.text && (shown.explain ? explain(shown.text) : runQuery(shown.text)));
 
   const state = shown?.state?.state;
   // While a request runs, the status line counts up a few times a second.
@@ -238,6 +241,7 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
               value={text}
               onChange={setText}
               onRun={run}
+              onExplain={canExplain ? explain : undefined}
               readOnly={readOnly}
               onReadOnly={setMode}
               onLibrary={() => setLibrary(true)}
@@ -253,7 +257,7 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
               className="text-muted truncate max-w-xs font-mono"
               title={t("database.resultsOf", { what: shown.path ? shown.path.join(".") : clip(shown.text ?? "") })}
             >
-              {shown.path ? shown.path.join(".") : firstLine(shown.text ?? "")}
+              {shown.explain && t("database.planOf")} {shown.path ? shown.path.join(".") : firstLine(shown.text ?? "")}
             </span>
           )}
           {shown && !shown.error && <span className="text-muted">{t(rows === 1 ? "database.row" : "database.rows", { n: rows })}</span>}
@@ -274,7 +278,7 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
               {t("database.loadMore")}
             </Button>
           )}
-          {shown && !shown.error && (shown.path || shown.text) && (
+          {shown && !shown.error && !shown.explain && (shown.path || shown.text) && (
             <span className="ml-auto flex items-center gap-1">
               {exporting ? (
                 <>

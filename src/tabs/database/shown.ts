@@ -5,6 +5,8 @@ import type { ResultSet } from "./rows";
 export type Shown = {
   queryId: string;
   text?: string;
+  /** The text's plan is shown, not its rows: a rerun explains it again. */
+  explain?: boolean;
   path?: string[];
   /** A table's sort and filters (the "browse" capability). */
   browse?: DbBrowse;
