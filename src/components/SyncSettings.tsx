@@ -104,15 +104,17 @@ export function SyncSettings() {
     if (held) listProxies().then(setProxies).catch(() => {});
   }, [held]);
 
-  const refresh = useCallback(() => {
+  // The saved target fills the form once; later refreshes (after every
+  // action, failed ones too) leave the user's unsaved edits alone.
+  const refresh = useCallback((withTarget = false) => {
     syncStatus()
       .then((s) => {
         setStatus(s);
-        if (s.target?.kind) setTarget(s.target);
+        if (withTarget && s.target?.kind) setTarget(s.target);
       })
       .catch((e) => setError(errorInfo(e).message));
   }, []);
-  useEffect(refresh, [refresh]);
+  useEffect(() => refresh(true), [refresh]);
 
   const run = async (fn: () => Promise<string | void>) => {
     setBusy(true);
