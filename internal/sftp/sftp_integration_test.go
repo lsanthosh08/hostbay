@@ -397,3 +397,21 @@ func TestPermissionDeniedRemoveRetriesOnlyAnEmptyFolder(t *testing.T) {
 		t.Fatalf("empty folder still there: %v", err)
 	}
 }
+
+// A download is never readable by more users than the remote file was: a
+// private key that is 0600 there stays 0600 here.
+func TestDownloadKeepsAPrivateFilePrivate(t *testing.T) {
+	_, c, dir := setup(t)
+	remote := filepath.Join(dir, "id_ed25519")
+	writeFile(t, remote, "key\n")
+	if err := os.Chmod(remote, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "id_ed25519")
+	if err := c.Download(remote, out); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Stat(out); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("downloaded mode = %v, %v; want 0600", fi.Mode().Perm(), err)
+	}
+}

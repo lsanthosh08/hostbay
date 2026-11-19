@@ -346,7 +346,12 @@ func (c *Conn) Download(remote, local string) error {
 		err = cerr
 	}
 	if err == nil {
-		err = os.Chmod(tmp.Name(), 0o644) // CreateTemp makes it 0600
+		// CreateTemp makes it 0600; open it up to 0644, but never to more
+		// users than could read the remote file.
+		var fi os.FileInfo
+		if fi, err = src.Stat(); err == nil {
+			err = os.Chmod(tmp.Name(), 0o600|0o644&fi.Mode().Perm())
+		}
 	}
 	if err != nil {
 		return err
