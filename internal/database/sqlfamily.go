@@ -372,7 +372,11 @@ var (
 	readOnlyLead = []string{"SELECT", "VALUES", "TABLE", "SHOW", "WITH", "EXPLAIN"}
 	writeWords   = []string{"INSERT", "UPDATE", "DELETE", "MERGE", "INTO", "ANALYZE", "CALL", "COPY", "LOCK",
 		"DROP", "CREATE", "ALTER", "TRUNCATE", "RENAME", "GRANT", "REVOKE", "DENY", "EXEC", "EXECUTE",
-		"DBCC", "BACKUP", "RESTORE", "KILL", "SHUTDOWN", "SET", "BEGIN", "COMMIT", "ROLLBACK", "SAVEPOINT"}
+		"DBCC", "BACKUP", "RESTORE", "KILL", "SHUTDOWN", "SET", "BEGIN", "COMMIT", "ROLLBACK", "SAVEPOINT",
+		// T-SQL statements that change data, state or the session, which a
+		// batch can start without a semicolon.
+		"WRITETEXT", "UPDATETEXT", "DECLARE", "USE", "RECONFIGURE", "CHECKPOINT", "SETUSER", "RECEIVE", "SEND",
+		"DISABLE", "ENABLE", "MOVE", "REVERT"}
 )
 
 // rerunnable judges by its text whether a request changes nothing: every
@@ -391,7 +395,10 @@ func rerunnable(text string, d dialect) bool {
 		if !slices.Contains(readOnlyLead, words[0]) {
 			return false
 		}
-		if words[0] == "SHOW" { // SHOW CREATE TABLE, SHOW GRANTS: reads
+		// MySQL's SHOW CREATE TABLE and SHOW GRANTS read. Only MySQL (the
+		// dialect with # comments) ends statements at semicolons alone; a
+		// T-SQL batch could follow SHOW with a write.
+		if words[0] == "SHOW" && d.hashComments {
 			continue
 		}
 		for _, w := range words {
