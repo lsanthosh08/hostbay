@@ -301,6 +301,14 @@ func (e *redisEngine) Query(ctx context.Context, text string) (Results, error) {
 				continue
 			}
 		}
+		if strings.EqualFold(args[0], "GET") && len(args) == 2 {
+			// GET reads the value whole, with no cap in the client: one
+			// larger than a page may hold is refused before it is read.
+			n, err := e.c.StrLen(ctx, args[1]).Result()
+			if err == nil && n > PageHeld {
+				return nil, fmt.Errorf("the value is %d bytes, more than Hostbay holds at once; read part of it with GETRANGE %s 0 65535", n, quoteRedis(args[1]))
+			}
+		}
 		v, err := e.do(ctx, args)
 		if err != nil {
 			return nil, err

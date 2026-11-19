@@ -291,3 +291,24 @@ func TestRedisListEditChecksTheShownValue(t *testing.T) {
 		t.Fatalf("an edit of the shown element: %v", err)
 	}
 }
+
+// GET reads a string whole, and go-redis has no size cap: a key larger
+// than a page holds is refused after STRLEN, before its bytes are read.
+func TestRedisGetRefusesAValueTooLargeToHold(t *testing.T) {
+	srv := dbtest.NewRedis(t, nil)
+	srv.Replies["strlen big"] = fmt.Sprintf(":%d\r\n", PageHeld+1)
+	srv.Replies["strlen small"] = ":2\r\n"
+	srv.Replies["GET small"] = "$2\r\nhi\r\n"
+	var dials atomic.Int32
+	e := openFakeRedis(t, srv, "", &dials)
+	if _, err := e.Query(context.Background(), "GET big"); err == nil || !strings.Contains(err.Error(), "GETRANGE") || sent(srv, "GET") {
+		t.Fatalf("GET of a huge value: %v", err)
+	}
+	r, err := e.Query(context.Background(), "GET small")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row, ok, _ := r.Next(); !ok || row[1] != "hi" {
+		t.Fatalf("GET small = %v", row)
+	}
+}
