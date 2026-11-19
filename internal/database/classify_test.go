@@ -41,6 +41,10 @@ func TestReadOnlyJudgement(t *testing.T) {
 		{"mongo find", &mongoEngine{}, `{"find": "users", "filter": {}}`, true},
 		{"mongo find with $db", &mongoEngine{}, `{"$db": "app", "find": "users"}`, true},
 		{"mongo aggregate $out", &mongoEngine{}, `{"aggregate": "u", "pipeline": [{"$out": "x"}]}`, false},
+		// JSON escapes decode to the same key the server runs.
+		{"mongo escaped $out", &mongoEngine{}, `{"aggregate": "u", "pipeline": [{"\u0024out": "x"}]}`, false},
+		{"mongo $merge in a $lookup", &mongoEngine{}, `{"aggregate": "u", "pipeline": [{"$lookup": {"from": "o", "as": "o", "pipeline": [{"$merge": "x"}]}}]}`, false},
+		{"mongo $out as a value", &mongoEngine{}, `{"find": "u", "filter": {"note": "$out"}}`, true},
 		{"mongo delete", &mongoEngine{}, `{"delete": "users", "deletes": []}`, false},
 		{"mongo not json", &mongoEngine{}, `find users`, false},
 		{"es get", &esEngine{}, "GET /logs/_search", true},

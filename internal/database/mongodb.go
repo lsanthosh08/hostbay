@@ -234,7 +234,7 @@ func (e *mongoEngine) Query(ctx context.Context, text string) (Results, error) {
 		return nil, &Error{Category: "syntax", Err: errors.New("the command is empty")}
 	}
 	name := cmd[0].Key
-	rerun := mongoReads(name, text)
+	rerun := mongoReads(cmd)
 	if slices.Contains(mongoCursors, name) {
 		cur, err := e.c.Database(db).RunCommandCursor(ctx, cmd)
 		if err != nil {
@@ -257,10 +257,27 @@ func (e *mongoEngine) Query(ctx context.Context, text string) (Results, error) {
 	return &memResults{rerun: rerun, sets: []resultSet{{cols: []Column{{Name: "reply", Type: "document"}}, next: rowList([][]any{{mongoJSON(reply)}})}}}, nil
 }
 
-// mongoReads reports a command, named name in text, that changes nothing:
-// one in mongoReadOnly without an $out or $merge stage anywhere in it.
-func mongoReads(name, text string) bool {
-	return slices.Contains(mongoReadOnly, name) && !strings.Contains(text, "$out") && !strings.Contains(text, "$merge")
+// mongoReads reports a parsed command that changes nothing: one in
+// mongoReadOnly with no $out or $merge key anywhere in it. It judges the
+// parsed keys, not the text, since a JSON escape such as \u0024out
+// decodes to the $out the server runs.
+func mongoReads(cmd bson.D) bool {
+	return len(cmd) > 0 && slices.Contains(mongoReadOnly, cmd[0].Key) && !mongoWrites(cmd)
+}
+
+// mongoWrites reports a $out or $merge key at any depth of v.
+func mongoWrites(v any) bool {
+	switch v := v.(type) {
+	case bson.D:
+		for _, el := range v {
+			if el.Key == "$out" || el.Key == "$merge" || mongoWrites(el.Value) {
+				return true
+			}
+		}
+	case bson.A:
+		return slices.ContainsFunc(v, mongoWrites)
+	}
+	return false
 }
 
 // ReadOnly judges a command as Query parses it; text that does not parse
@@ -271,7 +288,7 @@ func (e *mongoEngine) ReadOnly(text string) bool {
 		return false
 	}
 	cmd = slices.DeleteFunc(cmd, func(el bson.E) bool { return el.Key == "$db" })
-	return len(cmd) > 0 && mongoReads(cmd[0].Key, text)
+	return mongoReads(cmd)
 }
 
 // mongoJSON is a document as canonical Extended JSON, which keeps every
