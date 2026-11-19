@@ -3,7 +3,9 @@ import * as api from "../../api";
 import type { DbNode } from "../../api";
 import { t } from "../../i18n";
 import { focusRing } from "../../ui/Button";
-import { CollapsedIcon, ExpandedIcon, FolderIcon, TableIcon } from "../../ui/icons";
+import { Input } from "../../ui/Field";
+import { IconButton } from "../../ui/IconButton";
+import { CollapsedIcon, ExpandedIcon, FolderIcon, RefreshIcon, TableIcon } from "../../ui/icons";
 import { Spinner } from "../../ui/kit";
 
 // The node kinds that open their rows: SQL tables and views, Redis keys,
@@ -17,15 +19,27 @@ type Level = { nodes: DbNode[]; more: boolean; loading: boolean; error?: string 
  *  after a load failed, so a timeout is not shown for the tab's life. */
 export const shouldLoad = (l: Level | undefined) => !l || (!!l.error && !l.loading);
 
+const treeKey = (path: string[] | null) => JSON.stringify(path ?? []);
+
+/** Whether a node shows under a name filter: its own name holds the text,
+ *  or a loaded node below it does. Levels never loaded are not searched. */
+export function matches(levels: Record<string, Level>, n: DbNode, q: string): boolean {
+  if (!q || n.name.toLowerCase().includes(q)) return true;
+  return !!levels[treeKey(n.path)]?.nodes.some((c) => matches(levels, c, q));
+}
+
 /**
  * The database's objects: schemas, tables and views, and their columns,
  * each level loaded on demand from Go's catalog queries (KTD23). A table or
- * view opens its rows.
+ * view opens its rows. The filter searches the levels loaded so far;
+ * refresh drops them all and reads the top level again.
  */
 export function ObjectTree({ databaseId, onOpen }: { databaseId: string; onOpen: (path: string[]) => void }) {
   const [levels, setLevels] = useState<Record<string, Level>>({});
   const [open, setOpen] = useState<Set<string>>(new Set());
-  const id = (path: string[] | null) => JSON.stringify(path ?? []);
+  const [filter, setFilter] = useState("");
+  const q = filter.trim().toLowerCase();
+  const id = treeKey;
 
   const load = async (path: string[] | null, offset: number) => {
     const k = id(path);
@@ -38,6 +52,11 @@ export function ObjectTree({ databaseId, onOpen }: { databaseId: string; onOpen:
     }
   };
 
+  const refresh = () => {
+    setLevels({});
+    setOpen(new Set());
+    load(null, 0);
+  };
   useEffect(() => {
     load(null, 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -60,8 +79,10 @@ export function ObjectTree({ databaseId, onOpen }: { databaseId: string; onOpen:
     return (
       <ul role="group" className="flex flex-col">
         {l.nodes.map((n) => {
+          if (!matches(levels, n, q)) return null;
           const k = id(n.path);
-          const expanded = open.has(k);
+          // While filtering, a node whose loaded children match opens to show them.
+          const expanded = open.has(k) || (!!q && !n.name.toLowerCase().includes(q) && matches(levels, n, q));
           const table = OPENS.includes(n.kind);
           const Icon = table ? TableIcon : n.kind === "column" ? null : FolderIcon;
           return (
@@ -123,8 +144,22 @@ export function ObjectTree({ databaseId, onOpen }: { databaseId: string; onOpen:
   };
 
   return (
-    <div aria-label={t("database.tree")} role="tree" className="p-2 overflow-auto h-full">
-      {level(null, 0)}
+    <div className="flex flex-col h-full min-h-0">
+      <div className="flex items-center gap-1 p-2 pb-1">
+        <Input
+          className="h-7 flex-1 min-w-0 text-xs"
+          aria-label={t("database.treeFilter")}
+          placeholder={t("database.treeFilter")}
+          title={t("database.treeFilterHint")}
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+        <IconButton size="sm" icon={RefreshIcon} label={t("database.treeRefresh")} onClick={refresh} />
+      </div>
+      {q && <p className="px-2 text-xs text-muted">{t("database.treeFilterHint")}</p>}
+      <div aria-label={t("database.tree")} role="tree" className="p-2 pt-1 overflow-auto flex-1 min-h-0">
+        {level(null, 0)}
+      </div>
     </div>
   );
 }
