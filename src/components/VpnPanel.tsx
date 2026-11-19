@@ -64,13 +64,17 @@ export function useVpnConnect() {
   const { push } = useToast();
   const { fail, dialog } = useConnect();
   const { vpns } = useVpns();
-  const [trust, setTrust] = useState<{ id: string; cert: VpnCert; quiet: boolean } | null>(null);
+  // Certificate questions wait in turn, so a second profile's cannot swap
+  // into the dialog under a click meant for the first.
+  const [queue, setQueue] = useState<{ id: string; cert: VpnCert; quiet: boolean }[]>([]);
+  const trust = queue[0];
+  const next = () => setQueue((q) => q.slice(1));
   const connect = async (id: string, quiet = false): Promise<void> => {
     try {
       await api.connectVpn(id);
     } catch (e) {
       const cert = vpnCertPrompt(e);
-      if (cert) setTrust({ id, cert, quiet });
+      if (cert) setQueue((q) => [...q, { id, cert, quiet }]);
       else if (!vpnCancelled(e)) {
         // The row shows a failed connect itself, but a refusal before it starts (a routing
         // conflict, bad settings) sets no state, so the panel says it here.
@@ -85,7 +89,7 @@ export function useVpnConnect() {
   // an editor would undo it, so the list is read again before connecting.
   const answer = (call: () => Promise<unknown>) => {
     const { id, quiet } = trust!;
-    setTrust(null);
+    next();
     call().then(
       () => {
         reloadVpns();
@@ -96,11 +100,12 @@ export function useVpnConnect() {
   };
   const trustDialog = trust && (
     <Dialog
+      key={`${trust.id}:${trust.cert.pin}`}
       title={t(changed ? "connect.certChanged.title" : "trust.titleCert")}
-      onClose={() => setTrust(null)}
+      onClose={next}
       footer={
         <>
-          <Button variant="ghost" onClick={() => setTrust(null)}>
+          <Button variant="ghost" onClick={next}>
             {t("common.cancel")}
           </Button>
           {changed ? (
