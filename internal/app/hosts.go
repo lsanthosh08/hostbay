@@ -477,7 +477,7 @@ func (s *HostService) export(ctx context.Context, id, path, passphrase string) e
 
 // ImportStore restores a Hostbay backup or a JSON export, adding what is not saved yet. It reports how many hosts it added
 // and which need a jump host or proxy chosen.
-func (s *HostService) ImportStore(path string, passphrase *string) (StoreImport, error) {
+func (s *HostService) ImportStore(ctx context.Context, path string, passphrase *string) (StoreImport, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return StoreImport{}, err
@@ -489,6 +489,13 @@ func (s *HostService) ImportStore(path string, passphrase *string) (StoreImport,
 	b, err := backup.Read(raw, pass)
 	if err != nil {
 		return StoreImport{}, err
+	}
+	// A rule that types a saved password needs the verification
+	// SavePostLoginRule asks for: the page can write the file it restores.
+	if slices.ContainsFunc(b.PostLogin, func(r store.PostLoginRule) bool { return sendsPassword(r.Steps) }) {
+		if err := secrets.Gate(ctx, s.ver, "restore a post-login rule that sends a saved password"); err != nil {
+			return StoreImport{}, err
+		}
 	}
 	out := StoreImport{Notes: []string{}}
 	err = s.st.Edit(func(d *store.Data) error {
