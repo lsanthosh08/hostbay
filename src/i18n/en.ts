@@ -688,6 +688,7 @@ export const en = {
   "hostForm.pathStyle": "Path-style URLs (MinIO and other self-hosted servers)",
   "hostForm.importRdp": "Import .rdp",
   "hostForm.rdpImported": "Imported the .rdp file. Enter the password to finish.",
+  "hostForm.rdpImportedNoNla": "The file turns NLA off, so RDP security is now \"{label}\": the server opens a session before it checks the account. Change it under Advanced if you want NLA.",
   "hostForm.telnetWarning": "Telnet is unencrypted: everything you type, passwords included, crosses the network in clear text. Use it only for devices that offer nothing else.",
   "hostForm.hostname": "Host name or IP address",
   "hostForm.port": "Port",

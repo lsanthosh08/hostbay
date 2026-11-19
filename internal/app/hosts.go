@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"net/url"
@@ -12,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf16"
 
 	"hostbay/internal/apperr"
 	"hostbay/internal/backup"
@@ -547,7 +549,27 @@ func (s *HostService) WriteTextFile(path, content string) error {
 // ReadTextFile reads a local text file the user chose (.rdp import).
 func (s *HostService) ReadTextFile(path string) (string, error) {
 	b, err := os.ReadFile(path)
-	return string(b), err
+	if err != nil {
+		return "", err
+	}
+	return decodeText(b), nil
+}
+
+// decodeText turns file bytes into text. mstsc saves .rdp files as UTF-16LE
+// with a byte-order mark, which read as plain bytes would reach the page
+// with a NUL between every character.
+func decodeText(b []byte) string {
+	switch {
+	case len(b) >= 2 && b[0] == 0xFF && b[1] == 0xFE:
+		u := make([]uint16, (len(b)-2)/2)
+		for i := range u {
+			u[i] = binary.LittleEndian.Uint16(b[2+2*i:])
+		}
+		return string(utf16.Decode(u))
+	case len(b) >= 3 && b[0] == 0xEF && b[1] == 0xBB && b[2] == 0xBF:
+		return string(b[3:])
+	}
+	return string(b)
 }
 
 // RevealPassword returns a host's saved password after OS verification.
