@@ -186,11 +186,20 @@ for f in /etc/ssl/ca-bundle.pem /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/
 	fi
 done
 
-# Absolute build-machine paths compiled into the bundle (config and module
-# folders) name places a user's machine may let anyone create, while
-# openconnect.exe runs as SYSTEM: list them in the log for review.
-echo "UCRT64 paths compiled into the bundle:"
-grep -a -o -h '[[:print:]]*[/\\]ucrt64[/\\][[:print:]]*' "$dest"/*.dll "$dest/openconnect.exe" | sort -u || true
+# Build-machine paths compiled into the bundle name places a user's machine
+# may let anyone create (a drive-less /ucrt64 is C:\ucrt64 for
+# openconnect.exe, which runs as SYSTEM). Each must be one
+# openconnect-paths.txt lists with the variable hostbay-netd sets to keep
+# the library away from it.
+paths=$(grep -a -o -h -E '[[:print:]]*[/\\](ucrt64|msys64)([/\\][[:print:]]*)?' "$dest"/*.dll "$dest/openconnect.exe" | sort -u || true)
+echo "Build-machine paths compiled into the bundle:"
+echo "$paths"
+unlisted=$(echo "$paths" | grep -v -x -F -f <(sed -n 's/^\([^#][^ ]*\) .*/\1/p' "$here/openconnect-paths.txt") || true)
+if [ -n "$unlisted" ]; then
+	echo "these compiled-in paths have no mitigation in openconnect-paths.txt:" >&2
+	echo "$unlisted" >&2
+	exit 1
+fi
 
 # The bundle must run without UCRT64's bin on PATH, as on a user's machine.
 out=$(PATH=/usr/bin "$dest/openconnect.exe" --version 2>&1 || true)

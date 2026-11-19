@@ -1,0 +1,18 @@
+# Build-machine paths compiled into the bundled openconnect.exe and its DLLs,
+# each with the environment variable hostbay-netd sets for openconnect so the
+# library never reads that path (clientEnv in internal/netd/tunnel). A
+# drive-less path is relative to the system drive, where any user may create
+# a folder, and openconnect.exe runs as SYSTEM. bundle-openconnect.sh fails
+# the build on a compiled-in path missing here, and a Go test fails when
+# clientEnv does not set the variable.
+#
+# GnuTLS's system priority file: GNUTLS_SYSTEM_PRIORITY_FILE replaces it
+# (lib/priority.c, _gnutls_prepare_to_load_system_priorities).
+D:/M/msys64/ucrt64/etc/gnutls/config GNUTLS_SYSTEM_PRIORITY_FILE
+# Message catalogs of GnuTLS and libintl: in the C locale gettext returns the
+# message without opening a catalog (gettext-runtime/intl/dcigettext.c).
+D:/M/msys64/ucrt64/share/locale LC_ALL
+/ucrt64/share/locale LC_ALL
+# libxml2's default catalog: XML_CATALOG_FILES replaces it, and blank
+# entries name no catalog (catalog.c, xmlInitializeCatalog).
+file:///ucrt64/etc/xml/catalog XML_CATALOG_FILES

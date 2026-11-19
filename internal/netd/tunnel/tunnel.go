@@ -107,7 +107,9 @@ func New(env netd.TunnelEnv) netd.Tunnels {
 //
 // Windows' openconnect has the same kind of compiled-in paths: GnuTLS's
 // priority file on the build machine's drive, and drive-less ones under
-// \ucrt64, which any user may create at the system drive's root. In the C
+// \ucrt64, which any user may create at the system drive's root
+// (build/windows/openconnect-paths.txt lists each path with the variable
+// here that covers it, and the build fails on one it lacks). In the C
 // locale gettext opens no message catalog, whose format strings would run
 // in the client; and a blank XML_CATALOG_FILES names no libxml2 catalog (an
 // empty value may read as unset on Windows).

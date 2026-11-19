@@ -1,6 +1,8 @@
 package tunnel
 
 import (
+	"bufio"
+	"os"
 	"strings"
 	"testing"
 )
@@ -33,5 +35,37 @@ func TestClientEnvConfinesLibraries(t *testing.T) {
 		if _, ok := envValue(env, name); ok {
 			t.Errorf("clientEnv sets %s", name)
 		}
+	}
+}
+
+// Every path compiled into the Windows openconnect bundle names a variable
+// clientEnv sets; bundle-openconnect.sh fails the build on a path the list
+// lacks, so together no compiled-in path is left for openconnect to read.
+func TestOpenConnectPathsAreCovered(t *testing.T) {
+	f, err := os.Open("../../../build/windows/openconnect-paths.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	env := clientEnv("conf", "prio", "libs")
+	n := 0
+	s := bufio.NewScanner(f)
+	for s.Scan() {
+		l := strings.TrimSpace(s.Text())
+		if l == "" || strings.HasPrefix(l, "#") {
+			continue
+		}
+		fields := strings.Fields(l)
+		if len(fields) != 2 {
+			t.Errorf("openconnect-paths.txt: want a path and a variable, got %q", l)
+			continue
+		}
+		n++
+		if v, ok := envValue(env, fields[1]); !ok || v == "" {
+			t.Errorf("%s is covered by %s, which clientEnv does not set", fields[0], fields[1])
+		}
+	}
+	if n == 0 {
+		t.Fatal("openconnect-paths.txt lists no paths")
 	}
 }
