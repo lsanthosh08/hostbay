@@ -263,3 +263,32 @@ func TestDatabaseExplain(t *testing.T) {
 		t.Fatalf("explain of a SELECT in read-only mode: %v", err)
 	}
 }
+
+// History keeps no request that carries a credential in any engine's
+// syntax: SQL, Redis or MongoDB, or a URL with a password in it.
+func TestSecretLike(t *testing.T) {
+	for _, c := range []struct {
+		text   string
+		secret bool
+	}{
+		{"CREATE USER bob PASSWORD 'pw'", true},
+		{"ALTER USER bob IDENTIFIED BY pw", true},
+		{"AUTH bob s3cret", true},
+		{"GET a\nauth s3cret", true},
+		{"HELLO 3 AUTH bob s3cret", true},
+		{"ACL SETUSER bob on >s3cret", true},
+		{"CONFIG SET requirepass s3cret", true},
+		{"CONFIG SET masterauth s3cret", true},
+		{"MIGRATE h 6379 k 0 5000 AUTH s3cret", true},
+		{`{"createUser": "bob", "pwd": "s3cret", "roles": []}`, true},
+		{"SELECT * FROM dblink('postgresql://bob:s3cret@db.example.test/app', 'SELECT 1')", true},
+		{"SELECT 1", false},
+		{"GET author", false},
+		{`{"find": "users", "filter": {"name": "ann"}}`, false},
+		{"SELECT 'see https://example.test/a@b'", false},
+	} {
+		if got := secretLike(c.text); got != c.secret {
+			t.Errorf("secretLike(%q) = %v, want %v", c.text, got, c.secret)
+		}
+	}
+}

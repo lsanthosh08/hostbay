@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -29,11 +30,36 @@ var savedQueriesMu sync.Mutex
 // historyKey is where host's database requests are kept.
 func historyKey(hostID string) string { return "database:" + hostID }
 
-// secretLike reports a request that likely carries a credential, such as
-// CREATE USER … PASSWORD or IDENTIFIED BY, which history does not keep.
+// secretURL is a URL with a password in it, as in scheme://user:pw@host.
+var secretURL = regexp.MustCompile(`://[^/\s:@]+:[^/\s@]*@`)
+
+// secretLike reports a request that likely carries a credential, which
+// history does not keep: SQL's CREATE USER … PASSWORD or IDENTIFIED BY,
+// Redis AUTH, HELLO … AUTH, ACL SETUSER, MIGRATE … AUTH and CONFIG SET
+// requirepass or masterauth, a MongoDB "pwd" field, or a URL with a
+// password. It judges every engine's syntax, since history is kept
+// before the engine reads the request.
 func secretLike(text string) bool {
 	u := strings.ToUpper(text)
-	return strings.Contains(u, "PASSWORD") || strings.Contains(u, "IDENTIFIED BY") || strings.Contains(u, "SECRET")
+	for _, w := range []string{"PASSWORD", "IDENTIFIED BY", "SECRET", `"PWD"`, "REQUIREPASS", "MASTERAUTH"} {
+		if strings.Contains(u, w) {
+			return true
+		}
+	}
+	if secretURL.MatchString(text) {
+		return true
+	}
+	for _, line := range strings.Split(u, "\n") {
+		f := strings.Fields(line)
+		switch {
+		case len(f) == 0:
+		case f[0] == "AUTH",
+			f[0] == "ACL" && len(f) > 1 && f[1] == "SETUSER",
+			(f[0] == "HELLO" || f[0] == "MIGRATE") && (slices.Contains(f, "AUTH") || slices.Contains(f, "AUTH2")):
+			return true
+		}
+	}
+	return false
 }
 
 // remember adds text to d's host's history, unless it repeats the last
