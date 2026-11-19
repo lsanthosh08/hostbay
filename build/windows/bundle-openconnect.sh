@@ -114,14 +114,20 @@ if grep -a -q 'p11_kit_' /ucrt64/lib/libgnutls.a; then
 	echo "MSYS2's static libgnutls.a links p11-kit; it must not" >&2
 	exit 1
 fi
-gnutls_libs="-Wl,-Bstatic -lgnutls -Wl,-Bdynamic $(pkg-config --libs nettle hogweed libtasn1 libidn2 zlib libbrotlienc libbrotlidec libzstd) -lintl -lgmp -lunistring -ladvapi32 -lws2_32 -lcrypt32 -lncrypt -lbcrypt"
+# The archive by path: libtool may reorder -l flags around -Wl,-Bstatic and
+# link the DLL's import library instead.
+gnutls_libs="/ucrt64/lib/libgnutls.a $(pkg-config --libs nettle hogweed libtasn1 libidn2 zlib libbrotlienc libbrotlidec libzstd) -lintl -lgmp -lunistring -ladvapi32 -lws2_32 -lcrypt32 -lncrypt -lbcrypt"
 # Only what Hostbay uses: hostbay-netd always passes --script, so the
 # default vpnc-script is never run, and no optional library is linked
-# beyond GnuTLS, libxml2, zlib and libiconv.
+# beyond GnuTLS, libxml2, zlib and libiconv. OpenConnect links p11-kit
+# itself when GnuTLS has gnutls_pkcs11_add_provider, which the static
+# archive lacks; the cache variable keeps it so. --prefix=/ucrt64 puts any
+# path OpenConnect derives from its prefix under the compiled-in path check
+# below, instead of an unchecked /usr/local.
 (
 	cd "$src"
-	GNUTLS_CFLAGS="-I$inc" GNUTLS_LIBS="$gnutls_libs" \
-		./configure --disable-shared --disable-nls --disable-docs \
+	GNUTLS_CFLAGS="-I$inc" GNUTLS_LIBS="$gnutls_libs" ac_cv_func_gnutls_pkcs11_add_provider=no \
+		./configure --prefix=/ucrt64 --disable-shared --disable-nls --disable-docs \
 		--with-vpnc-script=vpnc-script-win.js --with-builtin-json \
 		--without-libproxy --without-stoken --without-libpskc \
 		--without-libpcsclite --without-gssapi --without-lz4
