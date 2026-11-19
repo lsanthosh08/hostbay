@@ -172,6 +172,10 @@ export function FilesTab({ conn, windows }: { conn: Connection; windows?: boolea
     await writeWithSudo(openFile, content, "Saved");
   };
 
+  // Whether the folder shown holds this name; Windows file names ignore case.
+  const taken = (name: string) =>
+    entries.some((e) => (windows ? e.name.toLowerCase() === name.toLowerCase() : e.name === name));
+
   const doCreate = async () => {
     const name = newName.trim();
     if (!name || !creating) {
@@ -181,7 +185,7 @@ export function FilesTab({ conn, windows }: { conn: Connection; windows?: boolea
     }
     const target = joinPath(cwd, name);
     // An empty write truncates, so "New file" on a taken name would empty it.
-    if (entries.some((e) => e.name === name)) {
+    if (taken(name)) {
       push("error", t("files.exists", { name }));
       return;
     }
@@ -216,7 +220,7 @@ export function FilesTab({ conn, windows }: { conn: Connection; windows?: boolea
 
   // A single-file upload or paste writes over a file of the same name.
   const mayReplace = async (name: string) =>
-    !entries.some((e) => e.name === name) || (await confirm(t("files.replaceConfirm", { name }), { confirmLabel: t("files.replace") }));
+    !taken(name) || (await confirm(t("files.replaceConfirm", { name }), { confirmLabel: t("files.replace") }));
 
   const paste = async () => {
     if (!clipboard) return;
