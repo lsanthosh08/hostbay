@@ -37,6 +37,11 @@ func TestExplain(t *testing.T) {
 			t.Errorf("%q explained as %q", text, q)
 		}
 	}
+	// In MySQL "--1" is two minus signs, not a comment, so this is two
+	// statements (in PostgreSQL the rest of the line is a comment).
+	if q, err := (&sqlEngine{d: mysqlDialect}).Explain("SELECT 1--1; DELETE FROM t"); err == nil {
+		t.Errorf("MySQL explained %q", q)
+	}
 	for _, d := range []dialect{mssqlDialect, oraDialect} {
 		if e := (&sqlEngine{d: d}); e.CanExplain() {
 			t.Errorf("explain offered on a dialect with no plan prefix: %+v", strings.TrimSpace(d.explain))

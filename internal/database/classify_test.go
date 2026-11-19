@@ -29,6 +29,11 @@ func TestReadOnlyJudgement(t *testing.T) {
 		{"mysql show create", &sqlEngine{d: mysqlDialect}, "SHOW CREATE TABLE t", true},
 		{"mysql show then drop", &sqlEngine{d: mysqlDialect}, "SHOW TABLES; DROP TABLE t", false},
 		{"mysql plain comment", &sqlEngine{d: mysqlDialect}, "/* note */ SELECT 1", true},
+		// MySQL starts a -- comment only before whitespace: here it is two
+		// minus signs, and the DELETE is a second statement.
+		{"mysql -- without a space", &sqlEngine{d: mysqlDialect}, "SELECT 1--1; DELETE FROM t", false},
+		{"mysql -- comment", &sqlEngine{d: mysqlDialect}, "SELECT 1 -- DELETE", true},
+		{"mysql -- at the end", &sqlEngine{d: mysqlDialect}, "SELECT 1 --", true},
 		{"sql word in a string", &sqlEngine{d: pgDialect}, "SELECT 'drop table' AS x", true},
 		{"redis reads", &redisEngine{}, "GET a\nHGETALL b", true},
 		{"redis write", &redisEngine{}, "GET a\nDEL b", false},

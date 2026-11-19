@@ -64,7 +64,8 @@ type dialect struct {
 	// category decodes the engine's own errors (Category for the rest).
 	category func(error) string
 	// dollarQuotes and nestedComments describe the lexer (PostgreSQL);
-	// backslashEscapes and hashComments too (MySQL).
+	// backslashEscapes and hashComments too (MySQL, whose -- comment
+	// also needs whitespace after it).
 	dollarQuotes, nestedComments   bool
 	backslashEscapes, hashComments bool
 	// offsetFirst passes a catalog query's offset before its limit, for
@@ -402,6 +403,13 @@ func rerunnable(text string, d dialect) bool {
 	return true
 }
 
+// dashComment reports whether MySQL reads "--" followed by rest as a
+// comment: only before whitespace, a control character or the end of the
+// text. "1--1" is 1 minus minus 1 there, and what follows is still SQL.
+func dashComment(rest string) bool {
+	return rest == "" || rest[0] <= ' '
+}
+
 // statements splits text at semicolons into each statement's words,
 // upper-cased, skipping comments, string literals and quoted identifiers.
 // ok is false when text ends inside a quote or comment.
@@ -437,7 +445,7 @@ func statements(text string, d dialect) (stmts [][]string, ok bool) {
 		case c == ';':
 			end()
 			i++
-		case c == '-' && strings.HasPrefix(text[i:], "--") || c == '#' && d.hashComments:
+		case c == '-' && strings.HasPrefix(text[i:], "--") && (!d.hashComments || dashComment(text[i+2:])) || c == '#' && d.hashComments:
 			nl := strings.IndexByte(text[i:], '\n')
 			if nl < 0 {
 				i = len(text)
