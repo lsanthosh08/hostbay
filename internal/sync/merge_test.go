@@ -268,7 +268,9 @@ func TestRepairBreaksFolderCyclesAndClearsDanglingLinks(t *testing.T) {
 	if d.Folder("x").ParentID == nil && d.Folder("y").ParentID == nil {
 		t.Fatal("both cycle members were cut loose; only one needs to be")
 	}
-	if d.Host("h1").FolderID != nil || d.Host("h2").JumpHostID != nil || d.Host("h2").FolderID == nil {
+	// A host whose jump host is gone keeps naming it, so it fails to connect
+	// rather than connect directly, as after a local delete or a restore.
+	if d.Host("h1").FolderID != nil || store.Deref(d.Host("h2").JumpHostID) != "nope" || d.Host("h2").FolderID == nil {
 		t.Fatalf("hosts = %+v", d.Hosts.Items)
 	}
 }
