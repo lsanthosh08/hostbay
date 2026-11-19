@@ -46,6 +46,8 @@ export function QuickCommands() {
       </div>
       {scripts.length === 0 ? (
         <EmptyState icon={QuickCommandsIcon} title={t("quick.empty")} />
+      ) : shown.length === 0 ? (
+        <EmptyState icon={QuickCommandsIcon} title={t("quick.noMatch")} />
       ) : (
         <ul className="flex-1 min-h-0 overflow-auto px-2 pb-2 flex flex-col gap-1">
           {shown.map((s) => (

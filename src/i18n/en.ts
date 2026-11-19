@@ -1382,6 +1382,7 @@ export const en = {
   "nav.history": "Command history",
   "quick.filter": "Filter commands",
   "quick.empty": "No saved scripts yet. Add them in a session's Services tab.",
+  "quick.noMatch": "No commands match the filter.",
   "quick.run": "Run",
   "quick.paste": "Paste",
   "quick.copy": "Copy",
