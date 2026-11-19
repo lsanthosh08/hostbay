@@ -1,0 +1,36 @@
+# What bundle-openconnect.sh downloads to build openconnect.exe on the Windows
+# release runner, one "<url> <sha256>" per line; a download that does not
+# match its SHA-256 fails the build. The first line is OpenConnect's release
+# tarball. The MSYS2 lines (UCRT64 compiler and libraries, and MSYS make) are
+# written by openconnect-lock.py; rerun it to move to newer libraries.
+https://www.infradead.org/openconnect/download/openconnect-9.21.tar.gz 5b32369467db6e5f317aa1ed12cfcbb81ed00bdbc765450b6bfcbdc300944a58
+https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-binutils-2.47-4-any.pkg.tar.zst c18a40b871bfddb5da030f015003479ca85625afde1cb89f7313945e6151397d
+https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-brotli-1.2.1-1-any.pkg.tar.zst e3257d4303fc0aca4c64f702d4c8cd766a321351c5e61927631c30bfdf2e7536
+https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-cc-libs-16.2.0-7-any.pkg.tar.zst bf7dea230d49527d4634cb959a9e500b0f15f44e8ccfc690b99cba2299f17797
+https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-crt-14.0.0.r598.ge3d18511f-1-any.pkg.tar.zst e863d0d1c5cef1269738f23dcc155b9b0d161d198b93d9d5aa481cb3a2f2cf53
+https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-gcc-16.2.0-7-any.pkg.tar.zst c7c5ac5a7413e9a3b5afa367288568058dcecce8fdd690059c5bbfa07def01b9
+https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-gettext-runtime-1.0-1-any.pkg.tar.zst ba693dda4ac375af76ce481ff3a6e7481286546cc7dc6d56c7021dae34084157
+https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-gmp-6.3.0-2-any.pkg.tar.zst e82a75968a556484a50084578238a84eb60fb93e34986fd6695c537975bd39ea
+https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-gnutls-3.8.13-3-any.pkg.tar.zst 303da3babd11f545fcac647439298e8559951ce6a1086666faf8ad2a1f708be6
+https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-headers-14.0.0.r598.ge3d18511f-1-any.pkg.tar.zst b3cec87298555a7c6694bd4d421d586d08a1cb47bc5bc76e79602cbf4421d3c9
+https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-isl-0.28-1-any.pkg.tar.zst 8594e01a253d5a72646c586cf5a1626c1b1c2be7c30060fe67abd9bebe3fe223
+https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-libffi-3.8.1-1-any.pkg.tar.zst 8eeb770c91b7e51ddbcb34a9a991e5b417066270363c3026882149638a70d03d
+https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-libgcc-16.2.0-7-any.pkg.tar.zst bc0ae31c582e0847964b4c8c4b55bb2404a9b7ddce7ebf0b176b6693b76e0c62
+https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-libiconv-1.19.1-1-any.pkg.tar.zst 8a45dc317a285a036bddd79e01505d67b79e44ff49fc3f6e7177a5ea98d098cf
+https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-libidn2-2.3.8-5-any.pkg.tar.zst 64d0be239a20c841919f5f3d085c77cb9c631e4ecbfcfb14ba7ca668b5026ebc
+https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-libstdc++-16.2.0-7-any.pkg.tar.zst 4dd4b216b0e92ffa160127dd50620372609e98cb219ff1c5dcb9b3fbfe153253
+https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-libtasn1-4.21.0-2-any.pkg.tar.zst 3aebc3458de49f6c8bc22aabcc9f8eddec643d8d01bd56f683aa1074b0998f6f
+https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-libunistring-1.4.2-1-any.pkg.tar.zst e784273da19bbdcc91cbb510b5e27c3ac021b026140734eefcce5ccbd878bd97
+https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-libwinpthread-14.0.0.r598.ge3d18511f-1-any.pkg.tar.zst c35d6be83d141c8cfbb61f1637dd4b53aac8f5562d766aa26d0741c40bad4e4d
+https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-libxml2-2.15.4-3-any.pkg.tar.zst e774c85139c004ce9b4085474d6b3450526c718d2e8c555a87e47adc11f376b1
+https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-mpc-1.4.1-1-any.pkg.tar.zst f06556e811c711ce91609484e31d358e4f495811ba29813bf2284a3b236d82ce
+https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-mpfr-4.2.2-3-any.pkg.tar.zst 6b70a275d2ec75c70aa50a236c218e6b7ee9a5ab4c6d52cb0b580267b7d200fe
+https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-nettle-4.0-1-any.pkg.tar.zst 47b49f1723ef2c75ff3042b6e463910c47cdffa3342e175b6409fb9d630e64ed
+https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-p11-kit-0.26.6-1-any.pkg.tar.zst 837ec9421987bc663bcac1bdc6bb4d3250e1449bc5cc406cdb769d2a89d6df6f
+https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-pkgconf-1~3.0.11-2-any.pkg.tar.zst 68c157c7c19f9015b6b0b65cfef16046da6dd628aea816e2cdfe385b710263ad
+https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-tzdata-2026f-1-any.pkg.tar.zst dd8af2f770b3241d8c299343c12cd4d7e3b94c47195608158d28788a01575323
+https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-windows-default-manifest-20260815-1-any.pkg.tar.zst b39039f754a600cc0dec49df7d675a59a3cb2b63691d91b4ae60735ee7075eca
+https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-winpthreads-14.0.0.r598.ge3d18511f-1-any.pkg.tar.zst 282485a1e453e972b86639cedcf43686e0000dfe5eff0421e47a4405ecdd85ce
+https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-zlib-1.4-2-any.pkg.tar.zst 172541cf5e2391a402f092104988699b0163129d22be1d6b4b201bfb84af6fcf
+https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-zstd-1.5.7-2-any.pkg.tar.zst dbdb8427280046a2b41697780aa4c52983b708082b0da4755951dc3bea96ca89
+https://repo.msys2.org/msys/x86_64/make-4.4.1-3-x86_64.pkg.tar.zst af0bdba17f06fe037f0194069adaa31a8fe45f1a11381501896aea1fae37bd5d
