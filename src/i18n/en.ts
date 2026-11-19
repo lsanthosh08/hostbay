@@ -1278,6 +1278,7 @@ export const en = {
   "database.collapse": "Collapse {name}",
   "database.openTable": "Open {name}",
   "database.editor": "Query",
+  "database.resizeEditor": "Query editor height",
   "database.explain": "Explain",
   "database.jsonFilter": "JSON filter",
   "database.jsonFilterPlaceholder": "Filter, such as {\"status\": \"open\"}",

@@ -22,6 +22,7 @@ import { ResultGrid } from "./ResultGrid";
 import { InsertDialog, ReviewDialog, type Pending } from "./RowChange";
 import { addPage } from "./rows";
 import { cancelled, clip, duration, failed, isRunning, once, type Shown } from "./shown";
+import { clampEditor, DEFAULT_EDITOR, MIN_EDITOR, SPLIT_STEP } from "./split";
 import { addTab, closeTab, completions, renameTab, setTabText, type Completion, type QueryTab } from "./tabs";
 import { Tabs } from "../../ui/Tabs";
 
@@ -55,6 +56,34 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
   const putInEditor = (sql: string) => setInsert((x) => ({ sql, n: (x?.n ?? 0) + 1 }));
   // The export running now; cancelling its promise stops it in Go.
   const [exporting, setExporting] = useState<{ cancel: () => void } | null>(null);
+  // The editor's height, kept while this tab is open, and the height the
+  // editor and the results share (measured), to keep both of them in view.
+  const [editorHeight, setEditorHeight] = useState(DEFAULT_EDITOR);
+  const [shared, setShared] = useState(0);
+  const split = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = split.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setShared(el.clientHeight));
+    ro.observe(el);
+    setShared(el.clientHeight);
+    return () => ro.disconnect();
+  }, []);
+  const editorPx = clampEditor(editorHeight, shared);
+  const startDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    const from = e.clientY - editorPx;
+    const el = e.currentTarget;
+    el.setPointerCapture(e.pointerId);
+    const move = (ev: PointerEvent) => setEditorHeight(clampEditor(ev.clientY - from, split.current?.clientHeight ?? 0));
+    const up = () => {
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      el.removeEventListener("pointercancel", up);
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
+  };
   // Query tabs share the session and the results area below them.
   const [tabs, setTabs] = useState<QueryTab[]>(() => addTab([], (n) => t("database.queryTab", { n })).tabs);
   const [activeTab, setActiveTab] = useState("1");
@@ -195,162 +224,181 @@ export function DatabaseTab({ conn }: { conn: Connection }) {
       </aside>
       <div className="flex-1 min-w-0 flex flex-col min-h-0">
         {canAsk && <AskAI databaseId={databaseId} onSQL={putInEditor} />}
-        <div className="h-2/5 min-h-32 border-b border-line flex flex-col">
-          <div className="flex items-center gap-1 px-2 border-b border-line text-xs">
-            <Tabs
-              label={t("database.queryTabs")}
-              className="min-w-0"
-              value={tab.id}
-              onChange={setActiveTab}
-              items={tabs.map((x) => ({
-                id: x.id,
-                label: (
-                  <span
-                    onDoubleClick={async () => {
-                      const name = await prompt(t("database.renameTab"), x.name);
-                      if (name !== null && name !== undefined) setTabs((ts) => renameTab(ts, x.id, name));
-                    }}
-                  >
-                    {x.name}
-                  </span>
-                ),
-                title: t("database.renameTabHint"),
-                onClose:
-                  tabs.length > 1
-                    ? () => {
-                        const next = closeTab(tabs, x.id, tab.id);
-                        setTabs(next.tabs);
-                        setActiveTab(next.active);
-                      }
-                    : undefined,
-              }))}
-            />
-            <IconButton
-              size="sm"
-              icon={AddIcon}
-              label={t("database.newTab")}
-              onClick={() => {
-                const next = addTab(tabs, (n) => t("database.queryTab", { n }), lastTab.current);
-                lastTab.current = Number(next.id);
-                setTabs(next.tabs);
-                setActiveTab(next.id);
+        <div ref={split} className="flex-1 min-h-0 flex flex-col">
+          <div className="relative shrink-0 border-b border-line flex flex-col" style={{ height: editorPx }}>
+            <div className="flex items-center gap-1 px-2 border-b border-line text-xs">
+              <Tabs
+                label={t("database.queryTabs")}
+                className="min-w-0"
+                value={tab.id}
+                onChange={setActiveTab}
+                items={tabs.map((x) => ({
+                  id: x.id,
+                  label: (
+                    <span
+                      onDoubleClick={async () => {
+                        const name = await prompt(t("database.renameTab"), x.name);
+                        if (name !== null && name !== undefined) setTabs((ts) => renameTab(ts, x.id, name));
+                      }}
+                    >
+                      {x.name}
+                    </span>
+                  ),
+                  title: t("database.renameTabHint"),
+                  onClose:
+                    tabs.length > 1
+                      ? () => {
+                          const next = closeTab(tabs, x.id, tab.id);
+                          setTabs(next.tabs);
+                          setActiveTab(next.active);
+                        }
+                      : undefined,
+                }))}
+              />
+              <IconButton
+                size="sm"
+                icon={AddIcon}
+                label={t("database.newTab")}
+                onClick={() => {
+                  const next = addTab(tabs, (n) => t("database.queryTab", { n }), lastTab.current);
+                  lastTab.current = Number(next.id);
+                  setTabs(next.tabs);
+                  setActiveTab(next.id);
+                }}
+              />
+            </div>
+            <div className="flex-1 min-h-0">
+              <QueryEditor
+                path={`database/${databaseId}/${tab.id}.sql`}
+                schema={schema}
+                insert={insert}
+                value={text}
+                onChange={setText}
+                onRun={run}
+                onExplain={canExplain ? explain : undefined}
+                readOnly={readOnly}
+                onReadOnly={setMode}
+                onLibrary={() => setLibrary(true)}
+                running={running}
+                onCancel={cancel}
+              />
+            </div>
+            <div
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label={t("database.resizeEditor")}
+              aria-valuenow={editorPx}
+              aria-valuemin={MIN_EDITOR}
+              aria-valuemax={shared > 0 ? clampEditor(Infinity, shared) : undefined}
+              tabIndex={0}
+              onPointerDown={startDrag}
+              onKeyDown={(e) => {
+                const step = e.key === "ArrowDown" ? SPLIT_STEP : e.key === "ArrowUp" ? -SPLIT_STEP : 0;
+                if (!step) return;
+                e.preventDefault();
+                setEditorHeight((h) => clampEditor(clampEditor(h, shared) + step, shared));
               }}
+              className="absolute inset-x-0 -bottom-1 h-2 z-10 cursor-row-resize hover:bg-accent/30 focus-visible:bg-accent/40 outline-none"
             />
           </div>
+          <div role="status" aria-live="polite" className="flex flex-wrap items-center gap-2 px-2 py-1 text-xs border-b border-line min-h-8">
+            {running && <Spinner />}
+            {shown && (shown.path || shown.text) && (
+              <span
+                className="text-muted truncate max-w-xs font-mono"
+                title={t("database.resultsOf", { what: shown.path ? shown.path.join(".") : clip(shown.text ?? "") })}
+              >
+                {shown.explain && t("database.planOf")} {shown.path ? shown.path.join(".") : firstLine(shown.text ?? "")}
+              </span>
+            )}
+            {shown && !shown.error && <span className="text-muted">{t(rows === 1 ? "database.row" : "database.rows", { n: rows })}</span>}
+            {elapsed !== undefined && <span className="text-muted tabular-nums">{t("database.took", { time: duration(Math.max(0, elapsed)) })}</span>}
+            {state === "cancelled" && <span className="text-muted">{t("database.cancelled")}</span>}
+            {shown?.error && <span className="text-danger allow-select break-words">{shown.error}</span>}
+            {state === "expired" && shown?.state?.rerun && (
+              <Button size="sm" onClick={rerun}>
+                {t("database.rerun")}
+              </Button>
+            )}
+            {readOnly && <span className="text-warning">{t("database.readOnlyOn")}</span>}
+            {shown?.path && !shown.table && !shown.loading && !shown.error && canEdit && (
+              <span className="text-muted">{t("database.readOnly")}</span>
+            )}
+            {shown && !shown.done && !shown.loading && !shown.error && state !== "expired" && state !== "cancelled" && (
+              <Button size="sm" onClick={() => fetchPage(shown.queryId)}>
+                {t("database.loadMore")}
+              </Button>
+            )}
+            {shown && !shown.error && !shown.explain && (shown.path || shown.text) && (
+              <span className="ml-auto flex items-center gap-1">
+                {exporting ? (
+                  <>
+                    <Spinner />
+                    <span className="text-muted">{t("database.exporting")}</span>
+                    <Button size="sm" variant="ghost" onClick={exporting.cancel}>
+                      {t("database.cancel")}
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-muted">{t("database.export")}</span>
+                    <Button size="sm" variant="ghost" title={t("database.exportHint")} onClick={() => exportAs(shown, "csv")}>
+                      CSV
+                    </Button>
+                    <Button size="sm" variant="ghost" title={t("database.exportHint")} onClick={() => exportAs(shown, "json")}>
+                      JSON
+                    </Button>
+                  </>
+                )}
+              </span>
+            )}
+          </div>
+          {shown?.path && canBrowse && (
+            <BrowseBar
+              key={where}
+              columns={columns}
+              browse={shown.browse ?? {}}
+              onApply={(b) => openTable(shown.path!, b)}
+              onRefresh={rerun}
+              count={shown.count}
+              onCount={() => count(shown)}
+              json={caps.includes("browseJSON")}
+              onInsert={canWrite && shown.table && !readOnly ? () => setInserting(true) : undefined}
+            />
+          )}
           <div className="flex-1 min-h-0">
-            <QueryEditor
-              path={`database/${databaseId}/${tab.id}.sql`}
-              schema={schema}
-              insert={insert}
-              value={text}
-              onChange={setText}
-              onRun={run}
-              onExplain={canExplain ? explain : undefined}
-              readOnly={readOnly}
-              onReadOnly={setMode}
-              onLibrary={() => setLibrary(true)}
-              running={running}
-              onCancel={cancel}
-            />
-          </div>
-        </div>
-        <div role="status" aria-live="polite" className="flex flex-wrap items-center gap-2 px-2 py-1 text-xs border-b border-line min-h-8">
-          {running && <Spinner />}
-          {shown && (shown.path || shown.text) && (
-            <span
-              className="text-muted truncate max-w-xs font-mono"
-              title={t("database.resultsOf", { what: shown.path ? shown.path.join(".") : clip(shown.text ?? "") })}
-            >
-              {shown.explain && t("database.planOf")} {shown.path ? shown.path.join(".") : firstLine(shown.text ?? "")}
-            </span>
-          )}
-          {shown && !shown.error && <span className="text-muted">{t(rows === 1 ? "database.row" : "database.rows", { n: rows })}</span>}
-          {elapsed !== undefined && <span className="text-muted tabular-nums">{t("database.took", { time: duration(Math.max(0, elapsed)) })}</span>}
-          {state === "cancelled" && <span className="text-muted">{t("database.cancelled")}</span>}
-          {shown?.error && <span className="text-danger allow-select break-words">{shown.error}</span>}
-          {state === "expired" && shown?.state?.rerun && (
-            <Button size="sm" onClick={rerun}>
-              {t("database.rerun")}
-            </Button>
-          )}
-          {readOnly && <span className="text-warning">{t("database.readOnlyOn")}</span>}
-          {shown?.path && !shown.table && !shown.loading && !shown.error && canEdit && (
-            <span className="text-muted">{t("database.readOnly")}</span>
-          )}
-          {shown && !shown.done && !shown.loading && !shown.error && state !== "expired" && state !== "cancelled" && (
-            <Button size="sm" onClick={() => fetchPage(shown.queryId)}>
-              {t("database.loadMore")}
-            </Button>
-          )}
-          {shown && !shown.error && !shown.explain && (shown.path || shown.text) && (
-            <span className="ml-auto flex items-center gap-1">
-              {exporting ? (
-                <>
-                  <Spinner />
-                  <span className="text-muted">{t("database.exporting")}</span>
-                  <Button size="sm" variant="ghost" onClick={exporting.cancel}>
-                    {t("database.cancel")}
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <span className="text-muted">{t("database.export")}</span>
-                  <Button size="sm" variant="ghost" title={t("database.exportHint")} onClick={() => exportAs(shown, "csv")}>
-                    CSV
-                  </Button>
-                  <Button size="sm" variant="ghost" title={t("database.exportHint")} onClick={() => exportAs(shown, "json")}>
-                    JSON
-                  </Button>
-                </>
-              )}
-            </span>
-          )}
-        </div>
-        {shown?.path && canBrowse && (
-          <BrowseBar
-            key={where}
-            columns={columns}
-            browse={shown.browse ?? {}}
-            onApply={(b) => openTable(shown.path!, b)}
-            onRefresh={rerun}
-            count={shown.count}
-            onCount={() => count(shown)}
-            json={caps.includes("browseJSON")}
-            onInsert={canWrite && shown.table && !readOnly ? () => setInserting(true) : undefined}
-          />
-        )}
-        <div className="flex-1 min-h-0">
-          {shown && (
-            <ResultGrid
-              key={shown.queryId}
-              sets={shown.sets}
-              done={shown.done}
-              sort={shown.path && canBrowse ? (shown.browse ?? {}) : undefined}
-              onSort={shown.path && canBrowse ? (column) => openTable(shown.path!, { ...nextSort(shown.browse ?? {}, column), order: undefined }) : undefined}
-              table={readOnly ? null : shown.table}
-              onSaveCell={(result, row, col) =>
-                toast(() => api.databaseSaveCell(shown.queryId, result, row, col)).then((saved) => saved && push("success", t("database.saved")))
-              }
-              onEditRow={async (key, changes) => {
-                if (!shown.table) return false;
-                if (canWrite) {
-                  setPending({ op: "update", edit: { path: shown.table.path, key, set: changes } });
+            {shown && (
+              <ResultGrid
+                key={shown.queryId}
+                sets={shown.sets}
+                done={shown.done}
+                sort={shown.path && canBrowse ? (shown.browse ?? {}) : undefined}
+                onSort={shown.path && canBrowse ? (column) => openTable(shown.path!, { ...nextSort(shown.browse ?? {}, column), order: undefined }) : undefined}
+                table={readOnly ? null : shown.table}
+                onSaveCell={(result, row, col) =>
+                  toast(() => api.databaseSaveCell(shown.queryId, result, row, col)).then((saved) => saved && push("success", t("database.saved")))
+                }
+                onEditRow={async (key, changes) => {
+                  if (!shown.table) return false;
+                  if (canWrite) {
+                    setPending({ op: "update", edit: { path: shown.table.path, key, set: changes } });
+                    return true;
+                  }
+                  try {
+                    await api.databaseEditRow(databaseId, shown.table.path, key, changes);
+                  } catch (e) {
+                    push("error", api.errorInfo(e).message);
+                    return false;
+                  }
+                  push("success", t("database.edited"));
+                  openTable(shown.table.path, shown.browse);
                   return true;
-                }
-                try {
-                  await api.databaseEditRow(databaseId, shown.table.path, key, changes);
-                } catch (e) {
-                  push("error", api.errorInfo(e).message);
-                  return false;
-                }
-                push("success", t("database.edited"));
-                openTable(shown.table.path, shown.browse);
-                return true;
-              }}
-              onEditDocument={canEditDocs && shown.table ? (id) => setDoc({ path: shown.table!.path, id }) : undefined}
-              onDeleteRow={canWrite && shown.table ? (key) => setPending({ op: "delete", edit: { path: shown.table!.path, key } }) : undefined}
-            />
-          )}
+                }}
+                onEditDocument={canEditDocs && shown.table ? (id) => setDoc({ path: shown.table!.path, id }) : undefined}
+                onDeleteRow={canWrite && shown.table ? (key) => setPending({ op: "delete", edit: { path: shown.table!.path, key } }) : undefined}
+              />
+            )}
+          </div>
         </div>
       </div>
       {library && <QueryLibrary databaseId={databaseId} current={text} onUse={putInEditor} onClose={() => setLibrary(false)} />}
