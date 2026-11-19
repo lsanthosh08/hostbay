@@ -207,6 +207,9 @@ func TestDatabaseInsertAndDeleteRows(t *testing.T) {
 	if err := d.DatabaseDeleteRow(ctx, id, del); err == nil {
 		t.Fatal("a delete ran in read-only mode")
 	}
+	if err := d.DatabaseInsertRow(ctx, id, database.RowEdit{Path: []string{"users"}, Set: map[string]*string{"id": s("8")}}); err == nil {
+		t.Fatal("an insert ran in read-only mode")
+	}
 	d.DatabaseSetReadOnly(ctx, id, false)
 	if err := d.DatabaseDeleteRow(ctx, id, del); err != nil {
 		t.Fatal(err)
@@ -290,5 +293,59 @@ func TestSecretLike(t *testing.T) {
 		if got := secretLike(c.text); got != c.secret {
 			t.Errorf("secretLike(%q) = %v, want %v", c.text, got, c.secret)
 		}
+	}
+}
+
+// fakeDocs is a document engine that records saves.
+type fakeDocs struct{ saves int }
+
+func (f *fakeDocs) Children(context.Context, []string, int) ([]database.Node, bool, error) {
+	return nil, false, nil
+}
+func (f *fakeDocs) Query(context.Context, string) (database.Results, error) { return nil, nil }
+func (f *fakeDocs) Close() error                                            { return nil }
+func (f *fakeDocs) EditableTable(_ context.Context, path []string) (*database.Table, error) {
+	return &database.Table{Path: path, Key: []string{"_id"}}, nil
+}
+func (f *fakeDocs) SelectTable([]string) string { return "" }
+func (f *fakeDocs) Document(context.Context, []string, string) (string, string, error) {
+	return "{}", "v1", nil
+}
+func (f *fakeDocs) EditDocument(context.Context, []string, string, string, string) error {
+	f.saves++
+	return nil
+}
+
+// A document save is refused in read-only mode before the engine sees it.
+func TestDatabaseSaveDocumentReadOnly(t *testing.T) {
+	d, _, _, _ := newDatabaseService(t)
+	f := &fakeDocs{}
+	d.dbs["docs"] = &dbSession{engine: f, kind: "mongodb", ctx: context.Background(), cancel: func() {}}
+	ctx := context.Background()
+	if err := d.DatabaseSetReadOnly(ctx, "docs", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.DatabaseSaveDocument(ctx, "docs", []string{"app", "users"}, `"1"`, "v1", `{"_id": "1"}`); err == nil || f.saves != 0 {
+		t.Fatalf("save in read-only mode: err = %v, saves %d", err, f.saves)
+	}
+	d.DatabaseSetReadOnly(ctx, "docs", false)
+	if err := d.DatabaseSaveDocument(ctx, "docs", []string{"app", "users"}, `"1"`, "v1", `{"_id": "1"}`); err != nil || f.saves != 1 {
+		t.Fatalf("save: err = %v, saves %d", err, f.saves)
+	}
+}
+
+// The connection's password is hidden in history and in saved queries.
+func TestDatabaseHistoryScrubsThePassword(t *testing.T) {
+	d, id := sqliteTab(t, `CREATE TABLE t (x TEXT);`)
+	d.dbs[id].secret = "s3cret-pw"
+	if _, err := d.DatabaseQuery(id, "SELECT 's3cret-pw'"); err != nil {
+		t.Fatal(err)
+	}
+	if h, _ := d.DatabaseHistory(id); !slices.Equal(h, []string{"SELECT '[hidden]'"}) {
+		t.Fatalf("history = %q", h)
+	}
+	qs, err := d.DatabaseSaveQuery(id, "q", "SELECT 's3cret-pw'")
+	if err != nil || len(qs) != 1 || qs[0].Text != "SELECT '[hidden]'" {
+		t.Fatalf("saved = %+v, %v", qs, err)
 	}
 }
