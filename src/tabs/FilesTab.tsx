@@ -176,6 +176,11 @@ export function FilesTab({ conn, windows }: { conn: Connection; windows?: boolea
       return;
     }
     const target = joinPath(cwd, name);
+    // An empty write truncates, so "New file" on a taken name would empty it.
+    if (entries.some((e) => e.name === name)) {
+      push("error", t("files.exists", { name }));
+      return;
+    }
     if (creating === "folder") {
       await run(() => api.sftpMkdir(conn.sessionId, target), "Folder created");
     } else {
@@ -205,9 +210,14 @@ export function FilesTab({ conn, windows }: { conn: Connection; windows?: boolea
     list(cwd);
   };
 
+  // A single-file upload or paste writes over a file of the same name.
+  const mayReplace = async (name: string) =>
+    !entries.some((e) => e.name === name) || (await confirm(t("files.replaceConfirm", { name }), { confirmLabel: t("files.replace") }));
+
   const paste = async () => {
     if (!clipboard) return;
     const to = joinPath(cwd, basename(clipboard));
+    if (!(await mayReplace(basename(clipboard)))) return;
     await run(() => api.sftpCopy(conn.sessionId, clipboard, to, sudo), "Pasted");
     list(cwd);
   };
@@ -216,6 +226,7 @@ export function FilesTab({ conn, windows }: { conn: Connection; windows?: boolea
     const local = await open();
     if (typeof local !== "string") return;
     const remote = joinPath(cwd, basename(local));
+    if (!(await mayReplace(basename(local)))) return;
     await run(() => api.sftpUpload(conn.sessionId, local, remote), "Uploaded");
     list(cwd);
   };
