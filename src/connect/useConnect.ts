@@ -33,14 +33,18 @@ export const removeKey = (change: HostKeyChange, typedHost: string) =>
  */
 export function useConnect() {
   const { push } = useToast();
-  const [trust, setTrust] = useState<{ prompt: HostKeyPrompt; retry: () => void; onStep: (s: Step) => void } | null>(null);
+  // Trust questions wait in turn: a second one (two tunnels started at
+  // once) must not replace the first, which would leave it unanswered.
+  const [queue, setQueue] = useState<{ prompt: HostKeyPrompt; retry: () => void; onStep: (s: Step) => void }[]>([]);
+  const trust = queue[0];
+  const next = () => setQueue((q) => q.slice(1));
   const toast = useCallback((s: Step) => push("error", s.message), [push]);
 
   const fail = useCallback(
     (e: unknown, retry: () => void, opts: { onStep?: (s: Step) => void; host?: Host } = {}) => {
       const onStep = opts.onStep ?? toast;
       const step = route(api.errorInfo(e), { host: opts.host });
-      if (step.kind === "trust") setTrust({ prompt: step.prompt, retry, onStep });
+      if (step.kind === "trust") setQueue((q) => [...q, { prompt: step.prompt, retry, onStep }]);
       else onStep(step);
     },
     [toast]
@@ -49,15 +53,16 @@ export function useConnect() {
   const dialog =
     trust &&
     createElement(TrustDialog, {
+      key: trust.prompt.requestId,
       prompt: trust.prompt,
       onConfirm: () => {
         const { prompt, retry, onStep } = trust;
-        setTrust(null);
+        next();
         answerTrust(prompt, true).then(retry, (e) => onStep({ kind: "failure", message: api.errorInfo(e).message }));
       },
       onCancel: () => {
         answerTrust(trust.prompt, false).catch(() => {});
-        setTrust(null);
+        next();
       },
     });
 
