@@ -36,7 +36,7 @@ type DatabaseService struct {
 	// pickOpen and pickSave run Go's own file dialogs, so the page never
 	// names a path that is opened or written.
 	pickOpen func() (string, error)
-	pickSave func() (string, error)
+	pickSave func(message, name string) (string, error)
 	reg      *database.Registry
 
 	mu  sync.Mutex
@@ -49,6 +49,11 @@ type dbSession struct {
 	ctx    context.Context // ends when the tab closes, with every query in it
 	cancel context.CancelFunc
 	kind   string // the host's kind, such as postgres
+	hostID string // whose history and saved queries the tab keeps
+
+	// readOnly refuses every request that may change data (DatabaseSetReadOnly);
+	// it is read and set under DatabaseService.mu.
+	readOnly bool
 }
 
 // DatabaseInfo is an open database: its ID, and the capabilities the tab
@@ -92,8 +97,8 @@ func pickDatabaseFile() (string, error) {
 	return application.Get().Dialog.OpenFile().CanChooseFiles(true).SetTitle("Choose a SQLite database").PromptForSingleSelection()
 }
 
-func pickSaveFile() (string, error) {
-	return application.Get().Dialog.SaveFile().CanCreateDirectories(true).SetMessage("Save the full value").PromptForSingleSelection()
+func pickSaveFile(message, name string) (string, error) {
+	return application.Get().Dialog.SaveFile().CanCreateDirectories(true).SetMessage(message).SetFilename(name).PromptForSingleSelection()
 }
 
 // DatabaseConnect opens a database host and returns its database ID. A
@@ -115,7 +120,7 @@ func (s *DatabaseService) DatabaseConnect(ctx context.Context, hostID string) (D
 	ctx, cancel := context.WithCancel(context.Background())
 	id := newRequestID()
 	s.mu.Lock()
-	s.dbs[id] = &dbSession{engine: e, secret: c.Password, ctx: ctx, cancel: cancel, kind: c.Host.KindName()}
+	s.dbs[id] = &dbSession{engine: e, secret: c.Password, ctx: ctx, cancel: cancel, kind: c.Host.KindName(), hostID: hostID}
 	s.mu.Unlock()
 	s.creds.touch(hostID)
 	caps := database.Capabilities(e)
@@ -188,6 +193,28 @@ func (s *DatabaseService) schemaNames(ctx context.Context, dbID string) (string,
 		return "", nil, s.pageErr(err)
 	}
 	return d.kind, tables, nil
+}
+
+// SchemaTable is a table or view and its column names, for the editor's
+// completion (R8).
+type SchemaTable struct {
+	Name    string   `json:"name"`
+	Columns []string `json:"columns"`
+}
+
+// DatabaseSchema lists a SQL tab's tables and views with their columns,
+// as Ask AI reads them (up to 200 tables, catalog only), so the editor can
+// complete their names. It reads no row.
+func (s *DatabaseService) DatabaseSchema(ctx context.Context, dbID string) ([]SchemaTable, error) {
+	_, tables, err := s.schemaNames(ctx, dbID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]SchemaTable, len(tables))
+	for i, t := range tables {
+		out[i] = SchemaTable{Name: t.Name, Columns: t.Columns}
+	}
+	return out, nil
 }
 
 // DatabaseTest checks a SQL server or rqlite host from the editor's unsaved form,
@@ -377,20 +404,105 @@ func (s *DatabaseService) DatabaseTree(ctx context.Context, dbID string, path []
 	return DatabaseTree{Nodes: nodes, More: more}, nil
 }
 
+// errReadOnly refuses a change in a tab whose read-only mode is on.
+var errReadOnly = errors.New("read-only mode is on, so nothing that may change data runs here; turn read-only off to run it.")
+
+// writable refuses when dbID's read-only mode is on.
+func (s *DatabaseService) writable(d *dbSession) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if d.readOnly {
+		return errReadOnly
+	}
+	return nil
+}
+
+// DatabaseSetReadOnly turns a tab's read-only mode on or off. While it is
+// on, Go runs only requests the engine judges read-only, and refuses row
+// and document edits; an engine that can also holds its session read-only
+// on the server, which catches a function that writes called from a
+// SELECT. The mode protects against accidents, not against a user set on
+// writing: it lasts until the tab closes.
+func (s *DatabaseService) DatabaseSetReadOnly(ctx context.Context, dbID string, on bool) error {
+	d, err := s.session(dbID)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	d.readOnly = on
+	s.mu.Unlock()
+	if g, ok := d.engine.(database.SessionGuard); ok {
+		return s.pageErr(g.SetReadOnly(ctx, on))
+	}
+	return nil
+}
+
+// DatabaseReadOnly reports whether the engine judges text read-only, so
+// the page can ask before running anything else. Text it cannot judge is
+// reported as writing.
+func (s *DatabaseService) DatabaseReadOnly(dbID, text string) (bool, error) {
+	d, err := s.session(dbID)
+	if err != nil {
+		return false, err
+	}
+	return database.ReadOnly(d.engine, text), nil
+}
+
 // DatabaseQuery runs text (the selection or the whole editor) as one
 // request and returns its query ID at once. Its state arrives as
-// query-state events and its rows from DatabaseNextPage.
+// query-state events and its rows from DatabaseNextPage. In read-only
+// mode a request the engine does not judge read-only is refused.
 func (s *DatabaseService) DatabaseQuery(dbID, text string) (string, error) {
 	d, err := s.session(dbID)
 	if err != nil {
 		return "", err
 	}
+	if !database.ReadOnly(d.engine, text) {
+		if err := s.writable(d); err != nil {
+			return "", err
+		}
+	}
+	s.remember(d, text)
 	return s.reg.Start(d.ctx, dbID, func(ctx context.Context) (database.Results, error) { return d.engine.Query(ctx, text) }), nil
 }
 
-// DatabaseOpenTable shows a table from the tree. Its key comes from the
-// database's own catalog, so DatabaseEditRow never trusts the page for it.
-func (s *DatabaseService) DatabaseOpenTable(ctx context.Context, dbID string, path []string) (DatabaseTable, error) {
+// browsing reports an engine that browses tables itself (not SQL, whose
+// Exporter does), so an export of what it shows must too.
+func browsing(e database.Engine) bool {
+	_, ok := e.(database.Browser)
+	return ok
+}
+
+// DatabaseExplain shows the plan of one statement without running it, on
+// an engine with the "explain" capability (R10). Go builds the statement
+// (KTD8), and text that writes passes the same read-only gate as a
+// request, though only its plan is read. It is not added to the history.
+func (s *DatabaseService) DatabaseExplain(dbID, text string) (string, error) {
+	d, err := s.session(dbID)
+	if err != nil {
+		return "", err
+	}
+	x, ok := d.engine.(database.Explainer)
+	if !ok || !x.CanExplain() {
+		return "", errors.New("this database cannot show a plan here")
+	}
+	q, err := x.Explain(text)
+	if err != nil {
+		return "", s.pageErr(err)
+	}
+	if !database.ReadOnly(d.engine, text) {
+		if err := s.writable(d); err != nil {
+			return "", err
+		}
+	}
+	return s.reg.Start(d.ctx, dbID, func(ctx context.Context) (database.Results, error) { return d.engine.Query(ctx, q) }), nil
+}
+
+// DatabaseOpenTable shows a table from the tree, sorted and filtered by
+// browse on an engine with the "browse" capability (the zero browse shows
+// it as it is). Its key comes from the database's own catalog, so
+// DatabaseEditRow never trusts the page for it.
+func (s *DatabaseService) DatabaseOpenTable(ctx context.Context, dbID string, path []string, browse database.Browse) (DatabaseTable, error) {
 	d, err := s.session(dbID)
 	if err != nil {
 		return DatabaseTable{}, err
@@ -408,9 +520,28 @@ func (s *DatabaseService) DatabaseOpenTable(ctx context.Context, dbID string, pa
 	if err != nil {
 		return DatabaseTable{}, s.pageErr(err)
 	}
-	text := ed.SelectTable(path)
-	id := s.reg.Start(d.ctx, dbID, func(ctx context.Context) (database.Results, error) { return d.engine.Query(ctx, text) })
-	return DatabaseTable{QueryID: id, Table: t}, nil
+	run := func(ctx context.Context) (database.Results, error) { return d.engine.Query(ctx, ed.SelectTable(path)) }
+	if b, ok := d.engine.(database.Browser); ok {
+		run = func(ctx context.Context) (database.Results, error) { return b.BrowseTable(ctx, path, browse) }
+	} else if len(browse.Filters) > 0 || browse.Sort != "" {
+		return DatabaseTable{}, errors.New("this database cannot sort or filter a table")
+	}
+	return DatabaseTable{QueryID: s.reg.Start(d.ctx, dbID, run), Table: t}, nil
+}
+
+// DatabaseCountRows counts a table's rows that browse's filters keep,
+// within the catalog timeout, for an engine with the "browse" capability.
+func (s *DatabaseService) DatabaseCountRows(ctx context.Context, dbID string, path []string, browse database.Browse) (int64, error) {
+	d, err := s.session(dbID)
+	if err != nil {
+		return 0, err
+	}
+	b, ok := d.engine.(database.Browser)
+	if !ok {
+		return 0, errors.New("this database cannot count a table's rows")
+	}
+	n, err := b.CountRows(ctx, path, browse)
+	return n, s.pageErr(err)
 }
 
 // DatabaseNextPage returns a query's next page of rows.
@@ -448,49 +579,114 @@ func (s *DatabaseService) DatabaseEditRow(ctx context.Context, dbID string, edit
 	if !ok {
 		return errors.New("this database cannot edit rows")
 	}
+	if err := s.writable(d); err != nil {
+		return err
+	}
 	return s.pageErr(ed.EditRow(ctx, edit))
 }
 
-// documents is dbID's document editor.
-func (s *DatabaseService) documents(dbID string) (database.DocumentEditor, error) {
+// rowWriter is dbID's row writer.
+func (s *DatabaseService) rowWriter(dbID string) (database.RowWriter, *dbSession, error) {
 	d, err := s.session(dbID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	w, ok := d.engine.(database.RowWriter)
+	if !ok {
+		return nil, nil, errors.New("this database cannot insert or delete rows here")
+	}
+	return w, d, nil
+}
+
+// DatabasePreviewRow returns the statement a row change would run (op
+// "update", "insert" or "delete"), built in Go as it would be, with its
+// values, for the page's review step; it changes nothing.
+func (s *DatabaseService) DatabasePreviewRow(ctx context.Context, dbID, op string, edit database.RowEdit) (database.RowPreview, error) {
+	w, _, err := s.rowWriter(dbID)
+	if err != nil {
+		return database.RowPreview{}, err
+	}
+	p, err := w.PreviewRow(ctx, op, edit)
+	return p, s.pageErr(err)
+}
+
+// DatabaseInsertRow inserts one row of a table from the tree, its columns
+// checked against the catalog and its values parameters.
+func (s *DatabaseService) DatabaseInsertRow(ctx context.Context, dbID string, edit database.RowEdit) error {
+	w, d, err := s.rowWriter(dbID)
+	if err != nil {
+		return err
+	}
+	if err := s.writable(d); err != nil {
+		return err
+	}
+	return s.pageErr(w.InsertRow(ctx, edit))
+}
+
+// DatabaseDeleteRow deletes the one row the table's own key names, in a
+// transaction that commits only when exactly one row went.
+func (s *DatabaseService) DatabaseDeleteRow(ctx context.Context, dbID string, edit database.RowEdit) error {
+	w, d, err := s.rowWriter(dbID)
+	if err != nil {
+		return err
+	}
+	if err := s.writable(d); err != nil {
+		return err
+	}
+	return s.pageErr(w.DeleteRow(ctx, edit))
+}
+
+// documents is dbID's document editor.
+func (s *DatabaseService) documents(dbID string) (database.DocumentEditor, *dbSession, error) {
+	d, err := s.session(dbID)
+	if err != nil {
+		return nil, nil, err
 	}
 	ed, ok := d.engine.(database.DocumentEditor)
 	if !ok {
-		return nil, errors.New("this database cannot edit documents")
+		return nil, nil, errors.New("this database cannot edit documents")
 	}
-	return ed, nil
+	return ed, d, nil
+}
+
+// DatabaseDocument is a document as the document view shows it: in full,
+// as JSON, with the version a save takes back.
+type DatabaseDocument struct {
+	Doc     string `json:"doc"`
+	Version string `json:"version"`
 }
 
 // DatabaseDocument returns, as JSON, the whole document of a collection or
 // index opened with DatabaseOpenTable that its "_id" cell names, for the
 // document view: a cell shown in the grid may be cut.
-func (s *DatabaseService) DatabaseDocument(ctx context.Context, dbID string, path []string, id string) (string, error) {
-	ed, err := s.documents(dbID)
+func (s *DatabaseService) DatabaseDocument(ctx context.Context, dbID string, path []string, id string) (DatabaseDocument, error) {
+	ed, _, err := s.documents(dbID)
 	if err != nil {
-		return "", err
+		return DatabaseDocument{}, err
 	}
-	doc, err := ed.Document(ctx, path, id)
-	return doc, s.pageErr(err)
+	doc, version, err := ed.Document(ctx, path, id)
+	return DatabaseDocument{Doc: doc, Version: version}, s.pageErr(err)
 }
 
 // DatabaseSaveDocument replaces that document with doc, by its _id; it
-// fails when the document no longer exists or doc names another _id.
-func (s *DatabaseService) DatabaseSaveDocument(ctx context.Context, dbID string, path []string, id, doc string) error {
-	ed, err := s.documents(dbID)
+// fails when the document no longer exists, changed since DatabaseDocument
+// returned version, or doc names another _id.
+func (s *DatabaseService) DatabaseSaveDocument(ctx context.Context, dbID string, path []string, id, version, doc string) error {
+	ed, d, err := s.documents(dbID)
 	if err != nil {
 		return err
 	}
-	return s.pageErr(ed.EditDocument(ctx, path, id, doc))
+	if err := s.writable(d); err != nil {
+		return err
+	}
+	return s.pageErr(ed.EditDocument(ctx, path, id, version, doc))
 }
 
 // DatabaseSaveCell writes the full value of a cut or binary cell from the
 // query's last page to a file the user chooses in Go's dialog. It reports
 // false when the user cancelled.
 func (s *DatabaseService) DatabaseSaveCell(queryID string, result, row, col int) (bool, error) {
-	path, err := s.pickSave()
+	path, err := s.pickSave("Save the full value", "")
 	if err != nil || path == "" {
 		return false, err
 	}
@@ -507,6 +703,86 @@ func (s *DatabaseService) DatabaseSaveCell(queryID string, result, row, col int)
 		return false, s.pageErr(err)
 	}
 	return true, nil
+}
+
+// DatabaseExportRequest names what an export runs again: the editor's
+// text, or a table from the tree with its sort and filters.
+type DatabaseExportRequest struct {
+	Text   string          `json:"text,omitempty"`
+	Path   []string        `json:"path,omitempty"`
+	Browse database.Browse `json:"browse"`
+	Format string          `json:"format"` // "csv" or "json"
+}
+
+// DatabaseExported is a finished export: false when the user cancelled
+// the dialog, else the file and the rows written.
+type DatabaseExported struct {
+	Saved bool   `json:"saved"`
+	Path  string `json:"path,omitempty"`
+	Rows  int64  `json:"rows"`
+}
+
+// DatabaseExport runs a request again and writes every row of its first
+// result set with full values, never values cut for the grid, to a file
+// the user chooses in Go's dialog. Only a request the engine judges
+// read-only is run again, and a SQL one runs on a connection of its own,
+// so the grid's cursor and an open transaction are left alone. Cancelling
+// the call, or closing the tab, stops it and removes the partial file.
+func (s *DatabaseService) DatabaseExport(ctx context.Context, dbID string, req DatabaseExportRequest) (DatabaseExported, error) {
+	d, err := s.session(dbID)
+	if err != nil {
+		return DatabaseExported{}, err
+	}
+	if req.Format != "csv" && req.Format != "json" {
+		return DatabaseExported{}, errors.New("export as csv or json")
+	}
+	table := len(req.Path) > 0
+	if !table && !database.ReadOnly(d.engine, req.Text) {
+		return DatabaseExported{}, errors.New("only a request that reads can be exported, since an export runs it again")
+	}
+	path, err := s.pickSave("Export the results", "results."+req.Format)
+	if err != nil || path == "" {
+		return DatabaseExported{}, err
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	defer context.AfterFunc(d.ctx, cancel)()
+	var res database.Results
+	ex, isSQL := d.engine.(database.Exporter)
+	switch {
+	case table && isSQL:
+		res, err = ex.ExportTable(ctx, req.Path, req.Browse)
+	case isSQL:
+		res, err = ex.ExportQuery(ctx, req.Text)
+	case table && browsing(d.engine):
+		// A filtered collection exports what it shows, not every document.
+		res, err = d.engine.(database.Browser).BrowseTable(ctx, req.Path, req.Browse)
+	case table:
+		ed, ok := d.engine.(interface{ SelectTable([]string) string })
+		if !ok {
+			return DatabaseExported{}, errors.New("this database cannot export a table")
+		}
+		res, err = d.engine.Query(ctx, ed.SelectTable(req.Path))
+	default:
+		res, err = d.engine.Query(ctx, req.Text)
+	}
+	if err != nil {
+		return DatabaseExported{}, s.pageErr(err)
+	}
+	defer res.Close()
+	f, err := os.Create(path)
+	if err != nil {
+		return DatabaseExported{}, err
+	}
+	n, err := database.Export(ctx, f, res, req.Format)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		os.Remove(path)
+		return DatabaseExported{}, s.pageErr(err)
+	}
+	return DatabaseExported{Saved: true, Path: path, Rows: n}, nil
 }
 
 // DatabaseClose closes a database tab: its queries, then its connection.

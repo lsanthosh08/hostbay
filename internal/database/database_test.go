@@ -108,6 +108,31 @@ func TestRegistryBoundsCursorsPerTab(t *testing.T) {
 	}
 }
 
+// A cursor pushed out by a newer request is released even when it already
+// failed or finished: its context ends, so a long-lived tab does not keep
+// one per request it ever ran.
+func TestRegistryReleasesAnEvictedCursorThatFailed(t *testing.T) {
+	r := NewRegistry(func(State) {})
+	var first context.Context
+	id := r.Start(context.Background(), "tab", func(ctx context.Context) (Results, error) {
+		first = ctx
+		return nil, errors.New("syntax error")
+	})
+	if _, err := r.Next(context.Background(), id); err == nil {
+		t.Fatal("the failed request answered")
+	}
+	for range PerOwner {
+		f := &fakeResults{closed: make(chan struct{})}
+		r.Start(context.Background(), "tab", func(context.Context) (Results, error) { return f, nil })
+	}
+	select {
+	case <-first.Done():
+	case <-time.After(time.Second):
+		t.Fatal("the evicted failed cursor's context was never cancelled")
+	}
+	r.CloseOwner("tab")
+}
+
 // blobResults is one endless result set of a binary column of size-byte
 // values.
 type blobResults struct{ v []byte }

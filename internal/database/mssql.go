@@ -184,7 +184,9 @@ var mssqlDialect = dialect{
 				AND i.has_filter = 0 AND ic.is_included_column = 0
 			ORDER BY i.is_primary_key DESC, i.index_id, ic.key_ordinal`, path[0], path[1]))
 	},
-	tablePath: func(path []string) bool { return len(path) == 2 },
+	tablePath:   func(path []string) bool { return len(path) == 2 },
+	asText:      func(col string) string { return "CAST(" + col + " AS NVARCHAR(MAX))" },
+	likeSpecial: "%_[",
 	binary: func(t string) bool {
 		switch strings.ToUpper(t) {
 		case "BINARY", "VARBINARY", "IMAGE", "TIMESTAMP", "ROWVERSION":

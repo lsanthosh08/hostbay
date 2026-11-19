@@ -54,18 +54,21 @@ func TestMongoThroughATwoHopChain(t *testing.T) {
 	}
 
 	id := `{"$numberInt":"3"}`
-	doc, err := ed.Document(ctx, []string{"app", "items"}, id)
+	doc, version, err := ed.Document(ctx, []string{"app", "items"}, id)
 	if err != nil || !strings.Contains(doc, `"n":{"$numberLong":"3"}`) {
 		t.Fatalf("document = %s, %v", doc, err)
 	}
-	if err := ed.EditDocument(ctx, []string{"app", "items"}, id, `{"_id": {"$numberInt": "3"}, "$set": {"n": 1}, "n": {"$numberLong": "30"}}`); err != nil {
+	if err := ed.EditDocument(ctx, []string{"app", "items"}, id, version, `{"_id": {"$numberInt": "3"}, "$set": {"n": 1}, "n": {"$numberLong": "30"}}`); err != nil {
 		t.Fatal(err)
 	}
-	doc, err = ed.Document(ctx, []string{"app", "items"}, id)
+	if err := ed.EditDocument(ctx, []string{"app", "items"}, id, version, `{"n": 31}`); err == nil {
+		t.Fatal("a save from the old version overwrote the change made since")
+	}
+	doc, _, err = ed.Document(ctx, []string{"app", "items"}, id)
 	if err != nil || !strings.Contains(doc, `"$set":{"n":{"$numberInt":"1"}}`) || !strings.Contains(doc, `"n":{"$numberLong":"30"}`) {
 		t.Fatalf("after the edit: %s, %v", doc, err)
 	}
-	if err := ed.EditDocument(ctx, []string{"app", "items"}, `{"$numberInt":"9999"}`, `{"n": 1}`); err == nil {
+	if err := ed.EditDocument(ctx, []string{"app", "items"}, `{"$numberInt":"9999"}`, version, `{"n": 1}`); err == nil {
 		t.Fatal("an edit of a missing document saved")
 	}
 	if n := allRows(t, e, `{"$db": "app", "count": "items", "query": {"_id": 9999}}`); !strings.Contains(n[0][0].Text, `"n":{"$numberInt":"0"}`) {

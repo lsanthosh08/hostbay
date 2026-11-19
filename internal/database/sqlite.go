@@ -69,7 +69,16 @@ var sqliteDialect = dialect{
 		}
 		return "", nil
 	},
-	key:       sqliteKey,
+	key:         sqliteKey,
+	asText:      func(col string) string { return "CAST(" + col + " AS TEXT)" },
+	likeSpecial: "%_",
+	explain:     "EXPLAIN QUERY PLAN ",
+	readOnly: func(on bool) string {
+		if on {
+			return "PRAGMA query_only = ON"
+		}
+		return "PRAGMA query_only = OFF"
+	},
 	tablePath: func(path []string) bool { return len(path) == 1 },
 	binary:    func(t string) bool { return strings.EqualFold(t, "BLOB") },
 	category: func(err error) string {

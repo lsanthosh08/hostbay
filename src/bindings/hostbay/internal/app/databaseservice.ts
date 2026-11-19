@@ -30,6 +30,13 @@ export function DatabaseCancel(queryID: string): $CancellablePromise<void> {
 }
 
 /**
+ * DatabaseClearHistory forgets this host's request history.
+ */
+export function DatabaseClearHistory(dbID: string): $CancellablePromise<void> {
+    return $Call.ByID(250767423, dbID);
+}
+
+/**
  * DatabaseClose closes a database tab: its queries, then its connection.
  * Unknown IDs are already closed.
  */
@@ -59,11 +66,34 @@ export function DatabaseConnect(hostID: string): $CancellablePromise<$models.Dat
 }
 
 /**
+ * DatabaseCountRows counts a table's rows that browse's filters keep,
+ * within the catalog timeout, for an engine with the "browse" capability.
+ */
+export function DatabaseCountRows(dbID: string, path: string[] | null, browse: database$0.Browse): $CancellablePromise<number> {
+    return $Call.ByID(2046354978, dbID, path, browse);
+}
+
+/**
+ * DatabaseDeleteQuery removes the query saved under name for this host.
+ */
+export function DatabaseDeleteQuery(dbID: string, name: string): $CancellablePromise<$models.SavedQuery[] | null> {
+    return $Call.ByID(306571569, dbID, name);
+}
+
+/**
+ * DatabaseDeleteRow deletes the one row the table's own key names, in a
+ * transaction that commits only when exactly one row went.
+ */
+export function DatabaseDeleteRow(dbID: string, edit: database$0.RowEdit): $CancellablePromise<void> {
+    return $Call.ByID(1081654505, dbID, edit);
+}
+
+/**
  * DatabaseDocument returns, as JSON, the whole document of a collection or
  * index opened with DatabaseOpenTable that its "_id" cell names, for the
  * document view: a cell shown in the grid may be cut.
  */
-export function DatabaseDocument(dbID: string, path: string[] | null, id: string): $CancellablePromise<string> {
+export function DatabaseDocument(dbID: string, path: string[] | null, id: string): $CancellablePromise<$models.DatabaseDocument> {
     return $Call.ByID(3916030097, dbID, path, id);
 }
 
@@ -77,6 +107,44 @@ export function DatabaseEditRow(dbID: string, edit: database$0.RowEdit): $Cancel
 }
 
 /**
+ * DatabaseExplain shows the plan of one statement without running it, on
+ * an engine with the "explain" capability (R10). Go builds the statement
+ * (KTD8), and text that writes passes the same read-only gate as a
+ * request, though only its plan is read. It is not added to the history.
+ */
+export function DatabaseExplain(dbID: string, text: string): $CancellablePromise<string> {
+    return $Call.ByID(2274105263, dbID, text);
+}
+
+/**
+ * DatabaseExport runs a request again and writes every row of its first
+ * result set with full values, never values cut for the grid, to a file
+ * the user chooses in Go's dialog. Only a request the engine judges
+ * read-only is run again, and a SQL one runs on a connection of its own,
+ * so the grid's cursor and an open transaction are left alone. Cancelling
+ * the call, or closing the tab, stops it and removes the partial file.
+ */
+export function DatabaseExport(dbID: string, req: $models.DatabaseExportRequest): $CancellablePromise<$models.DatabaseExported> {
+    return $Call.ByID(2871574206, dbID, req);
+}
+
+/**
+ * DatabaseHistory lists the requests run in this host's tabs on this
+ * computer, oldest first.
+ */
+export function DatabaseHistory(dbID: string): $CancellablePromise<string[] | null> {
+    return $Call.ByID(1119399072, dbID);
+}
+
+/**
+ * DatabaseInsertRow inserts one row of a table from the tree, its columns
+ * checked against the catalog and its values parameters.
+ */
+export function DatabaseInsertRow(dbID: string, edit: database$0.RowEdit): $CancellablePromise<void> {
+    return $Call.ByID(1134519731, dbID, edit);
+}
+
+/**
  * DatabaseNextPage returns a query's next page of rows.
  */
 export function DatabaseNextPage(queryID: string): $CancellablePromise<database$0.Page> {
@@ -84,11 +152,13 @@ export function DatabaseNextPage(queryID: string): $CancellablePromise<database$
 }
 
 /**
- * DatabaseOpenTable shows a table from the tree. Its key comes from the
- * database's own catalog, so DatabaseEditRow never trusts the page for it.
+ * DatabaseOpenTable shows a table from the tree, sorted and filtered by
+ * browse on an engine with the "browse" capability (the zero browse shows
+ * it as it is). Its key comes from the database's own catalog, so
+ * DatabaseEditRow never trusts the page for it.
  */
-export function DatabaseOpenTable(dbID: string, path: string[] | null): $CancellablePromise<$models.DatabaseTable> {
-    return $Call.ByID(2615698020, dbID, path);
+export function DatabaseOpenTable(dbID: string, path: string[] | null, browse: database$0.Browse): $CancellablePromise<$models.DatabaseTable> {
+    return $Call.ByID(2615698020, dbID, path, browse);
 }
 
 /**
@@ -100,12 +170,31 @@ export function DatabasePickFile(): $CancellablePromise<$models.FilePick> {
 }
 
 /**
+ * DatabasePreviewRow returns the statement a row change would run (op
+ * "update", "insert" or "delete"), built in Go as it would be, with its
+ * values, for the page's review step; it changes nothing.
+ */
+export function DatabasePreviewRow(dbID: string, op: string, edit: database$0.RowEdit): $CancellablePromise<database$0.RowPreview> {
+    return $Call.ByID(3160637176, dbID, op, edit);
+}
+
+/**
  * DatabaseQuery runs text (the selection or the whole editor) as one
  * request and returns its query ID at once. Its state arrives as
- * query-state events and its rows from DatabaseNextPage.
+ * query-state events and its rows from DatabaseNextPage. In read-only
+ * mode a request the engine does not judge read-only is refused.
  */
 export function DatabaseQuery(dbID: string, text: string): $CancellablePromise<string> {
     return $Call.ByID(287028732, dbID, text);
+}
+
+/**
+ * DatabaseReadOnly reports whether the engine judges text read-only, so
+ * the page can ask before running anything else. Text it cannot judge is
+ * reported as writing.
+ */
+export function DatabaseReadOnly(dbID: string, text: string): $CancellablePromise<boolean> {
+    return $Call.ByID(306164934, dbID, text);
 }
 
 /**
@@ -128,10 +217,47 @@ export function DatabaseSaveCell(queryID: string, result: number, row: number, c
 
 /**
  * DatabaseSaveDocument replaces that document with doc, by its _id; it
- * fails when the document no longer exists or doc names another _id.
+ * fails when the document no longer exists, changed since DatabaseDocument
+ * returned version, or doc names another _id.
  */
-export function DatabaseSaveDocument(dbID: string, path: string[] | null, id: string, doc: string): $CancellablePromise<void> {
-    return $Call.ByID(2657003396, dbID, path, id, doc);
+export function DatabaseSaveDocument(dbID: string, path: string[] | null, id: string, version: string, doc: string): $CancellablePromise<void> {
+    return $Call.ByID(2657003396, dbID, path, id, version, doc);
+}
+
+/**
+ * DatabaseSaveQuery saves text under name for this host, replacing a
+ * query saved under that name; the connection's password is removed.
+ */
+export function DatabaseSaveQuery(dbID: string, name: string, text: string): $CancellablePromise<$models.SavedQuery[] | null> {
+    return $Call.ByID(2302964467, dbID, name, text);
+}
+
+/**
+ * DatabaseSavedQueries lists this host's saved queries, by name.
+ */
+export function DatabaseSavedQueries(dbID: string): $CancellablePromise<$models.SavedQuery[] | null> {
+    return $Call.ByID(2659210733, dbID);
+}
+
+/**
+ * DatabaseSchema lists a SQL tab's tables and views with their columns,
+ * as Ask AI reads them (up to 200 tables, catalog only), so the editor can
+ * complete their names. It reads no row.
+ */
+export function DatabaseSchema(dbID: string): $CancellablePromise<$models.SchemaTable[] | null> {
+    return $Call.ByID(2192174035, dbID);
+}
+
+/**
+ * DatabaseSetReadOnly turns a tab's read-only mode on or off. While it is
+ * on, Go runs only requests the engine judges read-only, and refuses row
+ * and document edits; an engine that can also holds its session read-only
+ * on the server, which catches a function that writes called from a
+ * SELECT. The mode protects against accidents, not against a user set on
+ * writing: it lasts until the tab closes.
+ */
+export function DatabaseSetReadOnly(dbID: string, on: boolean): $CancellablePromise<void> {
+    return $Call.ByID(1665258854, dbID, on);
 }
 
 /**

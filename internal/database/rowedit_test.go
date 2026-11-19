@@ -94,3 +94,69 @@ func TestEditRowRefusesAKeyThatIsNotTheTables(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// A row is inserted with only the columns given, each checked against
+// the catalog and bound as a parameter; the others take their defaults.
+func TestInsertRow(t *testing.T) {
+	e, _ := editable(t)
+	w := e.(RowWriter)
+	ctx := context.Background()
+	if err := w.InsertRow(ctx, RowEdit{Path: []string{"t"}, Set: map[string]*string{"id": str("3"), "name": str(weird[:9]), weird: nil}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := rowsOf(t, e)["3"]; got != weird[:9]+"|" {
+		t.Fatalf("inserted row = %q", got)
+	}
+	for _, bad := range []map[string]*string{{"nope": str("1")}, {}, {"name": str("far too long a name")}} {
+		if err := w.InsertRow(ctx, RowEdit{Path: []string{"t"}, Set: bad}); err == nil {
+			t.Errorf("insert of %v was taken", bad)
+		}
+	}
+	if len(rowsOf(t, e)) != 3 {
+		t.Fatal("a refused insert left a row")
+	}
+}
+
+// A delete names its row by the table's own key and commits only when
+// exactly that row went.
+func TestDeleteRow(t *testing.T) {
+	e, _ := editable(t)
+	w := e.(RowWriter)
+	ctx := context.Background()
+	if err := w.DeleteRow(ctx, RowEdit{Path: []string{"t"}, Key: map[string]*string{"id": str("2")}}); err != nil {
+		t.Fatal(err)
+	}
+	if rows := rowsOf(t, e); len(rows) != 1 || rows["1"] == "" {
+		t.Fatalf("rows after delete = %v", rows)
+	}
+	if err := w.DeleteRow(ctx, RowEdit{Path: []string{"t"}, Key: map[string]*string{"id": str("2")}}); err == nil || !strings.Contains(err.Error(), "meanwhile") {
+		t.Fatalf("a delete of a row already gone: %v", err)
+	}
+	if err := w.DeleteRow(ctx, RowEdit{Path: []string{"loose"}, Key: map[string]*string{"v": str("x")}}); err == nil {
+		t.Fatal("a row of a table without a key was deleted")
+	}
+	if err := w.DeleteRow(ctx, RowEdit{Path: []string{"t"}, Key: map[string]*string{"name": str("one")}}); err == nil {
+		t.Fatal("a row named by a column that is not the key was deleted")
+	}
+}
+
+// The preview is the statement the change would run, built the same way,
+// with its values in order; it changes nothing.
+func TestPreviewRow(t *testing.T) {
+	e, _ := editable(t)
+	w := e.(RowWriter)
+	p, err := w.PreviewRow(context.Background(), "update", RowEdit{Path: []string{"t"}, Key: map[string]*string{"id": str("1")}, Set: map[string]*string{"name": str("uno"), weird: nil}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `UPDATE "t" SET "a""; DROP TABLE t; --" = ?, "name" = ? WHERE "id" = ?`
+	if p.Statement != want || len(p.Values) != 3 || p.Values[0] != nil || *p.Values[1] != "uno" || *p.Values[2] != "1" {
+		t.Fatalf("preview = %q %v", p.Statement, p.Values)
+	}
+	if d, err := w.PreviewRow(context.Background(), "delete", RowEdit{Path: []string{"t"}, Key: map[string]*string{"id": str("1")}}); err != nil || d.Statement != `DELETE FROM "t" WHERE "id" = ?` {
+		t.Fatalf("delete preview = %q, %v", d.Statement, err)
+	}
+	if rowsOf(t, e)["1"] != "one|x" {
+		t.Fatal("a preview changed the row")
+	}
+}

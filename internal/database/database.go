@@ -134,11 +134,34 @@ type DocumentEditor interface {
 	EditableTable(ctx context.Context, path []string) (*Table, error)
 	// SelectTable is the request that shows path's documents.
 	SelectTable(path []string) string
-	// Document returns the document id names in full, as JSON.
-	Document(ctx context.Context, path []string, id string) (string, error)
+	// Document returns the document id names in full, as JSON, and its
+	// version, an opaque token EditDocument takes back.
+	Document(ctx context.Context, path []string, id string) (doc, version string, err error)
 	// EditDocument replaces the document id names with doc, or fails when
-	// it no longer exists or doc names another _id.
-	EditDocument(ctx context.Context, path []string, id, doc string) error
+	// it no longer exists, changed since Document read version, or doc
+	// names another _id: a save never overwrites a change made meanwhile.
+	EditDocument(ctx context.Context, path []string, id, version, doc string) error
+}
+
+// Classifier is the optional capability that judges a request before it
+// runs: ReadOnly reports text that, judged by its text alone, changes
+// nothing. It is the same judgement Results.Rerunnable gives afterwards.
+type Classifier interface {
+	ReadOnly(text string) bool
+}
+
+// ReadOnly reports whether e judges text read-only. An engine that cannot
+// judge treats every request as one that writes.
+func ReadOnly(e Engine, text string) bool {
+	c, ok := e.(Classifier)
+	return ok && c.ReadOnly(text)
+}
+
+// SessionGuard is the optional capability of an engine that can also hold
+// its own session read-only on the server, which catches what a judgement
+// by text misses, such as a function that writes called from a SELECT.
+type SessionGuard interface {
+	SetReadOnly(ctx context.Context, on bool) error
 }
 
 // Capabilities lists what e offers the page beyond browsing and queries;
@@ -150,6 +173,18 @@ func Capabilities(e Engine) []string {
 	}
 	if _, ok := e.(DocumentEditor); ok {
 		caps = append(caps, "documentEdit")
+	}
+	if _, ok := e.(Browser); ok {
+		caps = append(caps, "browse")
+	}
+	if _, ok := e.(JSONBrowser); ok {
+		caps = append(caps, "browseJSON")
+	}
+	if _, ok := e.(RowWriter); ok {
+		caps = append(caps, "rowWrite")
+	}
+	if x, ok := e.(Explainer); ok && x.CanExplain() {
+		caps = append(caps, "explain")
 	}
 	return caps
 }
@@ -283,7 +318,10 @@ func (r *Registry) Start(ctx context.Context, owner string, run func(context.Con
 	r.cursors[c.id] = c
 	r.mu.Unlock()
 	if n >= PerOwner {
+		// expire tells the tab of a cursor still open; one that finished or
+		// failed is released here all the same, ending its context.
 		r.expire(oldest)
+		r.release(oldest)
 	}
 	r.state(c, "running", "", true)
 	// The idle clock starts once the request has started: a running query

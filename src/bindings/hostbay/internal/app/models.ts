@@ -278,6 +278,40 @@ export interface DataFolder {
 }
 
 /**
+ * DatabaseDocument is a document as the document view shows it: in full,
+ * as JSON, with the version a save takes back.
+ */
+export interface DatabaseDocument {
+    "doc": string;
+    "version": string;
+}
+
+/**
+ * DatabaseExportRequest names what an export runs again: the editor's
+ * text, or a table from the tree with its sort and filters.
+ */
+export interface DatabaseExportRequest {
+    "text"?: string;
+    "path"?: string[] | null;
+    "browse": database$0.Browse;
+
+    /**
+     * "csv" or "json"
+     */
+    "format": string;
+}
+
+/**
+ * DatabaseExported is a finished export: false when the user cancelled
+ * the dialog, else the file and the rows written.
+ */
+export interface DatabaseExported {
+    "saved": boolean;
+    "path"?: string;
+    "rows": number;
+}
+
+/**
  * DatabaseInfo is an open database: its ID, and the capabilities the tab
  * shows controls for (database.Capabilities).
  */
@@ -664,6 +698,23 @@ export interface RoutingState {
 export interface SSHConfigImport {
     "imported": number;
     "notes": string[] | null;
+}
+
+/**
+ * SavedQuery is a query saved under a name for its host.
+ */
+export interface SavedQuery {
+    "name": string;
+    "text": string;
+}
+
+/**
+ * SchemaTable is a table or view and its column names, for the editor's
+ * completion (R8).
+ */
+export interface SchemaTable {
+    "name": string;
+    "columns": string[] | null;
 }
 
 export interface Script {

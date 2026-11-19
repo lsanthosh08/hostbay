@@ -144,3 +144,79 @@ func TestMongoEditReplacesWithALiteral(t *testing.T) {
 		}
 	}
 }
+
+// An _id that is a query operator, such as {"$ne": null}, would match some
+// other document: Document would show it and an edit would aim at it.
+// Extended JSON types ($oid, $numberLong) parse to values, not documents,
+// so they still name one _id, as does a plain embedded document.
+func TestMongoFilterRefusesOperators(t *testing.T) {
+	for _, bad := range []string{`{"$ne": null}`, `{"$gt": {"$minKey": 1}}`, `{"a": 1, "$or": []}`} {
+		if _, err := mongoFilter(bad); err == nil {
+			t.Errorf("%s was taken as an _id", bad)
+		}
+	}
+	for _, good := range []string{`{"$oid": "65a1b2c3d4e5f60718293a4b"}`, `{"$numberLong": "5"}`, `{"a": 1, "b": "x"}`, `"s"`} {
+		if _, err := mongoFilter(good); err != nil {
+			t.Errorf("%s: %v", good, err)
+		}
+	}
+}
+
+// A save replaces the document only while it is still the one the page
+// was shown: the filter holds the whole current document, so the check
+// and the replace are one step on the server.
+func TestMongoSaveIsConditionalOnTheShownVersion(t *testing.T) {
+	cur, _ := bson.Marshal(bson.D{{Key: "_id", Value: int32(3)}, {Key: "n", Value: int64(3)}})
+	f, err := mongoFilter(`{"$numberInt":"3"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := bson.MarshalExtJSON(mongoUnchanged(f, cur), true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"_id":{"$numberInt":"3"},"$expr":{"$eq":["$$ROOT",{"$literal":{"_id":{"$numberInt":"3"},"n":{"$numberLong":"3"}}}]}}`
+	if string(b) != want {
+		t.Fatalf("filter = %s\nwant     %s", b, want)
+	}
+	other, _ := bson.Marshal(bson.D{{Key: "_id", Value: int32(3)}, {Key: "n", Value: int64(4)}})
+	if mongoVersion(cur) == mongoVersion(other) || mongoVersion(cur) != mongoVersion(bson.Raw(slices.Clone(cur))) {
+		t.Fatal("the version does not follow the document's content")
+	}
+}
+
+// A collection browse parses its JSON filter and sort in Go into the
+// command's own fields, so a filter cannot add to the command; bad JSON
+// and column filters are refused.
+func TestMongoBrowseCommand(t *testing.T) {
+	path := []string{"shop", "orders"}
+	cmd, err := mongoBrowse(path, Browse{Query: `{"status": "open", "find": "users"}`, Order: `{"total": -1}`}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := bson.MarshalExtJSON(cmd, false, false)
+	if want := `{"find":"orders","filter":{"status":"open","find":"users"},"sort":{"total":-1}}`; string(got) != want {
+		t.Fatalf("find = %s, want %s", got, want)
+	}
+	cmd, _ = mongoBrowse(path, Browse{Sort: "total", Desc: true}, false)
+	if got, _ := bson.MarshalExtJSON(cmd, false, false); string(got) != `{"find":"orders","filter":{},"sort":{"total":-1}}` {
+		t.Fatalf("header sort = %s", got)
+	}
+	cmd, _ = mongoBrowse(path, Browse{Query: `{"_id": {"$oid": "5f0000000000000000000001"}}`}, true)
+	if got, _ := bson.MarshalExtJSON(cmd, false, false); string(got) != `{"count":"orders","query":{"_id":{"$oid":"5f0000000000000000000001"}}}` {
+		t.Fatalf("count = %s", got)
+	}
+	for _, b := range []Browse{
+		{Query: `{"status": `},
+		{Query: `["status"]`},
+		{Order: `nope`},
+		{Filters: []Filter{{Column: "status", Op: "equals", Value: "open"}}},
+	} {
+		if _, err := mongoBrowse(path, b, false); Category(err) != "syntax" {
+			t.Errorf("%+v: err = %v", b, err)
+		}
+	}
+	if _, err := mongoBrowse([]string{"shop"}, Browse{}, false); err == nil {
+		t.Error("a database browsed as a collection")
+	}
+}

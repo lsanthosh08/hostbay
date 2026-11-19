@@ -754,6 +754,12 @@ export type DbPage = { result: number; columns?: DbColumn[] | null; row: number;
 /** edit: the only columns the engine changes (none named: every one);
  *  noNull: the engine refuses NULL. */
 export type DbTable = { path: string[]; key: string[]; edit?: string[]; noNull?: boolean };
+// A table browse (the "browse" capability): Go checks each column against
+// the table's catalog and passes values as parameters, never as SQL.
+export type DbFilterOp = "contains" | "equals" | "null" | "notNull";
+export type DbFilter = { column: string; op: DbFilterOp; value: string };
+// A document engine (browseJSON) takes query and order, a JSON filter and sort, in place of filters.
+export type DbBrowse = { sort?: string; desc?: boolean; filters?: DbFilter[]; query?: string; order?: string };
 export type QueryState = { queryId: string; state: "running" | "done" | "error" | "cancelled" | "expired"; rows: number; message?: string; rerun?: boolean };
 export const databaseConnect = (hostId: string) =>
   unlocking(() => DatabaseService.DatabaseConnect(hostId) as Promise<DatabaseInfo>);
@@ -768,29 +774,70 @@ export const databaseTree = (databaseId: string, path: string[] | null, offset: 
 // Runs text as one request and returns its queryId at once; state arrives on
 // onQueryState and rows from databaseNextPage.
 export const databaseQuery = (databaseId: string, text: string) => DatabaseService.DatabaseQuery(databaseId, text);
-// Opens a table from the tree; table is null when it has no key and opens read-only.
-export const databaseOpenTable = (databaseId: string, path: string[]) =>
-  DatabaseService.DatabaseOpenTable(databaseId, path) as Promise<{ queryId: string; table: DbTable | null }>;
+// With the explain capability: one statement's plan, without running it.
+export const databaseExplain = (databaseId: string, text: string) => DatabaseService.DatabaseExplain(databaseId, text);
+// Whether Go judges text read-only; anything else asks before it runs. In
+// read-only mode (databaseSetReadOnly) Go refuses it, and every row or
+// document edit, until the mode is turned off or the tab closes.
+export const databaseReadOnly = (databaseId: string, text: string) => DatabaseService.DatabaseReadOnly(databaseId, text) as Promise<boolean>;
+export const databaseSetReadOnly = (databaseId: string, on: boolean) => DatabaseService.DatabaseSetReadOnly(databaseId, on);
+// Opens a table from the tree, sorted and filtered by browse; table is null
+// when it has no key and opens read-only.
+export const databaseOpenTable = (databaseId: string, path: string[], browse: DbBrowse = {}) =>
+  DatabaseService.DatabaseOpenTable(databaseId, path, browse) as Promise<{ queryId: string; table: DbTable | null }>;
+// Counts the rows browse's filters keep, within Go's ten-second catalog limit.
+export const databaseCountRows = (databaseId: string, path: string[], browse: DbBrowse) =>
+  DatabaseService.DatabaseCountRows(databaseId, path, browse) as Promise<number>;
 export const databaseNextPage = (queryId: string) => DatabaseService.DatabaseNextPage(queryId) as Promise<DbPage>;
 export const databaseCancel = (queryId: string) => DatabaseService.DatabaseCancel(queryId);
 export const databaseCloseQuery = (queryId: string) => DatabaseService.DatabaseCloseQuery(queryId);
 // Changes one row by the table's own key; null values are NULL.
 export const databaseEditRow = (databaseId: string, path: string[], key: Record<string, string | null>, set: Record<string, string | null>) =>
   DatabaseService.DatabaseEditRow(databaseId, { path, key, set });
+// With the rowWrite capability (SQL tables with a key): the statement a
+// row change would run, built in Go, for the review step; then the change.
+export type DbRowOp = "update" | "insert" | "delete";
+export type DbRowEdit = { path: string[]; key?: Record<string, string | null>; set?: Record<string, string | null> };
+export type DbRowPreview = { statement: string; values: (string | null)[] };
+export const databasePreviewRow = (databaseId: string, op: DbRowOp, edit: DbRowEdit) =>
+  DatabaseService.DatabasePreviewRow(databaseId, op, { key: {}, set: {}, ...edit }) as Promise<DbRowPreview>;
+export const databaseInsertRow = (databaseId: string, path: string[], set: Record<string, string | null>) =>
+  DatabaseService.DatabaseInsertRow(databaseId, { path, key: {}, set });
+// A SQL tab's tables and views with their columns, for completion.
+export type DbSchemaTable = { name: string; columns: string[] | null };
+export const databaseSchema = (databaseId: string) => DatabaseService.DatabaseSchema(databaseId).then((t) => t ?? []) as Promise<DbSchemaTable[]>;
+export const databaseDeleteRow = (databaseId: string, path: string[], key: Record<string, string | null>) =>
+  DatabaseService.DatabaseDeleteRow(databaseId, { path, key, set: {} });
 // With the documentEdit capability, a collection or index opens like a table
 // keyed by "_id": databaseDocument returns a document in full as JSON (a
-// grid cell may be cut), and databaseSaveDocument replaces it by its _id.
+// grid cell may be cut) with its version, and databaseSaveDocument
+// replaces it by its _id only while it is still that version.
 export const databaseDocument = (databaseId: string, path: string[], id: string) =>
-  DatabaseService.DatabaseDocument(databaseId, path, id) as Promise<string>;
-export const databaseSaveDocument = (databaseId: string, path: string[], id: string, doc: string) =>
-  DatabaseService.DatabaseSaveDocument(databaseId, path, id, doc);
+  DatabaseService.DatabaseDocument(databaseId, path, id) as Promise<{ doc: string; version: string }>;
+export const databaseSaveDocument = (databaseId: string, path: string[], id: string, version: string, doc: string) =>
+  DatabaseService.DatabaseSaveDocument(databaseId, path, id, version, doc);
 // Writes a cut or binary cell in full to a file chosen in Go's dialog;
 // false when the user cancelled.
+// Runs a read again (editor text, or a table with its browse) and writes
+// every row in full to a file chosen in Go's dialog; cancelling the
+// promise stops it and removes the partial file.
+export type DbExportRequest = { text?: string; path?: string[]; browse: DbBrowse; format: "csv" | "json" };
+export const databaseExport = (databaseId: string, req: DbExportRequest) => DatabaseService.DatabaseExport(databaseId, req);
 export const databaseSaveCell = (queryId: string, result: number, row: number, col: number) =>
   DatabaseService.DatabaseSaveCell(queryId, result, row, col);
 // Asks for a SQLite file in Go's dialog; token is what a saved host's
 // filePick takes. A cancelled dialog returns an empty token.
 export const databasePickFile = () => DatabaseService.DatabasePickFile() as Promise<{ token: string; path: string }>;
+// Each host's request history and saved queries, kept on this computer
+// only; Go records a request as it runs, without the connection's
+// password and never one that looks like it holds a credential.
+export type DbSavedQuery = { name: string; text: string };
+export const databaseHistory = (databaseId: string) => list(DatabaseService.DatabaseHistory(databaseId));
+export const databaseClearHistory = (databaseId: string) => DatabaseService.DatabaseClearHistory(databaseId);
+export const databaseSavedQueries = (databaseId: string) => list(DatabaseService.DatabaseSavedQueries(databaseId)) as Promise<DbSavedQuery[]>;
+export const databaseSaveQuery = (databaseId: string, name: string, text: string) =>
+  list(DatabaseService.DatabaseSaveQuery(databaseId, name, text)) as Promise<DbSavedQuery[]>;
+export const databaseDeleteQuery = (databaseId: string, name: string) => list(DatabaseService.DatabaseDeleteQuery(databaseId, name)) as Promise<DbSavedQuery[]>;
 export const onQueryState = (queryId: string, cb: (s: QueryState) => void) => on<QueryState>(`query-state://${queryId}`, cb);
 
 // ---- Kubernetes (R57, KTD28) ----

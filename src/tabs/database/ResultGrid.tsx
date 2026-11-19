@@ -1,39 +1,121 @@
-import { useState } from "react";
-import type { DbCell, DbColumn, DbTable } from "../../api";
+import { useEffect, useRef, useState } from "react";
+import type { DbBrowse, DbCell, DbColumn, DbTable } from "../../api";
 import { t } from "../../i18n";
 import { Button } from "../../ui/Button";
 import { Dialog } from "../../ui/Dialog";
 import { Field, Input } from "../../ui/Field";
 import { IconButton } from "../../ui/IconButton";
-import { EditIcon } from "../../ui/icons";
+import { DeleteIcon, EditIcon, ExpandedIcon } from "../../ui/icons";
 import { Tabs } from "../../ui/Tabs";
+import { useContextMenu, type MenuItem } from "../../ui/contextmenu";
+import { clampWidth, copyText, rowText, windowRange } from "./grid";
+import { ValueView } from "./ValueView";
 import { canEdit, CellText, editable, rowKey, type ResultSet } from "./rows";
 
+// Every row has one height, so only the rows in view need to be drawn.
+const ROW = 24;
+const EDIT_COL = 32;
+
+/** A column's resize handle: drag it, or focus it and use the arrow keys;
+ *  a double click puts the default width back. */
+function ResizeHandle({ name, width, onWidth }: { name: string; width: number; onWidth: (w: number) => void }) {
+  return (
+    <span
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={t("database.resizeColumn", { name })}
+      aria-valuenow={width}
+      tabIndex={0}
+      className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-accent focus-visible:bg-accent outline-none"
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={() => onWidth(clampWidth(Math.max(name.length * 8 + 32, 120)))}
+      onKeyDown={(e) => {
+        if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+          e.preventDefault();
+          onWidth(clampWidth(width + (e.key === "ArrowLeft" ? -16 : 16)));
+        }
+      }}
+      onPointerDown={(e) => {
+        e.preventDefault();
+        const x0 = e.clientX;
+        const move = (m: PointerEvent) => onWidth(clampWidth(width + m.clientX - x0));
+        const up = () => {
+          window.removeEventListener("pointermove", move);
+          window.removeEventListener("pointerup", up);
+        };
+        window.addEventListener("pointermove", move);
+        window.addEventListener("pointerup", up);
+      }}
+    />
+  );
+}
+
 /**
- * A request's result sets, one tab each, as a text-only grid. A cut or
- * binary cell offers its full value, saved to a file Go asks for. With
+ * A request's result sets, one tab each, as a text-only grid that draws
+ * only the rows in view. Columns resize; a cell's menu copies it or its
+ * row, or opens it in the value viewer. A cut or binary cell offers its
+ * full value, saved to a file Go asks for. With
  * `table` (a table opened from the tree whose engine edits rows, KTD23) a
  * row opens the row editor, which changes it by the table's own key.
  */
 export function ResultGrid({
   sets,
+  done,
+  sort,
+  onSort,
   table,
   onSaveCell,
   onEditRow,
   onEditDocument,
+  onDeleteRow,
 }: {
   sets: ResultSet[];
+  /** Every row has arrived, so an empty set means no rows match. */
+  done: boolean;
+  /** A browsed table's sort; a header click asks onSort to change it. */
+  sort?: DbBrowse;
+  onSort?: (column: string) => void;
   table: DbTable | null;
   onSaveCell: (result: number, row: number, col: number) => void;
   onEditRow: (key: Record<string, string | null>, set: Record<string, string | null>) => Promise<boolean>;
   /** Set when rows are documents, edited whole by their _id (documentEdit). */
   onEditDocument?: (id: string) => void;
+  /** Set when rows can be deleted (rowWrite): asks to delete the row named by its key. */
+  onDeleteRow?: (key: Record<string, string | null>) => void;
 }) {
   const [tab, setTab] = useState("0");
+  const { menu, node: menuNode } = useContextMenu();
+  const scroller = useRef<HTMLDivElement>(null);
+  const [view, setView] = useState({ top: 0, height: 600 });
+  const [viewing, setViewing] = useState<{ r: number; i: number } | null>(null);
   const [editing, setEditing] = useState<number | null>(null);
   const at = Math.min(Number(tab), Math.max(sets.length - 1, 0));
   const set = sets[at];
   const rowsEdit = !!table && at === 0;
+  const rowsDelete = rowsEdit && !!onDeleteRow && !onEditDocument;
+  const editCol = rowsDelete ? EDIT_COL * 2 : EDIT_COL;
+  // Widths follow the set on screen; a new set starts from the defaults.
+  const [widths, setWidths] = useState<number[]>([]);
+  const cols = set?.columns ?? [];
+  useEffect(() => setWidths(cols.map((c) => clampWidth(Math.max(c.name.length * 8 + 32, 120)))), [at, cols.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setView({ top: el.scrollTop, height: el.clientHeight }));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [at, !!set]);
+  const { first, end } = windowRange(view.top, view.height, ROW, set?.rows.length ?? 0);
+  const copy = (text: string) => navigator.clipboard.writeText(text).catch(() => {});
+  const cellMenu = (r: number, i: number): MenuItem[] => {
+    const c = set!.rows[r][i];
+    return [
+      { label: t("database.copyValue"), onClick: () => copy(copyText(c)) },
+      { label: t("database.copyRow"), onClick: () => copy(rowText(set!.rows[r])) },
+      { label: t("database.viewValue"), onClick: () => setViewing({ r, i }) },
+      ...(c.c || c.b ? [{ label: t("database.saveValue"), onClick: () => onSaveCell(at, r, i) }] : []),
+    ];
+  };
   const edit = (r: number) => {
     if (!onEditDocument) return setEditing(r);
     const id = table && set && rowKey(table, set.columns, set.rows[r])?._id;
@@ -53,53 +135,94 @@ export function ResultGrid({
       {set && !set.columns.length ? (
         <p className="p-3 text-sm text-muted">{t("database.noRows")}</p>
       ) : set ? (
-        <div className="flex-1 min-h-0 overflow-auto allow-select">
-          <table className="text-xs font-mono border-collapse">
-            <thead className="sticky top-0 bg-surface">
+        <div
+          ref={scroller}
+          className="flex-1 min-h-0 overflow-auto allow-select"
+          onScroll={(e) => setView({ top: e.currentTarget.scrollTop, height: e.currentTarget.clientHeight })}
+        >
+          <table className="text-xs font-mono border-collapse" style={{ tableLayout: "fixed", width: (rowsEdit ? editCol : 0) + widths.reduce((a, b) => a + b, 0) }}>
+            <colgroup>
+              {rowsEdit && <col style={{ width: editCol }} />}
+              {widths.map((w, i) => (
+                <col key={i} style={{ width: w }} />
+              ))}
+            </colgroup>
+            <thead className="sticky top-0 bg-surface z-10">
               <tr>
                 {rowsEdit && <th className="border-b border-line" aria-label={t("database.editRow")} />}
                 {set.columns.map((c, i) => (
-                  <th key={i} scope="col" className="text-left font-semibold px-2 py-1 border-b border-line whitespace-nowrap" title={c.type}>
-                    {c.name}
+                  <th
+                    key={i}
+                    scope="col"
+                    className="relative text-left font-semibold px-2 py-1 border-b border-line whitespace-nowrap overflow-hidden text-ellipsis"
+                    title={`${c.name}: ${c.type}`}
+                    aria-sort={sort?.sort === c.name && at === 0 ? (sort.desc ? "descending" : "ascending") : undefined}
+                  >
+                    {onSort && at === 0 ? (
+                      <button type="button" className="flex items-center gap-1 max-w-full hover:underline" title={t("database.sortBy", { name: c.name })} onClick={() => onSort(c.name)}>
+                        <span className="truncate">{c.name}</span>
+                        {sort?.sort === c.name && <ExpandedIcon className={`size-3 shrink-0 ${sort.desc ? "" : "rotate-180"}`} aria-hidden />}
+                      </button>
+                    ) : (
+                      c.name
+                    )}
+                    <ResizeHandle name={c.name} width={widths[i]} onWidth={(w) => setWidths((ws) => ws.map((x, j) => (j === i ? w : x)))} />
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {set.rows.map((row, r) => (
-                <tr key={r} className="hover:bg-hover" onDoubleClick={() => rowsEdit && edit(r)}>
-                  {rowsEdit && (
-                    <td className="px-1 border-b border-line align-top">
-                      <IconButton size="sm" icon={EditIcon} label={onEditDocument ? t("database.editDocument") : t("database.editRow")} onClick={() => edit(r)} />
-                    </td>
-                  )}
-                  {row.map((c, i) => (
-                    <td key={i} className="px-2 py-0.5 border-b border-line align-top max-w-96">
-                      <div className="flex items-start gap-1">
-                        <span className="truncate">
-                          <CellText cell={c} />
-                        </span>
-                        {(c.c || c.b) && (
-                          <button
-                            type="button"
-                            className="shrink-0 text-accent hover:underline"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onSaveCell(at, r, i);
+              {first > 0 && <tr aria-hidden style={{ height: first * ROW }} />}
+              {set.rows.slice(first, end).map((row, k) => {
+                const r = first + k;
+                return (
+                  <tr key={r} className="hover:bg-hover" style={{ height: ROW }} onDoubleClick={() => rowsEdit && edit(r)}>
+                    {rowsEdit && (
+                      <td className="px-1 border-b border-line whitespace-nowrap">
+                        <IconButton size="sm" icon={EditIcon} label={onEditDocument ? t("database.editDocument") : t("database.editRow")} onClick={() => edit(r)} />
+                        {rowsDelete && (
+                          <IconButton
+                            size="sm"
+                            icon={DeleteIcon}
+                            label={t("database.deleteRow")}
+                            onClick={() => {
+                              const key = rowKey(table!, set.columns, row);
+                              if (key) onDeleteRow!(key);
                             }}
-                          >
-                            {t("database.saveValue")}
-                          </button>
+                            disabled={!rowKey(table!, set.columns, row)}
+                          />
                         )}
-                      </div>
-                    </td>
-                  ))}
-                </tr>
-              ))}
+                      </td>
+                    )}
+                    {row.map((c, i) => (
+                      <td
+                        key={i}
+                        className="px-2 border-b border-line whitespace-nowrap overflow-hidden text-ellipsis"
+                        title={c.c || c.b ? t("database.cellHint") : undefined}
+                        onContextMenu={menu(cellMenu(r, i))}
+                        onDoubleClick={() => !rowsEdit && setViewing({ r, i })}
+                      >
+                        <CellText cell={c} />
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+              {end < set.rows.length && <tr aria-hidden style={{ height: (set.rows.length - end) * ROW }} />}
             </tbody>
           </table>
+          {done && !set.rows.length && <p className="p-3 text-sm text-muted">{t("database.noMatch")}</p>}
         </div>
       ) : null}
+      {menuNode}
+      {viewing && set?.rows[viewing.r] && (
+        <ValueView
+          column={set.columns[viewing.i]}
+          cell={set.rows[viewing.r][viewing.i]}
+          onSave={() => onSaveCell(at, viewing.r, viewing.i)}
+          onClose={() => setViewing(null)}
+        />
+      )}
       {editing !== null && table && set && (
         <RowEditor
           table={table}

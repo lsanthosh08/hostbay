@@ -105,6 +105,11 @@ func esPath(raw string) ([]string, error) {
 // segment. It returns the status and at most esMaxBody of the body, and
 // whether more was cut. An error status is an error.
 func (e *esEngine) call(ctx context.Context, method string, segs []string, query string, body []byte) (int, []byte, bool, error) {
+	// A "." or ".." segment, such as a document _id, would name another
+	// path once a proxy normalises it; esPath refuses it in typed paths.
+	if slices.Contains(segs, ".") || slices.Contains(segs, "..") {
+		return 0, nil, false, &Error{Category: "syntax", Err: errors.New(`a path with a ".." or "." segment is refused`)}
+	}
 	u := *e.base
 	esc := make([]string, len(segs))
 	for i, s := range segs {
@@ -217,6 +222,29 @@ func (e *esEngine) Children(ctx context.Context, path []string, offset int) ([]N
 	return nodes, end < len(list), nil
 }
 
+// esReads reports a request that changes nothing: GET, HEAD, or a POST
+// search or count.
+func esReads(method string, segs []string) bool {
+	last := ""
+	if len(segs) > 0 {
+		last = segs[len(segs)-1]
+	}
+	return method == "GET" || method == "HEAD" || (method == "POST" && (strings.HasPrefix(last, "_search") || last == "_count"))
+}
+
+// ReadOnly judges a request as Query parses its first line; text that
+// does not parse is judged as writing.
+func (e *esEngine) ReadOnly(text string) bool {
+	first, _, _ := strings.Cut(strings.TrimSpace(text), "\n")
+	f := strings.Fields(first)
+	if len(f) != 2 {
+		return false
+	}
+	rawPath, _, _ := strings.Cut(f[1], "?")
+	segs, err := esPath(rawPath)
+	return err == nil && slices.Contains(esMethods, strings.ToUpper(f[0])) && esReads(strings.ToUpper(f[0]), segs)
+}
+
 // Query sends one request: a first line of a method and a path, such as
 // "GET /logs/_search?q=error", then an optional JSON body. A search's hits
 // show a document a row; any other response shows as its status and body,
@@ -241,11 +269,7 @@ func (e *esEngine) Query(ctx context.Context, text string) (Results, error) {
 	if err != nil {
 		return nil, esError(err)
 	}
-	last := ""
-	if len(segs) > 0 {
-		last = segs[len(segs)-1]
-	}
-	rerun := method == "GET" || method == "HEAD" || (method == "POST" && (strings.HasPrefix(last, "_search") || last == "_count"))
+	rerun := esReads(method, segs)
 	if hits, ok := esHits(resp, cut); ok {
 		return &memResults{rerun: rerun, sets: []resultSet{hits}}, nil
 	}
@@ -359,15 +383,19 @@ func (e *esEngine) get(ctx context.Context, path []string, id string) (esDoc, er
 	return d, nil
 }
 
-func (e *esEngine) Document(ctx context.Context, path []string, id string) (string, error) {
+// esVersion is a document's version token: its sequence number and
+// primary term, which a conditional write checks.
+func esVersion(d esDoc) string { return fmt.Sprintf("%d:%d", d.SeqNo, d.PrimaryTerm) }
+
+func (e *esEngine) Document(ctx context.Context, path []string, id string) (string, string, error) {
 	d, err := e.get(ctx, path, id)
-	return string(d.Source), err
+	return string(d.Source), esVersion(d), err
 }
 
 // EditDocument replaces the document by its _id, on condition that it is
 // the version just read, so one deleted or changed meanwhile is neither
 // recreated nor overwritten.
-func (e *esEngine) EditDocument(ctx context.Context, path []string, id, doc string) error {
+func (e *esEngine) EditDocument(ctx context.Context, path []string, id, version, doc string) error {
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(doc), &obj); err != nil {
 		return &Error{Category: "syntax", Err: errors.New("the document must be a JSON object: " + err.Error())}
@@ -375,6 +403,11 @@ func (e *esEngine) EditDocument(ctx context.Context, path []string, id, doc stri
 	d, err := e.get(ctx, path, id)
 	if err != nil {
 		return err
+	}
+	// The write is conditional on the version the page was shown, not one
+	// read now, so a change made while the user edited is never overwritten.
+	if esVersion(d) != version {
+		return errors.New("this document was changed meanwhile, so nothing was saved; reload the index")
 	}
 	q := url.Values{"if_seq_no": {strconv.FormatInt(d.SeqNo, 10)}, "if_primary_term": {strconv.FormatInt(d.PrimaryTerm, 10)}, "refresh": {"wait_for"}}
 	_, _, _, err = e.call(ctx, "PUT", []string{path[0], "_doc", id}, q.Encode(), []byte(doc))

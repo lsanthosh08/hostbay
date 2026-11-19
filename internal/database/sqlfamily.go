@@ -64,7 +64,8 @@ type dialect struct {
 	// category decodes the engine's own errors (Category for the rest).
 	category func(error) string
 	// dollarQuotes and nestedComments describe the lexer (PostgreSQL);
-	// backslashEscapes and hashComments too (MySQL).
+	// backslashEscapes and hashComments too (MySQL, whose -- comment
+	// also needs whitespace after it).
 	dollarQuotes, nestedComments   bool
 	backslashEscapes, hashComments bool
 	// offsetFirst passes a catalog query's offset before its limit, for
@@ -75,6 +76,17 @@ type dialect struct {
 	// connection of db, for a driver whose cancel only drops its
 	// connection (MySQL).
 	killer func(ctx context.Context, db *sql.DB, session *sql.Conn) (kill func(), err error)
+	// asText casts a quoted column to text, for a "contains" filter.
+	asText func(col string) string
+	// likeSpecial are the characters LIKE treats as wildcards, escaped in
+	// a filter's value: SQL Server's LIKE also takes [ranges].
+	likeSpecial string
+	// readOnly, when set, is the statement that turns the session's own
+	// read-only mode on or off on the server.
+	readOnly func(on bool) string
+	// explain, when set, is the prefix that shows a statement's plan
+	// without running it (R10).
+	explain string
 }
 
 // sqlEngine is the one SQL implementation (KTD23). User requests run on
@@ -90,6 +102,9 @@ type sqlEngine struct {
 	session *sql.Conn
 	kill    func() // the session's killer (dialect.killer), or nil
 	active  *sqlResults
+	// readOnly holds each new session read-only on the server too
+	// (dialect.readOnly), as SetReadOnly last asked.
+	readOnly bool
 }
 
 func newSQLEngine(db *sql.DB, d dialect, onClose func()) *sqlEngine {
@@ -149,6 +164,11 @@ func (e *sqlEngine) Children(ctx context.Context, path []string, offset int) ([]
 }
 
 func (e *sqlEngine) Query(ctx context.Context, text string) (Results, error) {
+	return e.query(ctx, text)
+}
+
+// query runs text with args, values for its placeholders, on the session.
+func (e *sqlEngine) query(ctx context.Context, text string, args ...any) (Results, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.active != nil { // one request at a time on the session
@@ -182,6 +202,21 @@ func (e *sqlEngine) Query(ctx context.Context, text string) (Results, error) {
 				}
 			}
 		}
+		if e.readOnly && e.d.readOnly != nil {
+			// Before every request, not only when the session opens: a
+			// request judged read-only by its text can still change the
+			// session's default (a settings function called from a
+			// SELECT), and the server guard must hold for the next one.
+			if _, err = e.session.ExecContext(ctx, e.d.readOnly(true)); err != nil {
+				e.session.Close()
+				e.session = nil
+				if try == 0 && (errors.Is(err, driver.ErrBadConn) || errors.Is(err, sql.ErrConnDone)) {
+					continue // a dead session: the request runs on a new one
+				}
+				cancel()
+				return nil, e.wrap(err)
+			}
+		}
 		if e.kill != nil {
 			// A cancel, or closing results not yet done, stops the
 			// statement on the server too; results read to the end never
@@ -189,7 +224,7 @@ func (e *sqlEngine) Query(ctx context.Context, text string) (Results, error) {
 			// armed before it is sent.
 			stopKill = context.AfterFunc(ctx, e.kill)
 		}
-		rows, err = e.session.QueryContext(ctx, text)
+		rows, err = e.session.QueryContext(ctx, text, args...)
 		if err != nil && stopKill != nil && !stopKill() {
 			e.dropSession()
 		}
@@ -211,6 +246,33 @@ func (e *sqlEngine) Query(ctx context.Context, text string) (Results, error) {
 	r.load()
 	e.active = r
 	return r, nil
+}
+
+// ReadOnly judges text by the dialect's lexer (rerunnable).
+func (e *sqlEngine) ReadOnly(text string) bool { return rerunnable(text, e.d) }
+
+// SetReadOnly holds the session read-only on the server, for a dialect
+// that can: the open session now, and again before each request (query).
+func (e *sqlEngine) SetReadOnly(ctx context.Context, on bool) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.readOnly = on
+	if e.d.readOnly == nil || e.session == nil {
+		return nil
+	}
+	if e.active != nil { // a cursor still open on the session would block it
+		e.active.Close()
+		if e.active.killed {
+			e.dropSession()
+			return nil
+		}
+		e.active = nil
+	}
+	if _, err := e.session.ExecContext(ctx, e.d.readOnly(on)); err != nil {
+		// The next request opens a session in the mode asked for.
+		e.dropSession()
+	}
+	return nil
 }
 
 // dropSession closes the session's connection instead of returning it to
@@ -309,17 +371,29 @@ func (r *sqlResults) Close() error {
 	return err
 }
 
-// readOnlyLead are the statements that only read; readOnlyAny never appear
-// in one that only reads.
+// readOnlyLead are the statements that only read; writeWords never appear
+// in one that only reads. A SQL Server batch needs no semicolons, so
+// "SELECT 1 DROP TABLE t" is one statement to the lexer: every word that
+// starts a change of data, schema or rights is listed, not only the DML.
 var (
 	readOnlyLead = []string{"SELECT", "VALUES", "TABLE", "SHOW", "WITH", "EXPLAIN"}
-	writeWords   = []string{"INSERT", "UPDATE", "DELETE", "MERGE", "INTO", "ANALYZE", "CALL", "COPY", "LOCK"}
+	writeWords   = []string{"INSERT", "UPDATE", "DELETE", "MERGE", "INTO", "ANALYZE", "CALL", "COPY", "LOCK",
+		"DROP", "CREATE", "ALTER", "TRUNCATE", "RENAME", "GRANT", "REVOKE", "DENY", "EXEC", "EXECUTE",
+		"DBCC", "BACKUP", "RESTORE", "KILL", "SHUTDOWN", "SET", "BEGIN", "COMMIT", "ROLLBACK", "SAVEPOINT",
+		// T-SQL statements that change data, state or the session, which a
+		// batch can start without a semicolon.
+		"WRITETEXT", "UPDATETEXT", "DECLARE", "USE", "RECONFIGURE", "CHECKPOINT", "SETUSER", "RECEIVE", "SEND",
+		"DISABLE", "ENABLE", "MOVE", "REVERT"}
 )
 
 // rerunnable judges by its text whether a request changes nothing: every
 // statement starts with a reading keyword and no writing keyword appears
-// outside quotes and comments. Anything the lexer cannot follow is not.
+// outside quotes and comments. Anything the lexer cannot follow is not,
+// and neither is an executable comment, whose text the server runs.
 func rerunnable(text string, d dialect) bool {
+	if execComment(text) {
+		return false
+	}
 	stmts, ok := statements(text, d)
 	if !ok || len(stmts) == 0 {
 		return false
@@ -328,6 +402,12 @@ func rerunnable(text string, d dialect) bool {
 		if !slices.Contains(readOnlyLead, words[0]) {
 			return false
 		}
+		// MySQL's SHOW CREATE TABLE and SHOW GRANTS read. Only MySQL (the
+		// dialect with # comments) ends statements at semicolons alone; a
+		// T-SQL batch could follow SHOW with a write.
+		if words[0] == "SHOW" && d.hashComments {
+			continue
+		}
 		for _, w := range words {
 			if slices.Contains(writeWords, w) {
 				return false
@@ -335,6 +415,19 @@ func rerunnable(text string, d dialect) bool {
 		}
 	}
 	return true
+}
+
+// dashComment reports whether MySQL reads "--" followed by rest as a
+// comment: only before whitespace, a control character or the end of the
+// text. "1--1" is 1 minus minus 1 there, and what follows is still SQL.
+func dashComment(rest string) bool {
+	return rest == "" || rest[0] <= ' '
+}
+
+// execComment reports a comment the server runs as SQL: MySQL's /*! … */
+// and MariaDB's /*M! … */.
+func execComment(text string) bool {
+	return strings.Contains(text, "/*!") || strings.Contains(text, "/*M!")
 }
 
 // statements splits text at semicolons into each statement's words,
@@ -372,7 +465,7 @@ func statements(text string, d dialect) (stmts [][]string, ok bool) {
 		case c == ';':
 			end()
 			i++
-		case c == '-' && strings.HasPrefix(text[i:], "--") || c == '#' && d.hashComments:
+		case c == '-' && strings.HasPrefix(text[i:], "--") && (!d.hashComments || dashComment(text[i+2:])) || c == '#' && d.hashComments:
 			nl := strings.IndexByte(text[i:], '\n')
 			if nl < 0 {
 				i = len(text)

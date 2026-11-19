@@ -1,9 +1,11 @@
 import Editor, { type OnMount } from "@monaco-editor/react";
+import type { editor, Position } from "monaco-editor";
 import { useEffect, useRef } from "react";
 import { t } from "../../i18n";
 import { applyEditorTheme } from "../../monaco";
 import { Button } from "../../ui/Button";
-import { StartIcon, StopIcon } from "../../ui/icons";
+import { LogsIcon, StartIcon, StopIcon } from "../../ui/icons";
+import type { Completion } from "./tabs";
 
 type MonacoEditor = Parameters<OnMount>[0];
 
@@ -11,7 +13,9 @@ type MonacoEditor = Parameters<OnMount>[0];
  * The query editor. Run sends the selection, or the whole text when nothing
  * is selected, as one request (Ctrl or Cmd+Enter too); Cancel stops it.
  * Inserted SQL (from Ask AI) replaces the selection and is left selected,
- * so Run sends that statement alone.
+ * so Run sends that statement alone. Each query tab is its own Monaco
+ * model (by `path`), so undo stays with its tab. On SQL engines the
+ * editor completes the table and column names in `schema`.
  */
 export function QueryEditor({
   value,
@@ -20,6 +24,12 @@ export function QueryEditor({
   running,
   onCancel,
   insert,
+  readOnly,
+  onReadOnly,
+  onLibrary,
+  onExplain,
+  path,
+  schema,
 }: {
   value: string;
   onChange: (text: string) => void;
@@ -28,11 +38,29 @@ export function QueryEditor({
   onCancel: () => void;
   /** SQL to insert; n changes for each insert. */
   insert?: { sql: string; n: number };
+  /** The tab's read-only mode, which Go enforces. */
+  readOnly: boolean;
+  onReadOnly: (on: boolean) => void;
+  /** Opens the history and saved queries. */
+  onLibrary: () => void;
+  /** Shows the selection's plan instead of running it (the explain capability). */
+  onExplain?: (text: string) => void;
+  /** The active query tab's model path; models under one tab share a prefix. */
+  path: string;
+  /** Names to complete; empty offers none. */
+  schema: Completion[];
 }) {
   const editor = useRef<MonacoEditor | null>(null);
   // The latest onRun, for the key binding Monaco keeps from mount.
   const run = useRef(onRun);
   run.current = onRun;
+  const names = useRef(schema);
+  names.current = schema;
+  // The completion provider is Monaco's, for every SQL model: it answers
+  // only for this tab's models.
+  const prefix = path.slice(0, path.lastIndexOf("/") + 1);
+  const provider = useRef<{ dispose: () => void } | null>(null);
+  useEffect(() => () => provider.current?.dispose(), []);
   useEffect(() => {
     const e = editor.current;
     const model = e?.getModel();
@@ -65,18 +93,49 @@ export function QueryEditor({
         <Button size="sm" icon={StopIcon} disabled={!running} onClick={onCancel}>
           {t("database.cancel")}
         </Button>
-        <span className="text-xs text-muted">{t("database.runHint")}</span>
+        {onExplain && (
+          <Button size="sm" disabled={running} title={t("database.explainHint")} onClick={() => text() && onExplain(text())}>
+            {t("database.explain")}
+          </Button>
+        )}
+        <Button size="sm" variant="ghost" icon={LogsIcon} onClick={onLibrary}>
+          {t("database.history")}
+        </Button>
+        <span className="text-xs text-muted min-w-0 truncate" title={t("database.runHint")}>
+          {t("database.runHint")}
+        </span>
+        <label className="ml-auto flex items-center gap-1.5 text-xs shrink-0" title={t("database.readOnlyModeHint")}>
+          <input type="checkbox" className="accent-accent size-3.5" checked={readOnly} onChange={(e) => onReadOnly(e.target.checked)} />
+          {t("database.readOnlyMode")}
+        </label>
       </div>
       <div className="flex-1 min-h-0" aria-label={t("database.editor")}>
         <Editor
           height="100%"
           theme="hostbay"
           language="sql"
+          path={path}
           beforeMount={applyEditorTheme}
           value={value}
           onChange={(v) => onChange(v ?? "")}
           onMount={(e, monaco) => {
             editor.current = e;
+            provider.current = monaco.languages.registerCompletionItemProvider("sql", {
+              provideCompletionItems: (model: editor.ITextModel, pos: Position) => {
+                if (!model.uri.path.includes(prefix) || !names.current.length) return { suggestions: [] };
+                const w = model.getWordUntilPosition(pos);
+                const range = { startLineNumber: pos.lineNumber, endLineNumber: pos.lineNumber, startColumn: w.startColumn, endColumn: w.endColumn };
+                return {
+                  suggestions: names.current.map((c) => ({
+                    label: c.label,
+                    kind: c.kind === "table" ? monaco.languages.CompletionItemKind.Class : monaco.languages.CompletionItemKind.Field,
+                    detail: c.detail,
+                    insertText: c.label,
+                    range,
+                  })),
+                };
+              },
+            });
             e.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
               const q = text();
               if (q) run.current(q);

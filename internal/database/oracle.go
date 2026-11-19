@@ -51,6 +51,9 @@ func (c oraConnector) Connect(ctx context.Context) (driver.Conn, error) {
 		return nil, err
 	}
 	if err := conn.OpenWithContext(ctx); err != nil {
+		// go-ora returns a failure after the TNS connect, such as a refused
+		// sign-in, with its socket still open.
+		_ = conn.Close()
 		return nil, err
 	}
 	return conn, nil
@@ -171,7 +174,9 @@ var oraDialect = dialect{
 			WHERE c.owner = :1 AND c.table_name = :2 AND c.constraint_type IN ('P', 'U')
 			ORDER BY CASE c.constraint_type WHEN 'P' THEN 0 ELSE 1 END, c.constraint_name, cc.position`, path[0], path[1]))
 	},
-	tablePath: func(path []string) bool { return len(path) == 2 },
+	tablePath:   func(path []string) bool { return len(path) == 2 },
+	asText:      func(col string) string { return "TO_CHAR(" + col + ")" },
+	likeSpecial: "%_",
 	binary: func(t string) bool {
 		switch strings.ToUpper(t) {
 		case "RAW", "LONG RAW", "LONGRAW", "BLOB":

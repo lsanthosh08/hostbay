@@ -2,9 +2,12 @@ package database
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"slices"
 	"strconv"
@@ -231,7 +234,7 @@ func (e *mongoEngine) Query(ctx context.Context, text string) (Results, error) {
 		return nil, &Error{Category: "syntax", Err: errors.New("the command is empty")}
 	}
 	name := cmd[0].Key
-	rerun := slices.Contains(mongoReadOnly, name) && !strings.Contains(text, "$out") && !strings.Contains(text, "$merge")
+	rerun := mongoReads(cmd)
 	if slices.Contains(mongoCursors, name) {
 		cur, err := e.c.Database(db).RunCommandCursor(ctx, cmd)
 		if err != nil {
@@ -252,6 +255,40 @@ func (e *mongoEngine) Query(ctx context.Context, text string) (Results, error) {
 		return nil, mongoError(err)
 	}
 	return &memResults{rerun: rerun, sets: []resultSet{{cols: []Column{{Name: "reply", Type: "document"}}, next: rowList([][]any{{mongoJSON(reply)}})}}}, nil
+}
+
+// mongoReads reports a parsed command that changes nothing: one in
+// mongoReadOnly with no $out or $merge key anywhere in it. It judges the
+// parsed keys, not the text, since a JSON escape such as \u0024out
+// decodes to the $out the server runs.
+func mongoReads(cmd bson.D) bool {
+	return len(cmd) > 0 && slices.Contains(mongoReadOnly, cmd[0].Key) && !mongoWrites(cmd)
+}
+
+// mongoWrites reports a $out or $merge key at any depth of v.
+func mongoWrites(v any) bool {
+	switch v := v.(type) {
+	case bson.D:
+		for _, el := range v {
+			if el.Key == "$out" || el.Key == "$merge" || mongoWrites(el.Value) {
+				return true
+			}
+		}
+	case bson.A:
+		return slices.ContainsFunc(v, mongoWrites)
+	}
+	return false
+}
+
+// ReadOnly judges a command as Query parses it; text that does not parse
+// is judged as writing.
+func (e *mongoEngine) ReadOnly(text string) bool {
+	var cmd bson.D
+	if err := bson.UnmarshalExtJSON([]byte(text), false, &cmd); err != nil {
+		return false
+	}
+	cmd = slices.DeleteFunc(cmd, func(el bson.E) bool { return el.Key == "$db" })
+	return mongoReads(cmd)
 }
 
 // mongoJSON is a document as canonical Extended JSON, which keeps every
@@ -288,6 +325,11 @@ func mongoFilter(id string) (bson.D, error) {
 	if err := bson.UnmarshalExtJSON([]byte(`{"_id":`+id+`}`), false, &f); err != nil || len(f) != 1 || f[0].Key != "_id" {
 		return nil, errors.New("that is not a document's _id")
 	}
+	// Extended JSON types parse to values; a document left holding a $ key
+	// is a query operator, which would match some other document.
+	if d, ok := f[0].Value.(bson.D); ok && slices.ContainsFunc(d, func(el bson.E) bool { return strings.HasPrefix(el.Key, "$") }) {
+		return nil, errors.New("that is not a document's _id")
+	}
 	return f, nil
 }
 
@@ -305,6 +347,90 @@ func (e *mongoEngine) SelectTable(path []string) string {
 	return `{"$db": ` + string(db) + `, "find": ` + string(coll) + `}`
 }
 
+// mongoDoc parses one JSON document of a browse, or nil when text is
+// blank. Extended JSON types ({"$oid": …}, {"$date": …}) parse to values.
+func mongoDoc(what, text string) (bson.D, error) {
+	if strings.TrimSpace(text) == "" {
+		return nil, nil
+	}
+	var d bson.D
+	if err := bson.UnmarshalExtJSON([]byte(text), false, &d); err != nil {
+		return nil, &Error{Category: "syntax", Err: fmt.Errorf("the %s must be a JSON object, such as {\"name\": \"ann\"}: %v", what, err)}
+	}
+	return d, nil
+}
+
+// mongoBrowse is the find, or with count the count, of a collection
+// browse: Query as its filter and Order (else Sort, a header click) as
+// its sort, each parsed in Go into the command, never pasted into its
+// text. Column filters are the SQL engines'.
+func mongoBrowse(path []string, b Browse, count bool) (bson.D, error) {
+	if len(path) != 2 {
+		return nil, errors.New("that is not a collection")
+	}
+	if len(b.Filters) > 0 {
+		return nil, &Error{Category: "syntax", Err: errors.New("filter a collection with a JSON filter")}
+	}
+	filter, err := mongoDoc("filter", b.Query)
+	if err != nil {
+		return nil, err
+	}
+	if filter == nil {
+		filter = bson.D{}
+	}
+	if count {
+		return bson.D{{Key: "count", Value: path[1]}, {Key: "query", Value: filter}}, nil
+	}
+	cmd := bson.D{{Key: "find", Value: path[1]}, {Key: "filter", Value: filter}}
+	sort, err := mongoDoc("sort", b.Order)
+	if err != nil {
+		return nil, err
+	}
+	if sort == nil && b.Sort != "" {
+		dir := 1
+		if b.Desc {
+			dir = -1
+		}
+		sort = bson.D{{Key: b.Sort, Value: dir}}
+	}
+	if sort != nil {
+		cmd = append(cmd, bson.E{Key: "sort", Value: sort})
+	}
+	return cmd, nil
+}
+
+func (e *mongoEngine) jsonBrowse() {}
+
+// BrowseTable finds a collection's documents by a JSON filter and sort,
+// as a find typed in the editor would, paged through its cursor.
+func (e *mongoEngine) BrowseTable(ctx context.Context, path []string, b Browse) (Results, error) {
+	cmd, err := mongoBrowse(path, b, false)
+	if err != nil {
+		return nil, err
+	}
+	text, err := bson.MarshalExtJSON(append(bson.D{{Key: "$db", Value: path[0]}}, cmd...), true, false)
+	if err != nil {
+		return nil, err
+	}
+	return e.Query(ctx, string(text))
+}
+
+func (e *mongoEngine) CountRows(ctx context.Context, path []string, b Browse) (int64, error) {
+	cmd, err := mongoBrowse(path, b, true)
+	if err != nil {
+		return 0, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, CatalogTimeout)
+	defer cancel()
+	var reply struct {
+		N int64 `bson:"n"`
+	}
+	if err := e.c.Database(path[0]).RunCommand(ctx, cmd).Decode(&reply); err != nil {
+		return 0, mongoError(err)
+	}
+	return reply.N, nil
+}
+
 // mongoTarget checks a document's collection path and _id.
 func mongoTarget(path []string, id string) (bson.D, error) {
 	if len(path) != 2 {
@@ -313,25 +439,44 @@ func mongoTarget(path []string, id string) (bson.D, error) {
 	return mongoFilter(id)
 }
 
-func (e *mongoEngine) Document(ctx context.Context, path []string, id string) (string, error) {
+func (e *mongoEngine) Document(ctx context.Context, path []string, id string) (string, string, error) {
 	f, err := mongoTarget(path, id)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
+	doc, err := e.find(ctx, path, f)
+	if err != nil {
+		return "", "", err
+	}
+	return mongoJSON(doc), mongoVersion(doc), nil
+}
+
+func (e *mongoEngine) find(ctx context.Context, path []string, f bson.D) (bson.Raw, error) {
 	doc, err := e.c.Database(path[0]).Collection(path[1]).FindOne(ctx, f).Raw()
 	if errors.Is(err, mongo.ErrNoDocuments) {
-		return "", errors.New("this document no longer exists; reload the collection")
+		return nil, errors.New("this document no longer exists; reload the collection")
 	}
-	if err != nil {
-		return "", mongoError(err)
-	}
-	return mongoJSON(doc), nil
+	return doc, mongoError(err)
+}
+
+// mongoVersion is a document's version token: a hash of its bytes, since
+// MongoDB keeps no version of its own.
+func mongoVersion(doc bson.Raw) string {
+	sum := sha256.Sum256(doc)
+	return hex.EncodeToString(sum[:])
+}
+
+// mongoUnchanged is the filter matching the document f names only while
+// it is still exactly cur, so the replace and the check are one step.
+func mongoUnchanged(f bson.D, cur bson.Raw) bson.D {
+	return append(slices.Clone(f), bson.E{Key: "$expr", Value: bson.D{{Key: "$eq", Value: bson.A{"$$ROOT", bson.D{{Key: "$literal", Value: cur}}}}}})
 }
 
 // EditDocument replaces the document by its _id with doc, parsed from
-// Extended JSON into typed BSON. The replacement is a $literal value, so a
-// field named like an operator ("$set") is stored as a field, never run.
-func (e *mongoEngine) EditDocument(ctx context.Context, path []string, id, doc string) error {
+// Extended JSON into typed BSON, only while it is still the version the
+// page was shown. The replacement is a $literal value, so a field named
+// like an operator ("$set") is stored as a field, never run.
+func (e *mongoEngine) EditDocument(ctx context.Context, path []string, id, version, doc string) error {
 	f, err := mongoTarget(path, id)
 	if err != nil {
 		return err
@@ -344,12 +489,19 @@ func (e *mongoEngine) EditDocument(ctx context.Context, path []string, id, doc s
 	if err != nil {
 		return err
 	}
-	res, err := e.c.Database(path[0]).Collection(path[1]).UpdateOne(ctx, f, replaceLiteral(d))
+	cur, err := e.find(ctx, path, f)
+	if err != nil {
+		return err
+	}
+	if mongoVersion(cur) != version {
+		return errors.New("this document was changed meanwhile, so nothing was saved; reload the collection")
+	}
+	res, err := e.c.Database(path[0]).Collection(path[1]).UpdateOne(ctx, mongoUnchanged(f, cur), replaceLiteral(d))
 	if err != nil {
 		return mongoError(err)
 	}
 	if res.MatchedCount != 1 {
-		return errors.New("this document was deleted meanwhile, so nothing was saved; reload the collection")
+		return errors.New("this document was changed or deleted meanwhile, so nothing was saved; reload the collection")
 	}
 	return nil
 }

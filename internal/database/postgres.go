@@ -179,7 +179,16 @@ var pgDialect = dialect{
 		}
 		return "", nil
 	},
-	key:          pgKey,
+	key:         pgKey,
+	asText:      func(col string) string { return "CAST(" + col + " AS text)" },
+	likeSpecial: "%_",
+	explain:     "EXPLAIN ",
+	readOnly: func(on bool) string {
+		if on {
+			return "SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY"
+		}
+		return "SET SESSION CHARACTERISTICS AS TRANSACTION READ WRITE"
+	},
 	tablePath:    func(path []string) bool { return len(path) == 2 },
 	binary:       func(t string) bool { return strings.EqualFold(t, "BYTEA") },
 	category:     pgCategory,

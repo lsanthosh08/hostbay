@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"net"
 	"strconv"
@@ -245,6 +246,26 @@ var redisReadOnly = map[string]bool{
 	"SCAN": true, "HSCAN": true, "SSCAN": true, "ZSCAN": true, "DBSIZE": true, "INFO": true, "PING": true,
 }
 
+// ReadOnly reports a request whose every command is in redisReadOnly.
+// Text that does not split is judged as writing.
+func (e *redisEngine) ReadOnly(text string) bool {
+	n := 0
+	for line := range strings.Lines(text) {
+		args, err := splitRedis(line)
+		if err != nil {
+			return false
+		}
+		if len(args) == 0 {
+			continue
+		}
+		if !redisReadOnly[strings.ToUpper(args[0])] {
+			return false
+		}
+		n++
+	}
+	return n > 0
+}
+
 // Query runs each line of text as one command, split into arguments in Go
 // the way redis-cli splits them, as its own result set. Every line is
 // checked before any is sent. A key's whole value (HGETALL, SMEMBERS,
@@ -278,6 +299,14 @@ func (e *redisEngine) Query(ctx context.Context, text string) (Results, error) {
 			if set, ok := e.paged(ctx, args); ok {
 				res.sets = append(res.sets, set)
 				continue
+			}
+		}
+		if strings.EqualFold(args[0], "GET") && len(args) == 2 {
+			// GET reads the value whole, with no cap in the client: one
+			// larger than a page may hold is refused before it is read.
+			n, err := e.c.StrLen(ctx, args[1]).Result()
+			if err == nil && n > PageHeld {
+				return nil, fmt.Errorf("the value is %d bytes, more than Hostbay holds at once; read part of it with GETRANGE %s 0 65535", n, quoteRedis(args[1]))
 			}
 		}
 		v, err := e.do(ctx, args)
@@ -516,7 +545,13 @@ func (e *redisEngine) EditableTable(ctx context.Context, path []string) (*Table,
 	e.types[path[0]] = t
 	e.mu.Unlock()
 	if col, ok := redisKeyColumn[t]; ok {
-		return &Table{Path: path, Key: []string{col}, Edit: []string{redisValueColumn[t]}, NoNull: true}, nil
+		key := []string{col}
+		if t == "list" {
+			// An index alone names whatever sits there now; the value as
+			// shown pins the element the user saw.
+			key = append(key, "value")
+		}
+		return &Table{Path: path, Key: key, Edit: []string{redisValueColumn[t]}, NoNull: true}, nil
 	}
 	return nil, nil
 }
@@ -575,8 +610,13 @@ func (e *redisEngine) EditRow(ctx context.Context, edit RowEdit) error {
 			}
 			return fmt.Errorf("a %s cannot be edited here", t)
 		}
-		row, err := one(edit.Key, col)
-		if err != nil {
+		shown := edit.Key
+		if t == "list" {
+			shown = maps.Clone(edit.Key)
+			delete(shown, "value")
+		}
+		row, err := one(shown, col)
+		if err != nil || t == "list" && (len(edit.Key) != 2 || edit.Key["value"] == nil) {
 			return errors.New("the row's key does not match the key's type; reload it")
 		}
 		v, err := one(edit.Set, redisValueColumn[t])
@@ -599,9 +639,14 @@ func (e *redisEngine) EditRow(ctx context.Context, edit RowEdit) error {
 			if perr != nil {
 				return errors.New("the row's index is not a number")
 			}
-			var n int64
-			n, err = tx.LLen(ctx, key).Result()
-			exists = i >= 0 && i < n
+			// The element must still be the one shown, not only the index
+			// still be in range: a push or pop meanwhile moves elements.
+			var cur string
+			cur, err = tx.LIndex(ctx, key, i).Result()
+			exists = err == nil && i >= 0 && cur == *edit.Key["value"]
+			if errors.Is(err, redis.Nil) {
+				err = nil
+			}
 			apply = func(p redis.Pipeliner) { p.LSet(ctx, key, i, v) }
 		case "set":
 			exists, err = tx.SIsMember(ctx, key, row).Result()
