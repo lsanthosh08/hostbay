@@ -1351,6 +1351,7 @@ export const en = {
   "kubernetes.view": "View",
   "kubernetes.delete": "Delete",
   "kubernetes.scale": "Scale",
+  "kubernetes.scaleInvalid": "Replicas must be a whole number, 0 or more.",
   "kubernetes.restart": "Restart",
   "kubernetes.reveal": "Reveal {key}",
   "kubernetes.revealed": "{key}: {value}",
