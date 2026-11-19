@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SETTLE_MS, settled, track } from "./settle";
+import { SETTLE_MS, settled, track, waitLeft, waitProps } from "./settle";
 
 describe("the settle guard", () => {
   it("ignores a click until the button has stayed in place a moment", () => {
@@ -38,5 +38,18 @@ describe("the settle guard", () => {
     track(m, 0, first, 1000);
     track(m, 0, {}, 1700);
     expect(m.since).toBe(1700);
+  });
+
+  it("says how long the button still waits, then 0", () => {
+    expect(waitLeft(1000, 1000)).toBe(SETTLE_MS);
+    expect(waitLeft(1000, 1200)).toBe(SETTLE_MS - 200);
+    expect(waitLeft(1000, 1000 + SETTLE_MS)).toBe(0);
+    expect(waitLeft(1000, 5000)).toBe(0);
+  });
+
+  // Not `disabled`: that would drop the button from the tab order.
+  it("draws a waiting button as unavailable but focusable, and a ready one as usual", () => {
+    expect(waitProps(true)).toEqual({ "aria-disabled": true, className: "opacity-50 cursor-not-allowed" });
+    expect(waitProps(false)).toEqual({});
   });
 });

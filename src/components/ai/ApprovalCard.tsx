@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { AIPending, VpnTier } from "../../api";
 import { t, type MessageKey } from "../../i18n";
 import { Button } from "../../ui/Button";
-import { useSettled } from "../../ui/settle";
+import { useSettled, waitProps } from "../../ui/settle";
 
 /** An MCP connect_vpn or disconnect_vpn request carries these too; Go
  *  refuses a profile name, gateway or tag a card could not show as it is. */
@@ -39,7 +39,7 @@ export function ApprovalCard({ p, onAnswer }: { p: VPNPending; onAnswer: (allow:
   // card slides the older ones down under the pointer: Allow waits until the
   // card has stayed put (src/ui/settle.ts).
   const card = useRef<HTMLElement>(null);
-  const ready = useSettled(card);
+  const { ready, waiting } = useSettled(card);
   useEffect(() => {
     const id = setInterval(() => setLeft(secondsLeft(p.expires)), 1000);
     return () => clearInterval(id);
@@ -78,7 +78,7 @@ export function ApprovalCard({ p, onAnswer }: { p: VPNPending; onAnswer: (allow:
         <Button type="button" variant="ghost" size="sm" onClick={() => onAnswer(false)}>
           {t("ai.card.deny")}
         </Button>
-        <Button type="button" size="sm" onClick={() => ready() && onAnswer(true)}>
+        <Button type="button" size="sm" {...waitProps(waiting)} onClick={() => ready() && onAnswer(true)}>
           {t("ai.card.allow")}
         </Button>
       </div>

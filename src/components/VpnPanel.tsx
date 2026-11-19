@@ -19,7 +19,7 @@ import { Input } from "../ui/Field";
 import { IconButton } from "../ui/IconButton";
 import { AddIcon, ImportIcon, RefreshIcon, SearchIcon, StartIcon, StopIcon, VpnIcon } from "../ui/icons";
 import { StatusDot, type ConnStatus } from "../ui/StatusDot";
-import { useSettled } from "../ui/settle";
+import { useSettled, waitProps } from "../ui/settle";
 import { useToast } from "../ui/toast";
 import { onFilesDropped } from "../importApi";
 import { Fingerprint } from "./TrustDialog";
@@ -72,7 +72,7 @@ export function useVpnConnect() {
   const next = () => setQueue((q) => q.slice(1));
   // The next question opens where the last one was answered: Trust and
   // Forget wait a moment so a double-click cannot answer it unread.
-  const ready = useSettled(undefined, trust);
+  const { ready, waiting } = useSettled(undefined, trust);
   const connect = async (id: string, quiet = false): Promise<void> => {
     try {
       await api.connectVpn(id);
@@ -114,11 +114,11 @@ export function useVpnConnect() {
             {t("common.cancel")}
           </Button>
           {changed ? (
-            <Button variant="danger" onClick={() => ready() && answer(() => api.forgetVpnCert(trust.id))}>
+            <Button variant="danger" {...waitProps(waiting)} onClick={() => ready() && answer(() => api.forgetVpnCert(trust.id))}>
               {t("vpn.trust.forget")}
             </Button>
           ) : (
-            <Button variant="primary" onClick={() => ready() && answer(() => api.trustVpnCert(trust.id, trust.cert.pin))}>
+            <Button variant="primary" {...waitProps(waiting)} onClick={() => ready() && answer(() => api.trustVpnCert(trust.id, trust.cert.pin))}>
               {t("trust.confirm")}
             </Button>
           )}
