@@ -19,6 +19,7 @@ use ironrdp::cliprdr::pdu::{
     FileDescriptor, FormatDataRequest, FormatDataResponse, OwnedFormatDataResponse, PackedFileList,
 };
 use ironrdp::cliprdr::{Cliprdr, CliprdrClient};
+use ironrdp::connector::connection_activation::ConnectionActivationState;
 use ironrdp::connector::{self, Credentials};
 use ironrdp::graphics::image_processing::PixelFormat;
 use ironrdp::input::{Database, MouseButton, MousePosition, Operation, Scancode, WheelRotations};
@@ -883,6 +884,55 @@ fn connect(
     Ok((result, upgraded_framed, shared, mic))
 }
 
+/// How long the server may take to finish a desktop switch.
+const REACTIVATION_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Read the next PDU `hint` matches. The active loop's socket has a short
+/// read timeout, so a timeout here only means "not yet" until `deadline`.
+fn read_by_hint_until<S: std::io::Read + std::io::Write>(
+    framed: &mut ironrdp_blocking::Framed<S>,
+    hint: &dyn ironrdp::pdu::PduHint,
+    deadline: std::time::Instant,
+) -> AppResult<impl std::ops::Deref<Target = [u8]>> {
+    loop {
+        match framed.read_by_hint(hint) {
+            Ok(pdu) => return Ok(pdu),
+            Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {
+                if std::time::Instant::now() >= deadline {
+                    return Err("the server did not finish switching the desktop in time".into());
+                }
+            }
+            Err(e) => return Err(format!("connection lost: {e}")),
+        }
+    }
+}
+
+/// Drive a connection sequence (here the Deactivation-Reactivation one) to
+/// its end on an already-active connection.
+fn drive_sequence<S: std::io::Read + std::io::Write>(
+    framed: &mut ironrdp_blocking::Framed<S>,
+    seq: &mut connector::connection_activation::ConnectionActivationSequence,
+    deadline: std::time::Instant,
+) -> AppResult<()> {
+    use connector::Sequence as _;
+    let mut buf = ironrdp::core::WriteBuf::new();
+    while !seq.state().is_terminal() {
+        buf.clear();
+        let written = match seq.next_pdu_hint() {
+            Some(hint) => {
+                let pdu = read_by_hint_until(framed, hint, deadline)?;
+                seq.step(&pdu, framed.last_read_at(), &mut buf)
+            }
+            None => seq.step_no_input(&mut buf),
+        }
+        .map_err(|e| format!("desktop switch: {}", err_chain(&e)))?;
+        if let Some(n) = written.size() {
+            framed.write_all(&buf[..n]).map_err(|e| format!("connection lost: {e}"))?;
+        }
+    }
+    Ok(())
+}
+
 /// Walk an error's `source()` chain into one string — the real CredSSP/NTLM
 /// cause is usually a few levels down, not in the top-level Display.
 fn err_chain(e: &dyn std::error::Error) -> String {
@@ -1050,6 +1100,7 @@ fn run_active(
 ) -> AppResult<()> {
     let lost = |e: std::io::Error| format!("connection lost: {e}");
     out.send(&Out::Size { width: conn_result.desktop_size.width, height: conn_result.desktop_size.height });
+    let activation = conn_result.activation_factory;
     let mut stage = ActiveStageBuilder {
         static_channels: conn_result.static_channels,
         user_channel_id: conn_result.user_channel_id,
@@ -1194,6 +1245,37 @@ fn run_active(
                         // Send ONLY the changed region — the big speedup.
                         ActiveStageOutput::GraphicsUpdate(rect) => emit_rect(out, image, &rect),
                         ActiveStageOutput::Terminate(_) => return Ok(()),
+                        // Windows swaps desktops this way, e.g. after a sign-in
+                        // at its logon screen reconnects a disconnected session.
+                        // Input stays queued in `rx` until this returns.
+                        ActiveStageOutput::DeactivateAll => {
+                            let mut seq = activation.create();
+                            let deadline = std::time::Instant::now() + REACTIVATION_TIMEOUT;
+                            drive_sequence(&mut framed, &mut seq, deadline)?;
+                            let ConnectionActivationState::Finalized {
+                                desktop_size,
+                                share_id,
+                                enable_server_pointer,
+                                pointer_software_rendering,
+                                static_channel_chunk_size,
+                                ..
+                            } = seq.connection_activation_state()
+                            else {
+                                return Err("the server's desktop switch did not finish".into());
+                            };
+                            if !stage.reactivate(
+                                seq.io_channel_id(),
+                                seq.user_channel_id(),
+                                share_id,
+                                enable_server_pointer,
+                                pointer_software_rendering,
+                                static_channel_chunk_size,
+                            ) {
+                                return Err("the server's desktop switch sent an invalid channel chunk size".into());
+                            }
+                            *image = DecodedImage::new(PixelFormat::RgbA32, desktop_size.width, desktop_size.height);
+                            out.send(&Out::Size { width: desktop_size.width, height: desktop_size.height });
+                        }
                         _ => {}
                     }
                 }
@@ -1311,6 +1393,56 @@ mod tests {
         assert!(tls.enable_tls && !tls.enable_credssp);
         let auto = cfg("auto");
         assert!(auto.enable_tls && auto.enable_credssp);
+    }
+
+    /// A stream whose reads return the queued results in order.
+    struct Scripted(std::collections::VecDeque<std::io::Result<Vec<u8>>>);
+    impl std::io::Read for Scripted {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            match self.0.pop_front() {
+                Some(Ok(b)) => {
+                    buf[..b.len()].copy_from_slice(&b);
+                    Ok(b.len())
+                }
+                Some(Err(e)) => Err(e),
+                None => Ok(0),
+            }
+        }
+    }
+    impl std::io::Write for Scripted {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    /// A PDU of the length its first byte gives.
+    #[derive(Debug)]
+    struct LenHint;
+    impl ironrdp::pdu::PduHint for LenHint {
+        fn find_size(&self, b: &[u8]) -> ironrdp::core::DecodeResult<Option<(bool, usize)>> {
+            Ok(b.first().map(|&n| (true, n as usize)))
+        }
+    }
+
+    #[test]
+    fn a_desktop_switch_waits_out_the_active_loop_read_timeout() {
+        use std::io::{Error, ErrorKind};
+        let later = std::time::Instant::now() + Duration::from_secs(5);
+        let script = vec![Err(Error::from(ErrorKind::WouldBlock)), Ok(vec![3, 7]), Err(Error::from(ErrorKind::TimedOut)), Ok(vec![9])];
+        let mut framed = ironrdp_blocking::Framed::new(Scripted(script.into()));
+        assert_eq!(&*read_by_hint_until(&mut framed, &LenHint, later).unwrap(), &[3, 7, 9]);
+
+        // Past the deadline a timeout ends the wait with a plain message.
+        let past = std::time::Instant::now();
+        let mut framed = ironrdp_blocking::Framed::new(Scripted(vec![Err(Error::from(ErrorKind::WouldBlock))].into()));
+        let err = read_by_hint_until(&mut framed, &LenHint, past).err().unwrap();
+        assert!(err.contains("did not finish switching the desktop"), "{err}");
+
+        // A closed connection is not retried.
+        let mut framed = ironrdp_blocking::Framed::new(Scripted(Vec::new().into()));
+        assert!(read_by_hint_until(&mut framed, &LenHint, later).err().unwrap().starts_with("connection lost"));
     }
 
     #[test]
