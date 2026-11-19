@@ -2,12 +2,14 @@ package app
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf16"
 
 	"github.com/zalando/go-keyring"
 
@@ -271,6 +273,31 @@ func TestRestoringARuleThatSendsThePasswordNeedsVerification(t *testing.T) {
 		}
 		if res == secrets.Passed && (err != nil || got != 1) {
 			t.Fatalf("verified restore: err %v, %d rules", err, got)
+		}
+	}
+}
+
+// An .rdp file saved by mstsc is UTF-16LE with a byte-order mark; the page
+// must get the same text as from a UTF-8 file.
+func TestReadTextFileDecodesRdpFileEncodings(t *testing.T) {
+	want := "full address:s:win.example.test\r\nusername:s:CORP\\Jörg\r\n"
+	utf16le := []byte{0xFF, 0xFE}
+	for _, r := range utf16.Encode([]rune(want)) {
+		utf16le = binary.LittleEndian.AppendUint16(utf16le, r)
+	}
+	dir := t.TempDir()
+	for name, b := range map[string][]byte{
+		"utf16.rdp":  utf16le,
+		"bom8.rdp":   append([]byte{0xEF, 0xBB, 0xBF}, want...),
+		"plain8.rdp": []byte(want),
+	} {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		got, err := (&HostService{}).ReadTextFile(p)
+		if err != nil || got != want {
+			t.Errorf("%s: %q, %v", name, got, err)
 		}
 	}
 }

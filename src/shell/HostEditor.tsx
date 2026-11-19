@@ -19,6 +19,7 @@ import { asksPasswordAgain, formHost, kindPatch, SQL_SERVERS, unencrypted, valid
 import { KindOptions } from "./KindOptions";
 import { SSH_ALGORITHMS } from "./sshAlgorithms";
 import { PostLoginEditor } from "./PostLoginEditor";
+import { importedRdpSecurity, parseRdpFile } from "./rdpFile";
 import { VpnField } from "./VpnField";
 import { TERMINAL_KINDS } from "./settings/Logging";
 
@@ -182,28 +183,28 @@ export function HostEditor({
     onClose();
   };
 
-  // Import a Windows .rdp file into the form. .rdp is plain `key:type:value`
-  // text; the password is not stored in the file.
+  // Import a Windows .rdp file into the form (see rdpFile.ts).
   const importRdp = async () => {
     const path = await open({ filters: [{ name: "RDP", extensions: ["rdp"] }] });
     if (typeof path !== "string") return;
     const text = await run(() => api.readTextFile(path));
     if (text === undefined) return;
-    const get = (key: string) => text.match(new RegExp(`^${key}:[si]:(.*)$`, "im"))?.[1].trim() ?? "";
-    const [hostname, portStr] = get("full address").split(":"); // host or host:port
-    // username may be "DOMAIN\user"; the domain is not a host field yet.
-    const user = get("username").split("\\").pop() ?? "";
+    const f = parseRdpFile(text);
+    const rdpSecurity = importedRdpSecurity(h.rdpSecurity, f.rdpSecurity);
     const fileName = path.split(/[\\/]/).pop()?.replace(/\.rdp$/i, "") || "";
     set({
       kind: "rdp",
       authType: "password",
       alias: h.alias || fileName,
-      hostname: hostname || h.hostname,
+      hostname: f.hostname || h.hostname,
       port: 22, // SSH port for the workspace
-      rdpPort: portStr ? Number(portStr) : 3389,
-      user: user || h.user,
+      rdpPort: f.port ?? 3389,
+      user: f.user || h.user,
+      rdpSecurity,
     });
     push("success", t("hostForm.rdpImported"));
+    if (rdpSecurity === "tls" && h.rdpSecurity !== "tls")
+      push("info", t("hostForm.rdpImportedNoNla", { label: t("hostForm.rdpSecurity.tls") }));
   };
 
   // A saved (copied) key stores its basename; a ~/.ssh key its absolute
@@ -732,7 +733,18 @@ export function HostEditor({
           <Section title={t("hostForm.advanced")}>
             {kind === "ssh" && <SshAdvanced h={h} set={set} keepaliveError={err("keepalive")} />}
             {kind === "rdp" && (
-              <Field label={t("hostForm.rdpSecurity")}>
+              <Field
+                label={t("hostForm.rdpSecurity")}
+                hint={
+                  h.rdpSecurity === "tls" ? (
+                    <span className="text-warning">{t("hostForm.rdpSecurity.tlsHint")}</span>
+                  ) : h.rdpSecurity === "nla" ? (
+                    t("hostForm.rdpSecurity.nlaHint")
+                  ) : (
+                    t("hostForm.rdpSecurity.autoHint")
+                  )
+                }
+              >
                 <Select
                   className="w-full"
                   value={h.rdpSecurity ?? "auto"}

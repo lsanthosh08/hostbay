@@ -544,10 +544,15 @@ func (s *HostService) WriteTextFile(path, content string) error {
 	return os.WriteFile(path, []byte(content), 0o600)
 }
 
-// ReadTextFile reads a local text file the user chose (.rdp import).
+// ReadTextFile reads a local text file the user chose (.rdp import). mstsc
+// saves .rdp files as UTF-16LE; read as plain bytes they would reach the
+// page with a NUL between every character.
 func (s *HostService) ReadTextFile(path string) (string, error) {
 	b, err := os.ReadFile(path)
-	return string(b), err
+	if err != nil {
+		return "", err
+	}
+	return importer.Text(b), nil
 }
 
 // RevealPassword returns a host's saved password after OS verification.

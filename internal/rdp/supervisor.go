@@ -46,7 +46,7 @@ const ProtocolVersion = 1
 // numbers are little-endian uint16.
 const (
 	MsgFrame  = 1 // x, y, w, h, then w*h*4 RGBA bytes
-	MsgSize   = 2 // w, h: the desktop size, at connect and on any change
+	MsgSize   = 2 // w, h: the desktop size, at connect and on any change; then flags (bit 0: signed in without NLA)
 	MsgClosed = 3 // then a UTF-8 reason; empty when the user closed it
 )
 
@@ -141,6 +141,7 @@ type msg struct {
 	Text    string   `json:"text"`
 	Paths   []string `json:"paths"`
 	Message string   `json:"message"`
+	NoNla   bool     `json:"noNla"`
 }
 
 // Session is one running helper.
@@ -152,6 +153,7 @@ type Session struct {
 	wmu sync.Mutex // one message per write
 
 	size     atomic.Uint32 // width<<16 | height, for input checks
+	noNla    bool          // set by the handshake: the server did not check the account first
 	out      chan []byte   // for the page; held until Attach
 	queued   atomic.Int64  // bytes in out
 	room     chan struct{} // signalled when Attach takes a message from out
@@ -250,7 +252,8 @@ func (s *Session) handshake(ctx context.Context, r *bufio.Reader, c Connect) err
 			if !s.setSize(m.Width, m.Height) {
 				return errors.New("the RDP helper reported an impossible desktop size")
 			}
-			s.out <- sizeMsg(m.Width, m.Height) // the channel is empty here
+			s.noNla = m.NoNla
+			s.out <- sizeMsg(m.Width, m.Height, s.noNla) // the channel is empty here
 			return nil
 		}
 	}
@@ -283,10 +286,13 @@ func (s *Session) desktop() (int, int) {
 	return int(v >> 16), int(v & 0xffff)
 }
 
-func sizeMsg(w, h int) []byte {
-	b := []byte{MsgSize, 0, 0, 0, 0}
+func sizeMsg(w, h int, noNla bool) []byte {
+	b := []byte{MsgSize, 0, 0, 0, 0, 0}
 	binary.LittleEndian.PutUint16(b[1:], uint16(w))
 	binary.LittleEndian.PutUint16(b[3:], uint16(h))
+	if noNla {
+		b[5] = 1
+	}
 	return b
 }
 
@@ -354,7 +360,7 @@ func (s *Session) pump(r *bufio.Reader) string {
 				s.cmd.Process.Kill()
 				return "The RDP helper reported an impossible desktop size."
 			}
-			s.hold(sizeMsg(m.Width, m.Height))
+			s.hold(sizeMsg(m.Width, m.Height, s.noNla))
 		case "clipboardText":
 			s.remoteCopied(m.Text)
 			if s.hooks.ClipboardText != nil {

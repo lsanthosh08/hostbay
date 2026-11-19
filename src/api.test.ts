@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Record what api.ts sends to the Wails runtime instead of a real backend.
-const sent = vi.hoisted(() => ({ calls: [] as number[], events: [] as string[], rejects: [] as unknown[] }));
+const sent = vi.hoisted(() => ({
+  calls: [] as number[],
+  events: [] as string[],
+  rejects: [] as unknown[],
+  streams: [] as { close: () => void; onmessage?: (ev: { data: ArrayBuffer }) => void }[],
+}));
 vi.mock("@wailsio/runtime", () => ({
   CancellablePromise: Promise,
   Call: {
@@ -19,7 +24,9 @@ vi.mock("@wailsio/runtime", () => ({
   },
   Stream: (name: string) => {
     sent.events.push(`stream:${name}`);
-    return { close: () => {} };
+    const ws = { close: () => {} };
+    sent.streams.push(ws);
+    return ws;
   },
 }));
 
@@ -147,6 +154,23 @@ describe("api bridge", () => {
   it("turns a null list from Go into an empty array", async () => {
     await expect(api.listHosts()).resolves.toEqual([]);
     await expect(api.containerInfo("s1")).resolves.toEqual({ engines: [] });
+  });
+});
+
+describe("rdpView", () => {
+  it("passes on whether the session opened without NLA", () => {
+    const sizes: { width: number; height: number; noNla: boolean }[] = [];
+    api.rdpView("r1", { onFrame: () => {}, onSize: (s) => sizes.push(s), onClosed: () => {} });
+    const ws = sent.streams[sent.streams.length - 1];
+    const size = (bytes: number[]) => ws.onmessage!({ data: new Uint8Array(bytes).buffer });
+    size([2, 0x20, 0x03, 0x58, 0x02, 1]); // 800x600, flag set
+    size([2, 0x20, 0x03, 0x58, 0x02, 0]);
+    size([2, 0x20, 0x03, 0x58, 0x02]); // no flags byte
+    expect(sizes).toEqual([
+      { width: 800, height: 600, noNla: true },
+      { width: 800, height: 600, noNla: false },
+      { width: 800, height: 600, noNla: false },
+    ]);
   });
 });
 

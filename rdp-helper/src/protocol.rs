@@ -62,7 +62,14 @@ pub enum Out {
     /// credential until Go answers with `trust`.
     Cert { der: String },
     /// Connected; also sent when the server changes the desktop size.
-    Size { width: u16, height: u16 },
+    /// `no_nla`: the session opened without NLA (CredSSP), so the server did
+    /// not check the account before opening it. Left out when false.
+    Size {
+        width: u16,
+        height: u16,
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        no_nla: bool,
+    },
     /// Header of a changed rectangle; `len` RGBA bytes follow the newline.
     Frame { x: u16, y: u16, w: u16, h: u16, len: usize },
     /// The remote copied text (already on the native clipboard on macOS and
@@ -175,5 +182,11 @@ mod tests {
         b.clear();
         write_msg(&mut b, &Out::Cert { der: "AAE=".into() }).unwrap();
         assert_eq!(b, b"{\"t\":\"cert\",\"der\":\"AAE=\"}\n");
+        b.clear();
+        write_msg(&mut b, &Out::Size { width: 800, height: 600, no_nla: true }).unwrap();
+        assert_eq!(b, b"{\"t\":\"size\",\"width\":800,\"height\":600,\"noNla\":true}\n");
+        b.clear();
+        write_msg(&mut b, &Out::Size { width: 800, height: 600, no_nla: false }).unwrap();
+        assert_eq!(b, b"{\"t\":\"size\",\"width\":800,\"height\":600}\n");
     }
 }
