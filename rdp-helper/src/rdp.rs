@@ -1010,6 +1010,22 @@ fn worth_retrying(f: &ConnectFail) -> bool {
             || msg.contains("connection reset"))
 }
 
+/// The security to try next after `f`: "auto" goes once to the Windows
+/// logon screen (TLS without CredSSP) when NLA refused for a reason that
+/// screen can handle. Those refusals come after Windows checked the
+/// password, so the second attempt does not repeat a wrong one; the single
+/// attempt caps the cost if a server reports otherwise. "nla" never falls
+/// back, and nothing ever falls back to a connection without TLS.
+fn fallback_security(security: &str, f: &ConnectFail, fell_back: bool) -> Option<&'static str> {
+    (security == "auto" && !fell_back && f.logon_screen_can_help).then_some("tls")
+}
+
+/// The message for a fallback that failed too: the NLA refusal is the cause
+/// the user can act on, so it comes first.
+fn both_failed(nla: &str, logon_screen: &str) -> String {
+    format!("{nla} Hostbay then tried the Windows logon screen without NLA, which failed too: {logon_screen}")
+}
+
 /// How long the server may take to finish a desktop switch.
 const REACTIVATION_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -1132,17 +1148,29 @@ pub fn run(
     // RDP servers sometimes reset the very first TCP/negotiation attempt
     // ("connection reset by peer"); retry a couple of times before giving up.
     let mut attempt = 0;
+    let mut mode = security.as_str();
+    let mut nla_refusal: Option<String> = None;
     let (conn_result, framed, clip, mic) = loop {
         attempt += 1;
-        let cfg = build_config(user.clone(), password.clone(), domain.clone(), width, height, &security);
-        match connect(&out, &rx, &ep, cfg, &security) {
+        let cfg = build_config(user.clone(), password.clone(), domain.clone(), width, height, mode);
+        match connect(&out, &rx, &ep, cfg, mode) {
             Ok(ok) => break ok,
             Err(f) => {
                 if worth_retrying(&f) && attempt < 3 {
                     std::thread::sleep(Duration::from_millis(400));
                     continue;
                 }
-                return Err(f.message);
+                if let Some(next) = fallback_security(mode, &f, nla_refusal.is_some()) {
+                    eprintln!("[rdp-helper] NLA refused the sign-in; trying the Windows logon screen without NLA");
+                    nla_refusal = Some(f.message);
+                    mode = next;
+                    attempt = 0;
+                    continue;
+                }
+                return Err(match nla_refusal {
+                    Some(nla) => both_failed(&nla, &f.message),
+                    None => f.message,
+                });
             }
         }
     };
@@ -1519,6 +1547,10 @@ mod tests {
         assert!(tls.enable_tls && !tls.enable_credssp);
         let auto = cfg("auto");
         assert!(auto.enable_tls && auto.enable_credssp);
+        // No mode, and so no fallback, ever offers a connection without TLS.
+        for mode in [nla, tls, auto] {
+            assert!(!mode.enable_standard_rdp_security);
+        }
     }
 
     /// A stream whose reads return the queued results in order.
@@ -1672,6 +1704,41 @@ mod tests {
         let after = ConnectFail { message: reset, sent_credentials: true, logon_screen_can_help: false };
         assert!(!worth_retrying(&after));
         assert!(!worth_retrying(&ConnectFail::from("the server certificate was not trusted".to_owned())));
+    }
+
+    #[test]
+    fn automatic_falls_back_once_to_the_logon_screen_and_nla_only_never() {
+        use sspi::credssp::NStatusCode as S;
+        let nla = |status, security| fail(&refused(status), security, "connect finalize (auth)", true);
+        for status in [S::PASSWORD_EXPIRED, S::PASSWORD_MUST_CHANGE, S::ACCOUNT_RESTRICTION, S::LOGON_TYPE_NOT_GRANTED] {
+            assert_eq!(fallback_security("auto", &nla(status, "auto"), false), Some("tls"), "{status}");
+            assert_eq!(fallback_security("auto", &nla(status, "auto"), true), None, "{status}: only once");
+            assert_eq!(fallback_security("nla", &nla(status, "nla"), false), None, "{status}: NLA only");
+            assert_eq!(fallback_security("tls", &nla(status, "tls"), false), None, "{status}");
+        }
+        // A wrong password, a lockout, and a dropped connection (which may
+        // be a wrong password too) are never sent again.
+        for status in [S::LOGON_FAILURE, S::WRONG_PASSWORD, S::ACCOUNT_LOCKED_OUT] {
+            assert_eq!(fallback_security("auto", &nla(status, "auto"), false), None, "{status}");
+        }
+        let dropped = ConnectFail {
+            message: "connect finalize (auth): read frame by hint -> not enough bytes".to_owned(),
+            sent_credentials: true,
+            logon_screen_can_help: false,
+        };
+        assert_eq!(fallback_security("auto", &dropped, false), None);
+    }
+
+    #[test]
+    fn a_failed_fallback_reports_the_nla_refusal_first() {
+        use ironrdp::pdu::nego::{ConnectionConfirm, FailureCode};
+        use sspi::credssp::NStatusCode as S;
+        let expired = fail(&refused(S::PASSWORD_EXPIRED), "auto", "connect finalize (auth)", true);
+        let code = FailureCode::HYBRID_REQUIRED_BY_SERVER;
+        let then = fail(&negotiate("tls", ConnectionConfirm::Failure { code }), "tls", "connect begin", false);
+        let m = both_failed(&expired.message, &then.message);
+        assert!(m.starts_with("The password for this account has expired"), "{m}");
+        assert!(m.contains("This server requires NLA."), "{m}");
     }
 
     #[test]
