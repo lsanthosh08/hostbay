@@ -82,6 +82,7 @@ export function BrowseBar({
           </Button>
           {(browse.query || browse.order) && (
             <Button
+              type="button"
               size="sm"
               variant="ghost"
               onClick={() => {
@@ -134,7 +135,7 @@ export function BrowseBar({
           </div>
         ))}
       {!json && (
-        <Button size="sm" variant="ghost" icon={AddIcon} disabled={!columns.length} onClick={add}>
+        <Button type="button" size="sm" variant="ghost" icon={AddIcon} disabled={!columns.length} onClick={add}>
           {t("database.filterAdd")}
         </Button>
       )}
@@ -144,6 +145,7 @@ export function BrowseBar({
             {t("database.filterApply")}
           </Button>
           <Button
+            type="button"
             size="sm"
             variant="ghost"
             onClick={() => {
@@ -157,11 +159,11 @@ export function BrowseBar({
       )}
       <span className="ml-auto flex items-center gap-2">
         {onInsert && (
-          <Button size="sm" variant="ghost" icon={AddIcon} disabled={!columns.length} onClick={onInsert}>
+          <Button type="button" size="sm" variant="ghost" icon={AddIcon} disabled={!columns.length} onClick={onInsert}>
             {t("database.insertRow")}
           </Button>
         )}
-        <Button size="sm" variant="ghost" disabled={count === null} onClick={onCount}>
+        <Button type="button" size="sm" variant="ghost" disabled={count === null} onClick={onCount}>
           {count === undefined ? t("database.countRows") : count === null ? t("database.counting") : t("database.counted", { n: count.toLocaleString() })}
         </Button>
         <IconButton size="sm" icon={RefreshIcon} label={t("database.refresh")} onClick={onRefresh} />

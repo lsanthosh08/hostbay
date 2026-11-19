@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import { nextSort, ready } from "./browse";
+import browseBar from "./BrowseBar.tsx?raw";
 
 it("cycles a header's sort: ascending, descending, none", () => {
   const a = nextSort({}, "name");
@@ -23,4 +24,13 @@ it("leaves out value filters still empty, but keeps the NULL tests", () => {
       { column: "c", op: "equals", value: "0" },
     ]).map((f) => f.column)
   ).toEqual(["b", "c"]);
+});
+
+// The browse bar is a <form> whose submit applies the filters, and a
+// <button> with no type submits its form: every button names its type,
+// so Add filter, Clear, Add row and Count rows do not reload the table.
+it("gives every browse bar button a type", () => {
+  const tags = browseBar.match(/<Button\b[^>]*>/g) ?? [];
+  expect(tags.length).toBeGreaterThan(0);
+  expect(tags.filter((tag) => !/\btype="(button|submit)"/.test(tag))).toEqual([]);
 });
