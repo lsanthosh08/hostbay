@@ -168,7 +168,7 @@ export function HostsPanel() {
           aria-label={t("hosts.kindFilter")}
           value={kind}
           onChange={(e) => setKind(e.target.value as Kind | "")}
-          className="!h-8 w-20 shrink-0"
+          className="!h-8 w-28 shrink-0"
         >
           <option value="">{t("hosts.kind.all")}</option>
           <KindOptions />
