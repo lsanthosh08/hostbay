@@ -68,10 +68,16 @@ export function AwsTab() {
     );
   }, []);
 
-  const pick = (p: AwsProfile) => {
-    setProfile(p.name);
-    setRegion(p.region || "us-east-1");
+  // A new profile or region drops the old one's rows and account, so no
+  // action or confirm mixes the two while the new list loads.
+  const scopeTo = (p: string, r: string) => {
+    setProfile(p);
+    setRegion(r);
+    setIdentity(null);
+    setInstances([]);
+    setDatabases([]);
   };
+  const pick = (p: AwsProfile) => scopeTo(p.name, p.region || "us-east-1");
 
   const load = useCallback(async () => {
     if (!profile || !region) return;
@@ -104,6 +110,10 @@ export function AwsTab() {
   useEffect(() => {
     load();
   }, [load]);
+  // act awaits AWS; by then the user may have picked another profile or
+  // region, and the reload must be that one's, not the one act closed over.
+  const latestLoad = useRef(load);
+  latestLoad.current = load;
 
   const signIn = error ? signInNeeded(error) : "";
   const regionChoices = [...new Set([region, ...regions.regions].filter(Boolean))].sort();
@@ -124,7 +134,7 @@ export function AwsTab() {
     try {
       await api.awsInstanceAction(profile, region, i.id, action);
       push("success", t("aws.done"));
-      await load();
+      await latestLoad.current();
     } catch (e) {
       push("error", api.errorInfo(e).message);
     } finally {
@@ -162,7 +172,7 @@ export function AwsTab() {
             </option>
           ))}
         </Select>
-        <Select aria-label={t("aws.region")} value={region} onChange={(e) => setRegion(e.target.value)}>
+        <Select aria-label={t("aws.region")} value={region} onChange={(e) => scopeTo(profile, e.target.value)}>
           {regionChoices.map((r) => (
             <option key={r} value={r}>
               {r}
