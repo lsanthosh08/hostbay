@@ -55,7 +55,7 @@ export const hostIcon = (h: Host): Icon => BY_KIND[hostKind(h)];
 
 /** The icon for a session: its host's kind, or a local shell or serial port. */
 export const sessionIcon = (c: Connection): Icon =>
-  c.term?.kind === "local" || c.term?.kind === "container" || c.term?.kind === "pod"
+  c.term?.kind === "local" || c.term?.kind === "container" || c.term?.kind === "pod" || c.term?.kind === "aws"
     ? TerminalIcon
     : c.engine
       ? DockerIcon
