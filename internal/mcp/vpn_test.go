@@ -94,7 +94,7 @@ func addExternalVPN(t *testing.T, r *rig) {
 }
 
 // allowVPN adds an allow entry for the profile as it is saved now, as
-// Settings does; system-wide ones too, which Settings refuses.
+// Settings does.
 func (r *rig) allowVPN(t *testing.T, tokenID, id string) {
 	t.Helper()
 	d, _ := r.st.Data()
@@ -204,9 +204,9 @@ func TestConnectVPNRefusesInvisibleText(t *testing.T) {
 	}
 }
 
-// An allow entry skips the card only for its own token; a system-wide
-// profile asks even with one.
-func TestVPNAllowEntryIsPerTokenAndNeverSystemWide(t *testing.T) {
+// An allow entry skips the card only for its own token, system-wide
+// profiles included.
+func TestVPNAllowEntryIsPerToken(t *testing.T) {
 	r := newRig(t)
 	addVPNs(t, r)
 	r.allowVPN(t, r.tokID, "solo")
@@ -222,11 +222,10 @@ func TestVPNAllowEntryIsPerTokenAndNeverSystemWide(t *testing.T) {
 	}
 	trayEmpty(t, r)
 
-	done := background(t, cs, ToolConnectVPN, map[string]any{"profileId": "whole"})
-	if p := r.approveNext(t, false); p.Target != "whole" || p.Tier != store.VPNTierSystem {
-		t.Fatalf("system-wide card = %+v", p)
+	if res, text := call(t, cs, ToolConnectVPN, map[string]any{"profileId": "whole"}); res.IsError || !strings.Contains(text, `"connected"`) {
+		t.Fatalf("allowed system-wide connect = %s", text)
 	}
-	<-done
+	trayEmpty(t, r)
 
 	_, other, _ := r.srv.Tokens.Create("other")
 	b, err := mcptest.HTTP(t.Context(), r.url, other, mcptest.V20260728)
@@ -234,12 +233,12 @@ func TestVPNAllowEntryIsPerTokenAndNeverSystemWide(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer b.Close()
-	done = background(t, b, ToolConnectVPN, map[string]any{"profileId": "solo"})
+	done := background(t, b, ToolConnectVPN, map[string]any{"profileId": "solo"})
 	if p := r.approveNext(t, false); p.Client != "other" {
 		t.Fatalf("other token's card = %+v", p)
 	}
 	<-done
-	if c, _ := r.vpns.calls(); !slices.Equal(c, []string{"solo"}) {
+	if c, _ := r.vpns.calls(); !slices.Equal(c, []string{"solo", "whole"}) {
 		t.Fatalf("connects %v", c)
 	}
 }

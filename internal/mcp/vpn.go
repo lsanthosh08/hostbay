@@ -19,8 +19,8 @@ import (
 )
 
 // VPN tools (R34, R35, KTD6). A connect or disconnect asks in the approval
-// tray unless the user allowed that profile for that token in Settings; a
-// system-wide profile always asks. An agent's dial never connects a VPN:
+// tray unless the user allowed that profile for that token in Settings,
+// system-wide profiles included. An agent's dial never connects a VPN:
 // it fails naming the profile, and the agent calls connect_vpn.
 const (
 	ToolConnectVPN    = "connect_vpn"

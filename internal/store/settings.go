@@ -171,11 +171,11 @@ type VPNAllowEntry struct {
 	Tier    string `json:"tier"`
 }
 
-// Matches reports whether e lets token act on v without a card: never for a
-// system-wide profile, and only while v keeps the type, gateway and tier e
-// was added for, whatever changed them, sync included.
+// Matches reports whether e lets token act on v without a card: only while v
+// keeps the type, gateway and tier e was added for, whatever changed them,
+// sync included.
 func (e VPNAllowEntry) Matches(token string, v *VPN) bool {
-	return v != nil && v.Tier != VPNTierSystem && e.Token == token && e.Profile == v.ID &&
+	return v != nil && e.Token == token && e.Profile == v.ID &&
 		e.Type == v.Type && e.Gateway == v.Gateway && e.Tier == v.Tier
 }
 

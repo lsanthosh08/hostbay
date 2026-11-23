@@ -376,8 +376,8 @@ func TestMCPPickFolderRefuses(t *testing.T) {
 	_ = store.MCPSettings{}
 }
 
-// VPN allow entries are added only through the dialog, never for a
-// system-wide profile, go stale when the profile's gateway changes, and
+// VPN allow entries are added only through the dialog, system-wide profiles
+// included, go stale when the profile's gateway changes, and
 // leave with their token (KTD6).
 func TestMCPVPNAllowSettings(t *testing.T) {
 	e := newMCPEnv(t)
@@ -391,9 +391,6 @@ func TestMCPVPNAllowSettings(t *testing.T) {
 	ext, _ := vpns.SaveVPN(VPN{Name: "forti", Type: "other", Tier: "external", Gateway: "f.example.test"})
 
 	dialogs := e.dialogs
-	if err := e.s.AddVPNAllow(t.Context(), nt.Token.ID, whole.ID); err == nil || e.dialogs != dialogs {
-		t.Fatalf("system-wide entry: %v, %d dialogs", err, e.dialogs-dialogs)
-	}
 	if err := e.s.AddVPNAllow(t.Context(), nt.Token.ID, ext.ID); err == nil || e.dialogs != dialogs {
 		t.Fatalf("external entry: %v, %d dialogs", err, e.dialogs-dialogs)
 	}
@@ -407,8 +404,14 @@ func TestMCPVPNAllowSettings(t *testing.T) {
 	}
 	l, _ := e.s.ListVPNAllow()
 	if len(l.Entries) != 1 || l.Entries[0].VPNName != "office" || l.Entries[0].TokenName != "c" || l.Entries[0].Stale ||
-		len(l.Profiles) != 1 || l.Profiles[0].ID != app.ID {
+		len(l.Profiles) != 2 || l.Profiles[0].ID != app.ID || l.Profiles[1].ID != whole.ID {
 		t.Fatalf("list = %+v", l)
+	}
+	if err := e.s.AddVPNAllow(t.Context(), nt.Token.ID, whole.ID); err != nil {
+		t.Fatalf("system-wide entry: %v", err)
+	}
+	if err := e.s.RemoveVPNAllow(nt.Token.ID, whole.ID); err != nil {
+		t.Fatal(err)
 	}
 
 	app.Gateway = "elsewhere.example.test"

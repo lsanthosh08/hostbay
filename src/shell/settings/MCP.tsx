@@ -292,8 +292,8 @@ function Allowlist({ tokens }: { tokens: MCPToken[] }) {
   );
 }
 
-/** A token's VPN entries (KTD6): picked here only, never for a system-wide
- *  profile, which Go leaves out of the choices and refuses. */
+/** A token's VPN entries (KTD6): picked here only. System-wide profiles are
+ *  offered too; Go's dialog warns they change the whole computer's network. */
 function VpnAllowlist({ tokens }: { tokens: MCPToken[] }) {
   const run = useAsyncToast();
   const failed = useWiden();
