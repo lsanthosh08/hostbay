@@ -39,11 +39,11 @@ export function SessionToolbar({ onEditHost }: { onEditHost: () => void }) {
       )}
       <div className="flex items-center gap-1 shrink-0">
         {/* An SSH host's workspace opens its X11 desktop in a tab of its own. */}
-        {hostKind(active.host) === "ssh" && !active.x11 && !active.term && !active.files && !active.engine && (
+        {hostKind(active.host) === "ssh" && !active.x11 && !active.term && !active.files && !active.engine && !active.aws && (
           <IconButton label={t("x11.openDesktop")} icon={VncIcon} onClick={() => openX11Desktop(active.host)} />
         )}
         {/* A local shell's, serial port's or the Files tab's stand-in host is not saved. */}
-        {!active.term && !active.files && !active.engine && <IconButton label={t("action.editHost")} icon={EditIcon} onClick={onEditHost} />}
+        {!active.term && !active.files && !active.engine && !active.aws && <IconButton label={t("action.editHost")} icon={EditIcon} onClick={onEditHost} />}
         {/* A tab that never connected has nothing to disconnect; its tab closes it. */}
         {!neverConnected(active) && (
           <Button

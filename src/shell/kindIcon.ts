@@ -10,6 +10,7 @@ import {
   FtpIcon,
   KeyValueIcon,
   KubernetesIcon,
+  AwsIcon,
   MoshIcon,
   RemoteDesktopIcon,
   SearchIndexIcon,
@@ -58,6 +59,8 @@ export const sessionIcon = (c: Connection): Icon =>
     ? TerminalIcon
     : c.engine
       ? DockerIcon
+    : c.aws
+      ? AwsIcon
     : c.term?.kind === "serial"
       ? SerialIcon
       : c.files

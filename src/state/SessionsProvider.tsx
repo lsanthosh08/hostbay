@@ -103,6 +103,16 @@ export function SessionsProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // The AWS tab: profiles from this computer's AWS config, with a stand-in
+  // host. The backend holds nothing for it, so closing it releases nothing.
+  const openAws = () => {
+    const existing = sessionsRef.current.find((c) => c.aws);
+    if (existing) return dispatch({ type: "activate", sessionId: existing.sessionId });
+    const sessionId = crypto.randomUUID();
+    const host: Host = { id: sessionId, alias: t("aws.title"), hostname: "", port: 0, user: "", identityFile: "", tags: [] };
+    open({ sessionId, host, sshless: true, aws: true });
+  };
+
   // A shell in a container, or its followed logs, in a terminal tab of its own.
   const openContainerTerm = (engineSession: string, containerId: string, name: string, follow: boolean) =>
     openLocalTerm(t(follow ? "containers.logsTab" : "containers.shellTab", { name }), {
@@ -333,7 +343,7 @@ export function SessionsProvider({ children }: { children: ReactNode }) {
     if (c && (isFileHost(c.host) || isDatabaseHost(c.host) || c.host.kind === "kubernetes" || screen(c.host, c.x11))) {
       if (!c.dialing) release(c.host, sessionId, c.x11);
     } else if (c?.engine) api.containerClose(sessionId).catch(() => {});
-    else if (!c?.files) api.disconnect(sessionId).catch(() => {});
+    else if (!c?.files && !c?.aws) api.disconnect(sessionId).catch(() => {});
     dispatch({ type: "close", sessionId });
   };
 
@@ -357,6 +367,8 @@ export function SessionsProvider({ children }: { children: ReactNode }) {
       openSerial: () => setSerialDialog(true),
       openFiles,
       openContainers,
+      openAws,
+      openAwsTerm: openLocalTerm,
       openContainerTerm,
       openPodTerm,
       retry,

@@ -83,6 +83,7 @@ export {
   ScreenShare as VncIcon,
   MonitorCog as SpiceIcon,
   Cloud as WebDavIcon,
+  CloudCog as AwsIcon,
   Bell as NotificationsIcon,
   ShieldAlert as ApprovalIcon,
   Minus as ZoomOutIcon,

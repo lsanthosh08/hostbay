@@ -5,7 +5,7 @@ import { recentHosts, useHosts } from "../state/hosts";
 import { useSessions } from "../state/sessions";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Field";
-import { AddIcon, ArchiveIcon, DockerIcon, ImportIcon, SearchIcon, SerialIcon, TerminalIcon } from "../ui/icons";
+import { AddIcon, ArchiveIcon, AwsIcon, DockerIcon, ImportIcon, SearchIcon, SerialIcon, TerminalIcon } from "../ui/icons";
 import { Kbd } from "../ui/Kbd";
 import { StatusDot } from "../ui/StatusDot";
 import { fuzzyRank } from "./fuzzy";
@@ -15,7 +15,7 @@ import { hostIcon } from "./kindIcon";
  *  first steps for a new user. */
 export function StartPage({ app }: { app: AppCommands }) {
   const { hosts } = useHosts();
-  const { connect, statusByHost, openContainers } = useSessions();
+  const { connect, statusByHost, openContainers, openAws } = useSessions();
   const [query, setQuery] = useState("");
   const matches = query.trim() ? fuzzyRank(hosts, query, (h) => `${h.alias} ${h.hostname}`).slice(0, 6) : [];
   const recent = recentHosts(hosts, 8);
@@ -126,6 +126,9 @@ export function StartPage({ app }: { app: AppCommands }) {
             </Button>
             <Button variant="ghost" size="sm" icon={DockerIcon} onClick={openContainers}>
               {t("containers.open")}
+            </Button>
+            <Button variant="ghost" size="sm" icon={AwsIcon} onClick={openAws}>
+              {t("aws.title")}
             </Button>
           </div>
         </section>

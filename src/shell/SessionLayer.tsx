@@ -17,6 +17,7 @@ import {
   FilesIcon,
   IisIcon,
   KubernetesIcon,
+  AwsIcon,
   MonitorIcon,
   RemoteDesktopIcon,
   ServicesIcon,
@@ -31,6 +32,7 @@ import { FilesView, localPane } from "../tabs/files/FilesView";
 import { isDatabaseHost, isFileHost } from "../api";
 import { DatabaseTab } from "../tabs/database/DatabaseTab";
 import { KubernetesTab } from "../tabs/kubernetes/KubernetesTab";
+import { AwsTab } from "../tabs/aws/AwsTab";
 import { IisTab } from "../tabs/IisTab";
 import { MonitorTab } from "../tabs/MonitorTab";
 import { RdpTab } from "../tabs/RdpTab";
@@ -56,6 +58,7 @@ export const VIEW_INFO: Record<TabKey, { label: string; icon: Icon }> = {
   vnc: { label: t("view.vnc"), icon: VncIcon },
   database: { label: t("view.database"), icon: DatabaseIcon },
   kubernetes: { label: t("view.kubernetes"), icon: KubernetesIcon },
+  aws: { label: t("view.aws"), icon: AwsIcon },
 };
 
 /** One session's views. Every view stays mounted and only the chosen one
@@ -110,6 +113,7 @@ function SessionViews({ c, view }: { c: Connection; view: TabKey }) {
   // The Files tab, and a file host's session: the two-pane view only.
   if (c.files) return <FilesView left={localPane()} />;
   if (c.engine) return <DockerTab conn={c} />;
+  if (c.aws) return <AwsTab />;
   if (isFileHost(c.host)) return <FilesView left={{ source: c.sessionId, name: c.host.alias }} fixedLeft />;
   // A database host's session ID is the databaseId databaseConnect returned.
   if (isDatabaseHost(c.host)) return <DatabaseTab conn={c} />;

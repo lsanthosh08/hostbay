@@ -78,7 +78,7 @@ export function AppShell() {
   // A session's saved host, if it is one a workspace can reopen.
   const hostOf = (id: string) => {
     const c = sessions.sessions.find((x) => x.sessionId === id);
-    return c && !c.term && !c.files && !c.engine && !c.x11 ? c.host.id : undefined;
+    return c && !c.term && !c.files && !c.engine && !c.aws && !c.x11 ? c.host.id : undefined;
   };
   const saveWorkspace = async () => {
     const tree = layout?.tree ?? active?.sessionId;
@@ -99,7 +99,7 @@ export function AppShell() {
   };
   const app: AppCommands = {
     hasSession: !!active,
-    canEditHost: !!active && !active.term && !active.files && !active.engine,
+    canEditHost: !!active && !active.term && !active.files && !active.engine && !active.aws,
     needsMasterPassword: manager.needsMasterPassword,
     openPalette: () => setPalette(true),
     showPanel: (p) => {
@@ -114,7 +114,7 @@ export function AppShell() {
       if (n) goTo(tabAt < 0 ? 0 : (tabAt + step + n) % n);
     },
     goToTab: (n) => goTo(n - 1),
-    editActiveHost: () => active && !active.term && !active.files && !active.engine && manager.editHost(active.host),
+    editActiveHost: () => active && !active.term && !active.files && !active.engine && !active.aws && manager.editHost(active.host),
     newHost: () => manager.newHost(),
     newFolder: () => manager.addFolder(null),
     importSshConfig: () => manager.importSshConfig(),

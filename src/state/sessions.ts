@@ -9,7 +9,7 @@ import { leaves, remove, rename, resize, split, type Pane, type Side } from "../
 export type { ConnStatus };
 
 /** A view a session offers; the session toolbar switches between them. */
-export type TabKey = "dashboard" | "terminal" | "files" | "docker" | "services" | "monitor" | "iis" | "rdp" | "vnc" | "database" | "kubernetes";
+export type TabKey = "dashboard" | "terminal" | "files" | "docker" | "services" | "monitor" | "iis" | "rdp" | "vnc" | "database" | "kubernetes" | "aws";
 
 // sshless: no SSH workspace — a Windows host with no reachable SSH (RDP-only),
 // a Telnet, raw TCP or Mosh host (terminal only), or a VNC host, whose
@@ -28,7 +28,11 @@ export type LocalTerm =
   | { kind: "serial"; serial: api.SerialSettings }
   | { kind: "container"; engineSession: string; containerId: string; shell: string; follow: boolean }
   // A shell in a pod's container, through the cluster tab clusterId (R57).
-  | { kind: "pod"; clusterId: string; namespace: string; pod: string; container: string; command: string[] };
+  | { kind: "pod"; clusterId: string; namespace: string; pod: string; container: string; command: string[] }
+  // The aws program on this computer: an SSM shell on an instance, or an SSO
+  // sign-in for a profile.
+  | { kind: "aws"; action: "shell"; profile: string; region: string; instanceId: string }
+  | { kind: "aws"; action: "login"; profile: string };
 // dialing: the tab opened before the connect finished (AE16), so sessionId
 // is the tab's own until the backend's arrives, and the body shows the
 // connect's progress and any step in place of the views. step: what the user
@@ -37,7 +41,8 @@ export type LocalTerm =
 // (FTP, SMB, WebDAV, S3) is a Files-only session whose ID, once live, is the
 // transfer source ID that transferConnect returned. engine: the Containers
 // tab for an engine on this computer (its containerLocalEngines ID), a
-// stand-in session whose ID containerOpenLocal returned.
+// stand-in session whose ID containerOpenLocal returned. aws: the AWS tab, a
+// stand-in session with a page-minted ID and nothing held in the backend.
 export type Connection = {
   sessionId: string;
   host: Host;
@@ -47,6 +52,7 @@ export type Connection = {
   term?: LocalTerm;
   files?: boolean;
   engine?: string;
+  aws?: boolean;
   dialing?: boolean;
   step?: Step;
 };
@@ -85,6 +91,7 @@ export function viewsFor(c: Connection): TabKey[] {
   if (c.term || terminalOnly(c.host)) return ["terminal"];
   if (c.files || isFileHost(c.host)) return ["files"];
   if (c.engine) return ["docker"];
+  if (c.aws) return ["aws"];
   if (isDatabaseHost(c.host)) return ["database"];
   // A cluster's session ID once live is the clusterId of kubernetesConnect.
   if (c.host.kind === "kubernetes") return ["kubernetes"];
@@ -123,7 +130,7 @@ export function sessionAddress(c: Connection): string {
   if (c.term?.kind === "local") return t("session.localShell");
   // A serial port's stand-in host is already named "port @ baud".
   if (c.term) return c.host.alias;
-  if (c.files || c.engine) return t("files.local");
+  if (c.files || c.engine || c.aws) return t("files.local");
   const h = c.host;
   if (h.kind === "webdav" || h.kind === "kubernetes") return h.url ?? "";
   if (h.kind === "s3") return `${h.bucket} @ ${h.url}`;
@@ -369,6 +376,10 @@ export type Sessions = SessionsState & {
   openFiles: () => void;
   /** Opens the Containers tab for an engine on this computer, or focuses it. */
   openContainers: () => Promise<void>;
+  /** Opens the AWS tab, or focuses it. */
+  openAws: () => void;
+  /** Opens a terminal tab running the aws program: an SSM shell or an SSO sign-in. */
+  openAwsTerm: (name: string, term: Extract<LocalTerm, { kind: "aws" }>) => void;
   /** Opens a terminal tab on a container of a session's engine: a shell, or
    *  with follow its logs. */
   openContainerTerm: (engineSession: string, containerId: string, name: string, follow: boolean) => void;

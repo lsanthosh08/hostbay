@@ -307,6 +307,10 @@ function TermPane({ conn }: { conn: Connection }) {
               term.cols,
               term.rows
             )
+          : conn.term?.kind === "aws"
+          ? conn.term.action === "shell"
+            ? api.awsShell(conn.sessionId, conn.term.profile, conn.term.region, conn.term.instanceId, term.cols, term.rows)
+            : api.awsSignIn(conn.sessionId, conn.term.profile, term.cols, term.rows)
           : conn.term?.kind === "pod"
           ? api.kubernetesExec(conn.term.clusterId, conn.term.namespace, conn.term.pod, conn.term.container, conn.term.command, term.cols, term.rows)
           : kind === "telnet"
