@@ -352,8 +352,38 @@ func TestDatabases(t *testing.T) {
 	if l.Kind != "" {
 		t.Errorf("db2 has no Hostbay kind: %+v", l)
 	}
+	if o.NoClusterEndpoint || a.NoClusterEndpoint {
+		t.Errorf("a found cluster endpoint is no hint: %+v %+v", o, a)
+	}
 	if (*got)[1].PostForm.Get("Marker") != "m2" || !strings.Contains((*got)[0].Header.Get("Authorization"), "/rds/aws4_request") {
 		t.Error("rds paging or signing is wrong")
+	}
+}
+
+// A role that may not list clusters still lists their members: each keeps
+// its own address and says the cluster endpoint was not found, so the tab
+// can warn before a saved host breaks at the next failover.
+func TestDatabasesWithoutClusterList(t *testing.T) {
+	c := testClient(t)
+	fakeAWS(t, map[string][]string{
+		"DescribeDBInstances": {`<DescribeDBInstancesResponse><DescribeDBInstancesResult><DBInstances>
+			<DBInstance><DBInstanceIdentifier>db1</DBInstanceIdentifier><Engine>aurora-mysql</Engine><DBInstanceStatus>available</DBInstanceStatus>
+			<Endpoint><Address>db1.abc.us-east-1.rds.example.test</Address><Port>3306</Port></Endpoint><DBClusterIdentifier>main</DBClusterIdentifier></DBInstance>
+			<DBInstance><DBInstanceIdentifier>solo</DBInstanceIdentifier><Engine>mysql</Engine><DBInstanceStatus>available</DBInstanceStatus>
+			<Endpoint><Address>solo.abc.us-east-1.rds.example.test</Address><Port>3306</Port></Endpoint></DBInstance>
+			</DBInstances></DescribeDBInstancesResult></DescribeDBInstancesResponse>`},
+		"DescribeDBClusters": {`!<ErrorResponse><Error><Code>AccessDenied</Code><Message>not allowed</Message></Error></ErrorResponse>`},
+	})
+	dbs, err := c.Databases(context.Background())
+	if err != nil || len(dbs) != 2 {
+		t.Fatalf("databases = %+v, %v", dbs, err)
+	}
+	m, s := dbs[0], dbs[1]
+	if m.SaveHost != m.Address || !m.NoClusterEndpoint {
+		t.Errorf("member without the cluster list = %+v", m)
+	}
+	if s.NoClusterEndpoint {
+		t.Errorf("an instance outside a cluster needs no cluster endpoint: %+v", s)
 	}
 }
 

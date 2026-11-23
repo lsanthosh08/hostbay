@@ -11,7 +11,9 @@ const rdsVersion = "2014-10-31"
 // Database is an RDS instance as the AWS tab lists it. Kind is the Hostbay
 // host kind that opens it, or empty when none does. SaveHost is the address
 // a saved host should use: an Aurora member's cluster writer endpoint, which
-// survives a failover, else the instance's own.
+// survives a failover, else the instance's own. NoClusterEndpoint is set on
+// a cluster member whose writer endpoint AWS did not return (a role that may
+// not list clusters), so SaveHost fell back to the member's own address.
 type Database struct {
 	ID       string `json:"id"`
 	Engine   string `json:"engine"`
@@ -23,6 +25,8 @@ type Database struct {
 	Cluster  string `json:"cluster,omitempty"`
 	Kind     string `json:"kind"`
 	SaveHost string `json:"saveHost"`
+
+	NoClusterEndpoint bool `json:"noClusterEndpoint,omitempty"`
 }
 
 // Databases lists every RDS instance in the region, following every page.
@@ -80,8 +84,12 @@ func (c *Client) Databases(ctx context.Context) ([]Database, error) {
 		return r.Marker, nil
 	})
 	for i, d := range out {
+		if d.Cluster == "" {
+			continue
+		}
 		cl, ok := clusters[d.Cluster]
 		if !ok || cl.Host == "" {
+			out[i].NoClusterEndpoint = true
 			continue
 		}
 		out[i].SaveHost = cl.Host

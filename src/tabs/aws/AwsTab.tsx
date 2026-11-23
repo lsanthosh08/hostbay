@@ -14,7 +14,7 @@ import { SegmentedControl } from "../../ui/SegmentedControl";
 import { Select } from "../../ui/Select";
 import { useToast } from "../../ui/toast";
 import { useHostManager } from "../../components/HostManager";
-import { databaseDraft, instanceActions, instanceDraft, matches, signInNeeded } from "./aws";
+import { databaseDraft, instanceActions, instanceDraft, matches, missingClusterEndpoints, signInNeeded } from "./aws";
 
 const CLI_INSTALL = "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html";
 const PLUGIN_INSTALL = "https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html";
@@ -116,6 +116,7 @@ export function AwsTab() {
   latestLoad.current = load;
 
   const signIn = error ? signInNeeded(error) : "";
+  const noClusterEndpoint = view === "rds" ? missingClusterEndpoints(databases) : "";
   const regionChoices = [...new Set([region, ...regions.regions].filter(Boolean))].sort();
 
   const act = async (i: AwsInstance, action: AwsInstanceAction) => {
@@ -211,6 +212,7 @@ export function AwsTab() {
           </Button>
         )}
         {!regions.checked && <span className="text-muted">{t("aws.regionsUnchecked")}</span>}
+        {noClusterEndpoint && <span className="text-warning">{t("aws.noClusterEndpoint", { names: noClusterEndpoint })}</span>}
         {!tools.cli && (
           <span className="text-warning">
             {t("aws.cliMissing")}{" "}

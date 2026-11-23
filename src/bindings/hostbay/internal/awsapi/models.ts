@@ -5,7 +5,9 @@
  * Database is an RDS instance as the AWS tab lists it. Kind is the Hostbay
  * host kind that opens it, or empty when none does. SaveHost is the address
  * a saved host should use: an Aurora member's cluster writer endpoint, which
- * survives a failover, else the instance's own.
+ * survives a failover, else the instance's own. NoClusterEndpoint is set on
+ * a cluster member whose writer endpoint AWS did not return (a role that may
+ * not list clusters), so SaveHost fell back to the member's own address.
  */
 export interface Database {
     "id": string;
@@ -18,6 +20,7 @@ export interface Database {
     "cluster"?: string;
     "kind": string;
     "saveHost": string;
+    "noClusterEndpoint"?: boolean;
 }
 
 /**

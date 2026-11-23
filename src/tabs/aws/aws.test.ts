@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AwsDatabase, AwsInstance } from "../../api";
-import { databaseDraft, instanceActions, instanceDraft, matches, signInNeeded } from "./aws";
+import { databaseDraft, instanceActions, instanceDraft, matches, missingClusterEndpoints, signInNeeded } from "./aws";
 
 const inst = (over: Partial<AwsInstance> = {}): AwsInstance => ({
   id: "i-0123456789abcdef0",
@@ -102,5 +102,16 @@ describe("databaseDraft", () => {
   });
   it("drafts nothing for an engine Hostbay cannot open", () => {
     expect(databaseDraft(db({ kind: "" }))).toBeNull();
+  });
+});
+
+describe("missingClusterEndpoints", () => {
+  const row = (id: string, noClusterEndpoint?: boolean) =>
+    ({ id, engine: "aurora-mysql", status: "available", address: "", port: 3306, user: "", dbName: "", kind: "mysql", saveHost: "", noClusterEndpoint }) as AwsDatabase;
+  it("names the members saved on their own address", () => {
+    expect(missingClusterEndpoints([row("db1", true), row("solo"), row("db2", true)])).toBe("db1, db2");
+  });
+  it("is empty when every endpoint was found", () => {
+    expect(missingClusterEndpoints([row("solo")])).toBe("");
   });
 });

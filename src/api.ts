@@ -937,6 +937,7 @@ export type AwsDatabase = {
   cluster?: string;
   kind: string;
   saveHost: string;
+  noClusterEndpoint?: boolean;
 };
 export type AwsInstanceAction = "start" | "stop" | "reboot";
 export const awsProfiles = () => list(AwsService.AwsProfiles() as Promise<AwsProfile[] | null>);

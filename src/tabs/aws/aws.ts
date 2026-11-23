@@ -31,6 +31,14 @@ export function instanceDraft(i: AwsInstance): Partial<Host> {
     : { kind: "ssh", ...base, port: 22, tags: ["aws"] };
 }
 
+/** The cluster members whose writer endpoint AWS did not return, by name,
+ *  so the tab can say they save on their own address; "" when none. */
+export const missingClusterEndpoints = (dbs: AwsDatabase[]): string =>
+  dbs
+    .filter((d) => d.noClusterEndpoint)
+    .map((d) => d.id)
+    .join(", ");
+
 /** A database host for an RDS instance, of the kind Go chose, on the
  *  address Go chose (an Aurora member's cluster writer endpoint); null when
  *  Hostbay has no kind that opens its engine. */
