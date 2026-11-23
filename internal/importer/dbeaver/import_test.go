@@ -81,10 +81,12 @@ func TestImportMapsConnectionsCredentialsAndOptions(t *testing.T) {
 		t.Errorf("bastion = %+v", bastion)
 	}
 	// A key tunnel keeps its key file; its passphrase is asked at connect.
+	// KeyPath joins home and "/.ssh/..." as given, so compare cleaned paths
+	// for Windows separators.
 	keyed, jump := importertest.Host(t, st, "keyed"), importertest.Host(t, st, "jump.example.test")
 	home, _ := os.UserHomeDir()
 	if !keyed.Jumped() || *keyed.JumpHostID != jump.ID || jump.Port != 2222 || jump.User != "deploy" || store.Deref(jump.AuthType) != "key" ||
-		jump.IdentityFile != filepath.Join(home, ".ssh", "id_dbeaver") || jump.Password != "" || !importertest.Noted(rep, "keyed", "passphrase") {
+		filepath.Clean(jump.IdentityFile) != filepath.Join(home, ".ssh", "id_dbeaver") || jump.Password != "" || !importertest.Noted(rep, "keyed", "passphrase") {
 		t.Errorf("keyed = %+v, jump = %+v, notes %v", keyed, jump, rep.Notes)
 	}
 	// A proxy is not in DBeaver's export, so it is never connected around.
