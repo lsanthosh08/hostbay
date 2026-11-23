@@ -69,15 +69,15 @@ var installDirs = map[string][]string{
 // Windows only an .exe counts, never a .bat or .cmd shim.
 func Find(kind Kind) (string, error) { return FindBinary(string(kind), installDirs[runtime.GOOS]) }
 
-// FindBinary finds the program name on PATH, then in dirs (which may start
-// with ~/ or name %ProgramFiles%), and returns its absolute path. Relative
-// PATH entries are skipped, and on Windows only name.exe counts.
+// FindBinary finds the program name on PATH, then in dirs, and returns its
+// absolute path. Entries in either may start with ~/ or name an environment
+// variable; relative ones are skipped, and on Windows only name.exe counts.
 func FindBinary(name string, dirs []string) (string, error) {
 	file := name
 	if runtime.GOOS == "windows" {
 		file += ".exe"
 	}
-	for _, dir := range append(filepath.SplitList(os.Getenv("PATH")), ExpandDirs(dirs)...) {
+	for _, dir := range ExpandDirs(append(filepath.SplitList(os.Getenv("PATH")), dirs...)) {
 		if !filepath.IsAbs(dir) {
 			continue
 		}
@@ -89,7 +89,7 @@ func FindBinary(name string, dirs []string) (string, error) {
 	return "", fmt.Errorf("%s was not found on this computer", name)
 }
 
-// ExpandDirs resolves ~/ and %ProgramFiles% in install folder names.
+// ExpandDirs resolves ~/, %ProgramFiles% and $VAR in folder names.
 func ExpandDirs(dirs []string) []string {
 	home, _ := os.UserHomeDir()
 	out := make([]string, 0, len(dirs))

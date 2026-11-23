@@ -171,6 +171,27 @@ func TestLocalFindsAnEngineOffPATH(t *testing.T) {
 	}
 }
 
+// A PATH entry written as ~/bin (some shells and launchers leave it so) is
+// still searched, as it was before FindBinary was split out of Find.
+func TestFindBinaryExpandsHomeInPATH(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("~/ PATH entries are a Unix habit")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	bin := filepath.Join(home, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "hb-sample-tool"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", "~/bin")
+	if got, err := FindBinary("hb-sample-tool", nil); err != nil || got != filepath.Join(bin, "hb-sample-tool") {
+		t.Fatalf("FindBinary = %q, %v", got, err)
+	}
+}
+
 func TestLoginPasswordGoesOnStdinOnly(t *testing.T) {
 	_, log := fakeEngine(t, "docker", recorder)
 	t.Setenv("HB_CONTEXT", "context-desktop-linux.json")
