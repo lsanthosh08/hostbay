@@ -97,7 +97,15 @@ func credentials(ctx context.Context, profile, region string) (aws.CredentialsPr
 	key, files := profile+"\x00"+region, filesStamp()
 	credsMu.Lock()
 	defer credsMu.Unlock()
-	if c, ok := credsCache[key]; ok && c.files == files && time.Since(c.at) < credentialsTTL {
+	// Drop expired setups of every profile, so a profile's credentials do
+	// not stay in memory once its time is up, and this key's if the files
+	// changed, so a failed reload does not leave the old one behind.
+	for k, c := range credsCache {
+		if time.Since(c.at) >= credentialsTTL || (k == key && c.files != files) {
+			delete(credsCache, k)
+		}
+	}
+	if c, ok := credsCache[key]; ok {
 		return c.provider, nil
 	}
 	cfg, err := config.LoadDefaultConfig(ctx,

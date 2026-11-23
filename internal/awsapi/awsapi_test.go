@@ -478,3 +478,27 @@ func TestCredentialsLoadOncePerProfile(t *testing.T) {
 		t.Fatalf("after a config edit credential_process ran %d times in all, want 2", n)
 	}
 }
+
+// A profile's setup is not kept past its time: the next load of any profile
+// drops it, so its credentials do not stay in memory until Hostbay quits.
+func TestCredentialsExpireFromMemory(t *testing.T) {
+	isolate(t, "[profile a]\nregion = us-east-1\n[profile b]\nregion = us-east-1\n",
+		"[a]\naws_access_key_id = AKIDSAMPLE\naws_secret_access_key = sample-secret-key\n[b]\naws_access_key_id = AKIDSAMPLE\naws_secret_access_key = sample-secret-key\n")
+	if _, err := New(context.Background(), "a", "us-east-1"); err != nil {
+		t.Fatal(err)
+	}
+	credsMu.Lock()
+	old := credsCache["a\x00us-east-1"]
+	old.at = time.Now().Add(-credentialsTTL)
+	credsCache["a\x00us-east-1"] = old
+	credsMu.Unlock()
+	if _, err := New(context.Background(), "b", "us-east-1"); err != nil {
+		t.Fatal(err)
+	}
+	credsMu.Lock()
+	_, kept := credsCache["a\x00us-east-1"]
+	credsMu.Unlock()
+	if kept {
+		t.Error("an expired profile setup is still held")
+	}
+}
