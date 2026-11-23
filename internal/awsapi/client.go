@@ -15,6 +15,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
 )
@@ -69,6 +70,7 @@ func New(ctx context.Context, profile, region string) (*Client, error) {
 		config.WithSharedConfigProfile(profile),
 		config.WithRegion(region),
 		config.WithEC2IMDSClientEnableState(imds.ClientDisabled),
+		config.WithHTTPClient(awshttp.NewBuildableClient().WithTimeout(httpClient.Timeout)),
 	)
 	if err != nil {
 		return nil, &CredentialsError{err}
