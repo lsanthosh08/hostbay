@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { AwsInstance } from "../../api";
-import { instanceActions, matches, signInNeeded } from "./aws";
+import type { AwsDatabase, AwsInstance } from "../../api";
+import { databaseDraft, instanceActions, instanceDraft, matches, signInNeeded } from "./aws";
 
 const inst = (over: Partial<AwsInstance> = {}): AwsInstance => ({
   id: "i-0123456789abcdef0",
@@ -55,5 +55,52 @@ describe("signInNeeded", () => {
     expect(signInNeeded({ code: "AWSSignIn", message: "expired", details: { profile: "sso-base" } })).toBe("sso-base");
     expect(signInNeeded({ code: "DatabaseError", message: "no" })).toBe("");
     expect(signInNeeded({ message: "Profile proc: the credential_process failed" })).toBe("");
+  });
+});
+
+describe("instanceDraft", () => {
+  it("drafts an SSH host on the public address, named by the Name tag", () => {
+    expect(instanceDraft(inst())).toEqual({ kind: "ssh", alias: "web-1", hostname: "198.51.100.7", port: 22, tags: ["aws"] });
+  });
+  it("falls back to the private address and the instance ID", () => {
+    const d = instanceDraft(inst({ name: "", publicIp: "" }));
+    expect(d.hostname).toBe("192.0.2.10");
+    expect(d.alias).toBe("i-0123456789abcdef0");
+  });
+  it("drafts an RDP host for a Windows instance", () => {
+    expect(instanceDraft(inst({ platform: "windows" }))).toMatchObject({ kind: "rdp", rdpPort: 3389, hostname: "198.51.100.7" });
+  });
+});
+
+describe("databaseDraft", () => {
+  const db = (over: Partial<AwsDatabase> = {}): AwsDatabase => ({
+    id: "db1",
+    engine: "aurora-postgresql",
+    status: "available",
+    address: "db1.abc.us-east-1.rds.example.test",
+    port: 5432,
+    user: "admin",
+    dbName: "app",
+    cluster: "main",
+    kind: "postgres",
+    saveHost: "main.cluster-abc.us-east-1.rds.example.test",
+    ...over,
+  });
+  it("drafts the host kind Go chose, on the cluster writer endpoint", () => {
+    expect(databaseDraft(db())).toEqual({
+      kind: "postgres",
+      alias: "db1",
+      hostname: "main.cluster-abc.us-east-1.rds.example.test",
+      port: 5432,
+      user: "admin",
+      database: "app",
+      tags: ["aws"],
+    });
+  });
+  it("leaves the database unset when RDS names none", () => {
+    expect(databaseDraft(db({ dbName: "" }))?.database).toBeUndefined();
+  });
+  it("drafts nothing for an engine Hostbay cannot open", () => {
+    expect(databaseDraft(db({ kind: "" }))).toBeNull();
   });
 });

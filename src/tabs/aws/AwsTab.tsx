@@ -13,7 +13,8 @@ import { usePrompt } from "../../ui/prompt";
 import { SegmentedControl } from "../../ui/SegmentedControl";
 import { Select } from "../../ui/Select";
 import { useToast } from "../../ui/toast";
-import { instanceActions, matches, signInNeeded } from "./aws";
+import { useHostManager } from "../../components/HostManager";
+import { databaseDraft, instanceActions, instanceDraft, matches, signInNeeded } from "./aws";
 
 const CLI_INSTALL = "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html";
 const PLUGIN_INSTALL = "https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html";
@@ -33,6 +34,7 @@ const td = "px-3 py-2 border-t border-line align-top";
  */
 export function AwsTab() {
   const { openAwsTerm } = useSessions();
+  const { newHostFrom } = useHostManager();
   const { confirm } = usePrompt();
   const { push } = useToast();
   const [profiles, setProfiles] = useState<AwsProfile[] | null>(null);
@@ -269,6 +271,9 @@ export function AwsTab() {
                           </Button>
                         )
                       )}
+                      <Button size="sm" variant="ghost" onClick={() => newHostFrom(instanceDraft(i))}>
+                        {t(i.platform === "windows" ? "aws.saveRdp" : "aws.saveSsh")}
+                      </Button>
                     </div>
                   </td>
                 </tr>
@@ -296,7 +301,13 @@ export function AwsTab() {
                   <td className={td}>{d.status}</td>
                   <td className={`${td} font-mono allow-select break-all`}>{d.address && `${d.address}:${d.port}`}</td>
                   <td className={td}>{d.user}</td>
-                  <td className={td} />
+                  <td className={td}>
+                    {d.kind && (
+                      <Button size="sm" variant="ghost" onClick={() => newHostFrom(databaseDraft(d)!)}>
+                        {t("aws.saveDb")}
+                      </Button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

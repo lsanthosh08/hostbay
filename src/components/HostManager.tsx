@@ -8,6 +8,7 @@ import { useToast, useAsyncToast } from "../ui/toast";
 import { usePrompt } from "../ui/prompt";
 import { useHosts } from "../state/hosts";
 import { HostEditor } from "../shell/HostEditor";
+import { kindPatch } from "../shell/hostForm";
 import { BackupForm } from "../shell/settings/Backup";
 import { MasterPasswordSetupDialog } from "./MasterPassword";
 import { open } from "../dialogs";
@@ -28,6 +29,9 @@ const blank = (): Host => ({
 export type HostManager = {
   needsMasterPassword: boolean;
   newHost: (folderId?: string | null) => void;
+  /** Opens the editor on a new host prefilled from draft; nothing is saved
+   *  until the user saves the form. */
+  newHostFrom: (draft: Partial<Host>) => void;
   editHost: (h: Host) => void;
   cloneHost: (h: Host) => void;
   deleteHost: (h: Host) => void;
@@ -154,6 +158,7 @@ export function HostManagerProvider({ children }: { children: ReactNode }) {
   const value: HostManager = {
     needsMasterPassword: needsMaster,
     newHost: (folderId = null) => setEditing({ ...blank(), folderId }),
+    newHostFrom: (draft) => setEditing({ ...blank(), ...kindPatch(blank(), draft.kind ?? "ssh"), ...draft }),
     // A session or a failed connect holds the host as it was when the tab
     // opened; edit the saved one, so a save cannot undo a later edit.
     editHost: (h) => setEditing(hosts.find((x) => x.id === h.id) ?? h),
