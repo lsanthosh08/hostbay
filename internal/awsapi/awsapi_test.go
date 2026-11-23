@@ -74,6 +74,7 @@ const sampleCredentials = `
 [keys-only]
 aws_access_key_id = AKIDSAMPLE
 aws_secret_access_key = sample-secret-key
+mfa_serial = arn:aws:iam::123456789012:mfa/sample
 `
 
 func byName(ps []Profile) map[string]Profile {
@@ -111,7 +112,9 @@ func TestProfiles(t *testing.T) {
 	if m["loop-a"].SSORoot != "" || m["keys-only"].SSORoot != "" {
 		t.Errorf("no SSO root expected: %+v %+v", m["loop-a"], m["keys-only"])
 	}
-	if !m["mfa-role"].MFA || m["zeta"].MFA {
+	// keys-only has an mfa_serial but assumes no role, so the SDK never
+	// asks for a code, and mfa-role's chain stops at its keys.
+	if !m["mfa-role"].MFA || m["zeta"].MFA || m["keys-only"].MFA {
 		t.Errorf("mfa flags: mfa-role %v zeta %v", m["mfa-role"].MFA, m["zeta"].MFA)
 	}
 }

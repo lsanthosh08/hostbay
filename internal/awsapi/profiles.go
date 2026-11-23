@@ -84,7 +84,12 @@ func Profiles() ([]Profile, error) {
 			if k == nil {
 				break
 			}
-			p.MFA = p.MFA || k["mfa_serial"] != ""
+			// The SDK stops at a source profile with its own keys, and only
+			// assuming a role (role_arn) asks for the mfa_serial code.
+			if cur != name && k["aws_access_key_id"] != "" {
+				break
+			}
+			p.MFA = p.MFA || (k["mfa_serial"] != "" && k["role_arn"] != "")
 			if key := cmp.Or(k["sso_session"], k["sso_start_url"]); key != "" {
 				p.SSORoot, p.ssoKey = cur, key
 				break
