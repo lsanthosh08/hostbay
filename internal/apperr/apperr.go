@@ -16,6 +16,7 @@ const (
 	VerifyFailed   Code = "VerifyFailed"   // OS user verification was cancelled, failed or unavailable
 	HelperMissing  Code = "HelperMissing"  // a bundled helper (RDP or VPN) is missing, of another version or could not be started
 	DatabaseError  Code = "DatabaseError"  // a database refused or failed a request; details.category and details.detail say how
+	AWSSignIn      Code = "AWSSignIn"      // an AWS profile's SSO sign-in is missing or expired; details.profile is the profile to sign in, details.expiresAt when known
 )
 
 // VPN profiles' failures (KTD2, KTD5). None falls back to a direct

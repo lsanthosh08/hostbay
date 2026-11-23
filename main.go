@@ -206,6 +206,7 @@ func main() {
 	dbSvc := app.NewDatabaseService(creds, connSvc, certs, dir)
 	a.RegisterService(application.NewService(dbSvc))
 	a.RegisterService(application.NewService(app.NewKubernetesService(creds, connSvc, certs)))
+	a.RegisterService(application.NewService(app.NewAwsService(connSvc)))
 	// X11 desktops render in the VNC tab over the vnc stream.
 	a.RegisterService(application.NewService(app.NewX11Service(connSvc, vnc)))
 	zmodem := app.NewZmodemService(connSvc)
