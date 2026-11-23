@@ -67,26 +67,39 @@ var installDirs = map[string][]string{
 // Find finds kind's binary on PATH, then in installDirs, and
 // returns its absolute path. Relative PATH entries are skipped, and on
 // Windows only an .exe counts, never a .bat or .cmd shim.
-func Find(kind Kind) (string, error) {
-	name := string(kind)
+func Find(kind Kind) (string, error) { return FindBinary(string(kind), installDirs[runtime.GOOS]) }
+
+// FindBinary finds the program name on PATH, then in dirs (which may start
+// with ~/ or name %ProgramFiles%), and returns its absolute path. Relative
+// PATH entries are skipped, and on Windows only name.exe counts.
+func FindBinary(name string, dirs []string) (string, error) {
+	file := name
 	if runtime.GOOS == "windows" {
-		name += ".exe"
+		file += ".exe"
 	}
-	home, _ := os.UserHomeDir()
-	for _, dir := range append(filepath.SplitList(os.Getenv("PATH")), installDirs[runtime.GOOS]...) {
-		if rest, ok := strings.CutPrefix(dir, "~/"); ok && home != "" {
-			dir = filepath.Join(home, rest)
-		}
-		dir = os.ExpandEnv(strings.ReplaceAll(dir, "%ProgramFiles%", "${ProgramFiles}"))
+	for _, dir := range append(filepath.SplitList(os.Getenv("PATH")), ExpandDirs(dirs)...) {
 		if !filepath.IsAbs(dir) {
 			continue
 		}
-		p := filepath.Join(dir, name)
+		p := filepath.Join(dir, file)
 		if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() && (runtime.GOOS == "windows" || fi.Mode()&0o111 != 0) {
 			return p, nil
 		}
 	}
-	return "", fmt.Errorf("%s was not found on this computer", kind)
+	return "", fmt.Errorf("%s was not found on this computer", name)
+}
+
+// ExpandDirs resolves ~/ and %ProgramFiles% in install folder names.
+func ExpandDirs(dirs []string) []string {
+	home, _ := os.UserHomeDir()
+	out := make([]string, 0, len(dirs))
+	for _, dir := range dirs {
+		if rest, ok := strings.CutPrefix(dir, "~/"); ok && home != "" {
+			dir = filepath.Join(home, rest)
+		}
+		out = append(out, os.ExpandEnv(strings.ReplaceAll(dir, "%ProgramFiles%", "${ProgramFiles}")))
+	}
+	return out
 }
 
 // guarded are the variables that could point an engine somewhere other
