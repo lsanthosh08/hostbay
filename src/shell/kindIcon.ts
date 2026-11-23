@@ -59,12 +59,12 @@ export const sessionIcon = (c: Connection): Icon =>
     ? TerminalIcon
     : c.engine
       ? DockerIcon
-    : c.aws
-      ? AwsIcon
-    : c.term?.kind === "serial"
-      ? SerialIcon
-      : c.files
-        ? FilesIcon
-        : c.x11
-          ? VncIcon
-          : hostIcon(c.host);
+      : c.aws
+        ? AwsIcon
+        : c.term?.kind === "serial"
+          ? SerialIcon
+          : c.files
+            ? FilesIcon
+            : c.x11
+              ? VncIcon
+              : hostIcon(c.host);

@@ -66,10 +66,10 @@ func Profiles() ([]Profile, error) {
 		}
 		return nil
 	}
-	if err := add(envOr("AWS_SHARED_CREDENTIALS_FILE", config.DefaultSharedCredentialsFilename()), false); err != nil {
+	if err := add(cmp.Or(os.Getenv("AWS_SHARED_CREDENTIALS_FILE"), config.DefaultSharedCredentialsFilename()), false); err != nil {
 		return nil, err
 	}
-	if err := add(envOr("AWS_CONFIG_FILE", config.DefaultSharedConfigFilename()), true); err != nil {
+	if err := add(cmp.Or(os.Getenv("AWS_CONFIG_FILE"), config.DefaultSharedConfigFilename()), true); err != nil {
 		return nil, err
 	}
 
@@ -161,11 +161,3 @@ func readINI(path string) (map[string]map[string]string, error) {
 	}
 	return out, sc.Err()
 }
-
-func envOr(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
-}
-

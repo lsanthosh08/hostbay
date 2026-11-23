@@ -170,7 +170,6 @@ func awsProfile(name string) (awsapi.Profile, error) {
 	return awsapi.Profile{}, fmt.Errorf("profile %s is not in the AWS config files", name)
 }
 
-// awsClient checks the profile and region and loads the profile.
 func awsClient(ctx context.Context, profile, region string) (*awsapi.Client, awsapi.Profile, error) {
 	p, err := awsProfile(profile)
 	if err != nil {

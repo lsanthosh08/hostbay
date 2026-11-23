@@ -66,7 +66,7 @@ func (c *Client) Databases(ctx context.Context) ([]Database, error) {
 		DBName string `xml:"DatabaseName"`
 	}
 	clusters := map[string]cluster{}
-	pages(func(params url.Values) (string, error) {
+	_ = pages(func(params url.Values) (string, error) {
 		var r struct {
 			Items  []cluster `xml:"DescribeDBClustersResult>DBClusters>DBCluster"`
 			Marker string    `xml:"DescribeDBClustersResult>Marker"`

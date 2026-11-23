@@ -41,7 +41,7 @@ export function AwsTab() {
   const [tools, setTools] = useState<AwsTools>({ cli: true, plugin: true });
   const [profile, setProfile] = useState("");
   const [region, setRegion] = useState("");
-  const [regions, setRegions] = useState<{ regions: string[]; checked: boolean }>({ regions: [], checked: true });
+  const [regions, setRegions] = useState<api.AwsRegionList>({ regions: [], checked: true });
   const [identity, setIdentity] = useState<AwsIdentity | null>(null);
   const [error, setError] = useState<AppError | null>(null);
   const [view, setView] = useState<"ec2" | "rds">("ec2");
@@ -294,22 +294,25 @@ export function AwsTab() {
               </tr>
             </thead>
             <tbody>
-              {shownDatabases.map((d) => (
-                <tr key={d.id}>
-                  <td className={`${td} allow-select break-all`}>{d.id}</td>
-                  <td className={td}>{d.engine}</td>
-                  <td className={td}>{d.status}</td>
-                  <td className={`${td} font-mono allow-select break-all`}>{d.address && `${d.address}:${d.port}`}</td>
-                  <td className={td}>{d.user}</td>
-                  <td className={td}>
-                    {d.kind && (
-                      <Button size="sm" variant="ghost" onClick={() => newHostFrom(databaseDraft(d)!)}>
-                        {t("aws.saveDb")}
-                      </Button>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              {shownDatabases.map((d) => {
+                const draft = databaseDraft(d);
+                return (
+                  <tr key={d.id}>
+                    <td className={`${td} allow-select break-all`}>{d.id}</td>
+                    <td className={td}>{d.engine}</td>
+                    <td className={td}>{d.status}</td>
+                    <td className={`${td} font-mono allow-select break-all`}>{d.address && `${d.address}:${d.port}`}</td>
+                    <td className={td}>{d.user}</td>
+                    <td className={td}>
+                      {draft && (
+                        <Button size="sm" variant="ghost" onClick={() => newHostFrom(draft)}>
+                          {t("aws.saveDb")}
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}

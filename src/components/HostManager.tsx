@@ -158,7 +158,10 @@ export function HostManagerProvider({ children }: { children: ReactNode }) {
   const value: HostManager = {
     needsMasterPassword: needsMaster,
     newHost: (folderId = null) => setEditing({ ...blank(), folderId }),
-    newHostFrom: (draft) => setEditing({ ...blank(), ...kindPatch(blank(), draft.kind ?? "ssh"), ...draft }),
+    newHostFrom: (draft) => {
+      const b = blank();
+      setEditing({ ...b, ...kindPatch(b, draft.kind ?? "ssh"), ...draft });
+    },
     // A session or a failed connect holds the host as it was when the tab
     // opened; edit the saved one, so a save cannot undo a later edit.
     editHost: (h) => setEditing(hosts.find((x) => x.id === h.id) ?? h),
