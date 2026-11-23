@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -429,5 +430,51 @@ func TestCLIArgs(t *testing.T) {
 	}
 	if got := LoginArgs("sso-base"); !slices.Equal(got, []string{"sso", "login", "--profile", "sso-base"}) {
 		t.Error(got)
+	}
+}
+
+// One refresh of the tab makes several calls, some in parallel; a profile's
+// credential_process (which may prompt) must run once for all of them, and
+// again only once the AWS files change.
+func TestCredentialsLoadOncePerProfile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the sample credential_process is a POSIX shell command")
+	}
+	dir := t.TempDir()
+	runs := filepath.Join(dir, "runs")
+	cfg := "[profile proc]\nregion = us-east-1\ncredential_process = sh -c 'echo run >> " + runs +
+		"; printf \"{\\\"Version\\\": 1, \\\"AccessKeyId\\\": \\\"AKIDSAMPLE\\\", \\\"SecretAccessKey\\\": \\\"sample-secret-key\\\"}\"'\n"
+	home := isolate(t, cfg, "")
+	fakeAWS(t, map[string][]string{"GetCallerIdentity": {`<GetCallerIdentityResponse><GetCallerIdentityResult><Account>123456789012</Account></GetCallerIdentityResult></GetCallerIdentityResponse>`}})
+	count := func() int {
+		b, _ := os.ReadFile(runs)
+		return strings.Count(string(b), "run")
+	}
+	call := func() {
+		t.Helper()
+		c, err := New(context.Background(), "proc", "us-east-1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.Identity(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	call()
+	call()
+	call()
+	if n := count(); n != 1 {
+		t.Fatalf("credential_process ran %d times for one profile, want 1", n)
+	}
+	// Editing the config loads the profile afresh.
+	conf := filepath.Join(home, "config")
+	if err := os.WriteFile(conf, []byte(cfg+"\n# edited\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	later := time.Now().Add(time.Minute)
+	os.Chtimes(conf, later, later)
+	call()
+	if n := count(); n != 2 {
+		t.Fatalf("after a config edit credential_process ran %d times in all, want 2", n)
 	}
 }

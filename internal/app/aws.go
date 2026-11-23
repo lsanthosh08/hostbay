@@ -17,8 +17,8 @@ import (
 // AwsService serves the AWS tab: the profiles in this computer's AWS
 // config, and per profile and region the account, EC2 instances and RDS
 // databases. It holds no session: every call names its profile and
-// region, and credentials load from the AWS config each time and never
-// leave Go. SSO sign-in and SSM shells run the user's aws program in a
+// region. Credentials come from the AWS config (awsapi keeps a profile's
+// setup for a few minutes) and never leave Go. SSO sign-in and SSM shells run the user's aws program in a
 // terminal tab with an argument list Go builds.
 type AwsService struct {
 	conns *ConnService

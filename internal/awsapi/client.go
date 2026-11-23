@@ -10,7 +10,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -63,9 +65,41 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("AWS refused the request: %s: %s", e.Code, e.Message)
 }
 
-// New loads profile's credentials setup for calls in region. The EC2
-// metadata service is never asked: on a laptop it only times out.
+// Credentials setups are kept briefly per profile and region, so one refresh
+// of the tab (account, regions and a list, some at once) shares one provider
+// and runs a credential_process or SSO exchange once instead of once per
+// call. An edit to either AWS file, or credentialsTTL passing, loads the
+// profile afresh. Only the provider is kept; it never caches a failure.
+const credentialsTTL = 5 * time.Minute
+
+type cachedCreds struct {
+	files    string
+	provider aws.CredentialsProvider
+	at       time.Time
+}
+
+var (
+	credsMu    sync.Mutex
+	credsCache = map[string]cachedCreds{}
+)
+
+// New gives a client for calls in region as profile. The EC2 metadata
+// service is never asked: on a laptop it only times out.
 func New(ctx context.Context, profile, region string) (*Client, error) {
+	creds, err := credentials(ctx, profile, region)
+	if err != nil {
+		return nil, err
+	}
+	return &Client{creds: creds, region: region}, nil
+}
+
+func credentials(ctx context.Context, profile, region string) (aws.CredentialsProvider, error) {
+	key, files := profile+"\x00"+region, filesStamp()
+	credsMu.Lock()
+	defer credsMu.Unlock()
+	if c, ok := credsCache[key]; ok && c.files == files && time.Since(c.at) < credentialsTTL {
+		return c.provider, nil
+	}
 	cfg, err := config.LoadDefaultConfig(ctx,
 		config.WithSharedConfigProfile(profile),
 		config.WithRegion(region),
@@ -78,7 +112,23 @@ func New(ctx context.Context, profile, region string) (*Client, error) {
 	if cfg.Credentials == nil {
 		return nil, &CredentialsError{errors.New("this profile has no credentials")}
 	}
-	return &Client{creds: cfg.Credentials, region: region}, nil
+	credsCache[key] = cachedCreds{files: files, provider: cfg.Credentials, at: time.Now()}
+	return cfg.Credentials, nil
+}
+
+// filesStamp names the AWS config and credentials files with their sizes
+// and change times, so a cached setup is dropped when either changes.
+func filesStamp() string {
+	var b strings.Builder
+	credentialsFile, configFile := configFiles()
+	for _, p := range []string{credentialsFile, configFile} {
+		fmt.Fprint(&b, p)
+		if fi, err := os.Stat(p); err == nil {
+			fmt.Fprintf(&b, ":%d:%d", fi.Size(), fi.ModTime().UnixNano())
+		}
+		b.WriteByte(0)
+	}
+	return b.String()
 }
 
 // Identity is the account and caller the credentials belong to.

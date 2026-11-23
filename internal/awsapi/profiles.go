@@ -66,10 +66,11 @@ func Profiles() ([]Profile, error) {
 		}
 		return nil
 	}
-	if err := add(cmp.Or(os.Getenv("AWS_SHARED_CREDENTIALS_FILE"), config.DefaultSharedCredentialsFilename()), false); err != nil {
+	credentialsFile, configFile := configFiles()
+	if err := add(credentialsFile, false); err != nil {
 		return nil, err
 	}
-	if err := add(cmp.Or(os.Getenv("AWS_CONFIG_FILE"), config.DefaultSharedConfigFilename()), true); err != nil {
+	if err := add(configFile, true); err != nil {
 		return nil, err
 	}
 
@@ -132,6 +133,12 @@ func SignInNeeded(p Profile) (bool, string) {
 	}
 	at, err := time.Parse(time.RFC3339, tok.ExpiresAt)
 	return err != nil || !at.After(time.Now()), tok.ExpiresAt
+}
+
+// configFiles is the credentials and config file the SDK reads.
+func configFiles() (credentialsFile, configFile string) {
+	return cmp.Or(os.Getenv("AWS_SHARED_CREDENTIALS_FILE"), config.DefaultSharedCredentialsFilename()),
+		cmp.Or(os.Getenv("AWS_CONFIG_FILE"), config.DefaultSharedConfigFilename())
 }
 
 func cachedTokenPath(key string) (string, error) { return ssocreds.StandardCachedTokenFilepath(key) }
