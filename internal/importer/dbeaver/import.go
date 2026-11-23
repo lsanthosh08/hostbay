@@ -1,7 +1,8 @@
 // Package dbeaver imports DBeaver's database connections (R54, R56) from
 // the data-sources.json the user picks, or the .dbeaver folder holding it,
 // with the user names and passwords in credentials-config.json beside it.
-// Hostbay never looks for DBeaver's folder itself.
+// An SSH tunnel becomes a jump host, one per bastion. Hostbay never looks
+// for DBeaver's folder itself.
 //
 // The file layout, provider names and credentials decryption (AES-128-CBC
 // under DBeaver's built-in key, the file's IV as its first block) are
@@ -26,6 +27,7 @@ import (
 	"strings"
 
 	"hostbay/internal/importer"
+	"hostbay/internal/store"
 )
 
 var credentialsKey, _ = hex.DecodeString("babb4a9f774ab853c96c2d653dfe544a")
@@ -58,11 +60,13 @@ type source struct {
 	} `json:"configuration"`
 }
 
-type credentials map[string]struct {
-	Connection struct {
-		User     string `json:"user"`
-		Password string `json:"password"`
-	} `json:"#connection"`
+// credentials holds each connection's sign-ins by section: "#connection"
+// for the database, "network/<handler ID>" for a tunnel.
+type credentials map[string]map[string]login
+
+type login struct {
+	User     string `json:"user"`
+	Password string `json:"password"`
 }
 
 // Parse reads data-sources.json at path, or in the folder path names.
@@ -94,6 +98,7 @@ func Parse(path, _ string) (importer.Result, error) {
 			b.Note("credentials-config.json", "DBeaver's saved passwords could not be read, as when a DBeaver master password protects them; the connections were imported without them")
 		}
 	}
+	jumps := map[string]jump{}
 	for _, id := range slices.Sorted(maps.Keys(doc.Connections)) {
 		s := doc.Connections[id]
 		alias := s.Name
@@ -117,11 +122,15 @@ func Parse(path, _ string) (importer.Result, error) {
 			continue
 		}
 		opts := text(c.Properties)
-		tunnel := ""
+		tunnel, jumpID := "", ""
+		var ssh map[string]string // the one SSH tunnel's settings
+		var sshLogin login
 		for _, hid := range slices.Sorted(maps.Keys(c.Handlers)) {
 			hd := c.Handlers[hid]
 			switch t := strings.ToUpper(hd.Type); {
 			case !hd.Enabled:
+			case t == "TUNNEL" && text(hd.Properties)["host"] != "" && ssh == nil:
+				ssh, sshLogin = text(hd.Properties), creds[id]["network/"+hid]
 			case t == "TUNNEL" || t == "PROXY":
 				tunnel = "DBeaver's " + hid
 				if host := text(hd.Properties)["host"]; host != "" {
@@ -133,20 +142,30 @@ func Parse(path, _ string) (importer.Result, error) {
 				b.Skip(name+": "+hid, "this DBeaver connection setting has no Hostbay equivalent")
 			}
 		}
+		switch {
+		case ssh == nil:
+		case tunnel != "":
+			// A proxy or second hop in front of the tunnel is not in the
+			// export, so a jump host would be dialed around it.
+		case kind == "sqlite":
+			tunnel = "its SSH tunnel" // a local file: AddDatabase notes it
+		default:
+			jumpID = jumpHost(b, jumps, name, ssh, sshLogin)
+		}
 		if len(c.Bootstrap.InitQueries) > 0 {
 			b.Skip(name+": bootstrap queries", "Hostbay runs no SQL when it connects")
 		}
 		if c.LocalClient != "" {
 			b.Skip(name+": local client", "Hostbay runs no program named in another tool's settings")
 		}
-		cr := creds[id].Connection
+		cr := creds[id]["#connection"]
 		user := c.User
 		if user == "" {
 			user = cr.User
 		}
 		e := importer.Database{
 			Name: name, Alias: alias, Kind: kind, Host: c.Host, Port: port(c.Port), User: user, Database: c.Database,
-			Options: opts, Tunnel: tunnel, Password: cr.Password,
+			Options: opts, Tunnel: tunnel, Password: cr.Password, JumpID: jumpID,
 		}
 		if folder != "" {
 			e.FolderID = b.Folder([]string{folder})
@@ -157,6 +176,47 @@ func Parse(path, _ string) (importer.Result, error) {
 		b.AddDatabase(e)
 	}
 	return b.Result(), nil
+}
+
+// jump is an SSH jump host already added, by the tunnel settings that
+// made it.
+type jump struct{ id, password string }
+
+// jumpHost adds the SSH host a DBeaver tunnel signs in to, once for each
+// bastion, address and sign-in method, and returns its source ID for the
+// database's jump link. A key's passphrase is not imported: Hostbay asks
+// for it when the key is used.
+func jumpHost(b *importer.Builder, jumps map[string]jump, name string, p map[string]string, cr login) string {
+	h := store.Host{Hostname: strings.TrimSpace(p["host"]), Port: 22, User: cr.User, AuthType: new("password")}
+	if n, err := strconv.Atoi(strings.TrimSpace(p["port"])); err == nil && n > 0 {
+		h.Port = n
+	}
+	pw := cr.Password
+	switch strings.ToUpper(p["authType"]) {
+	case "AGENT":
+		h.AuthType, pw = new("agent"), ""
+	case "PUBLIC_KEY":
+		if k := importer.KeyPath(p["keyPath"]); k != "" {
+			h.AuthType, h.IdentityFile = new("key"), k
+			if pw != "" {
+				b.Note(name, "its SSH key passphrase was not imported; Hostbay asks for it when the jump host connects")
+			}
+		} else {
+			b.Note(name, fmt.Sprintf("its SSH key file %q is not a path on this computer; choose the key in its jump host's settings", p["keyPath"]))
+		}
+		pw = ""
+	}
+	key := strings.Join([]string{h.Hostname, strconv.Itoa(h.Port), h.User, *h.AuthType, h.IdentityFile}, "\x00")
+	if j, ok := jumps[key]; ok {
+		if pw != "" && pw != j.password {
+			b.Note(name, "its SSH tunnel password differs from the one another connection saved for the same jump host; the first one was kept")
+		}
+		return j.id
+	}
+	id := "ssh-tunnel\x00" + key
+	jumps[key] = jump{id, pw}
+	b.Add(importer.Entry{Name: name + ": SSH tunnel", Host: h, Password: pw, SourceID: id})
+	return id
 }
 
 // open decrypts credentials-config.json: AES-128-CBC under DBeaver's key,

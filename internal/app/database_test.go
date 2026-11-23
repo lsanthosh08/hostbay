@@ -480,15 +480,16 @@ func TestRqliteConnectsToItsURL(t *testing.T) {
 	}
 }
 
-// A DBeaver connection that used an SSH tunnel imports with the
-// missing-proxy marker: connecting it fails, and the database never sees
-// a connection, so it is never reached directly.
+// A DBeaver connection that used a proxy imports with the missing-proxy
+// marker, since the export does not carry the proxy: connecting it fails,
+// and the database never sees a connection, so it is never reached
+// directly.
 func TestImportedTunnelledDatabaseNeverDialsDirectly(t *testing.T) {
 	srv := dbtest.NewPG(t, nil)
 	d, s, _, _ := newDatabaseService(t)
 	dir := t.TempDir()
 	sources := `{"connections":{"pg-1":{"provider":"postgresql","name":"tunnelled","configuration":{"host":"` + srv.Host + `","port":` + strconv.Itoa(srv.Port) +
-		`,"database":"app","user":"app","handlers":{"ssh_tunnel":{"type":"TUNNEL","enabled":true,"properties":{"host":"bastion.example","port":22}}}}}}}`
+		`,"database":"app","user":"app","handlers":{"proxy":{"type":"PROXY","enabled":true,"properties":{"host":"socks.example.test","port":1080}}}}}}}`
 	if err := os.WriteFile(filepath.Join(dir, "data-sources.json"), []byte(sources), 0o600); err != nil {
 		t.Fatal(err)
 	}

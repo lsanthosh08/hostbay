@@ -81,6 +81,69 @@
         }
       }
     },
+    "postgres-jdbc-reports": {
+      "provider": "postgresql",
+      "name": "reports",
+      "save-password": true,
+      "configuration": {
+        "host": "192.0.2.26",
+        "port": 5432,
+        "database": "reports",
+        "handlers": {
+          "ssh_tunnel": {
+            "type": "TUNNEL",
+            "enabled": true,
+            "save-password": true,
+            "properties": {
+              "host": "bastion.example",
+              "port": "22",
+              "authType": "PASSWORD"
+            }
+          }
+        }
+      }
+    },
+    "mysql8-keyed": {
+      "provider": "mysql",
+      "name": "keyed",
+      "save-password": true,
+      "configuration": {
+        "host": "192.0.2.27",
+        "port": "3306",
+        "database": "app",
+        "handlers": {
+          "ssh_tunnel": {
+            "type": "TUNNEL",
+            "enabled": true,
+            "save-password": true,
+            "properties": {
+              "host": "jump.example.test",
+              "port": 2222,
+              "authType": "PUBLIC_KEY",
+              "keyPath": "~/.ssh/id_dbeaver"
+            }
+          }
+        }
+      }
+    },
+    "mongo-proxied": {
+      "provider": "mongodb",
+      "name": "proxied",
+      "configuration": {
+        "host": "192.0.2.28",
+        "port": "27017",
+        "handlers": {
+          "proxy": {
+            "type": "PROXY",
+            "enabled": true,
+            "properties": {
+              "host": "socks.example.test",
+              "port": 1080
+            }
+          }
+        }
+      }
+    },
     "postgres-jdbc-nonvalidating": {
       "provider": "postgresql",
       "name": "nonvalidating",
