@@ -288,6 +288,8 @@ func TestIdentityAndInstanceAction(t *testing.T) {
 	got := fakeAWS(t, map[string][]string{
 		"GetCallerIdentity": {`<GetCallerIdentityResponse><GetCallerIdentityResult><Account>123456789012</Account><Arn>arn:aws:sts::123456789012:assumed-role/Sample/user</Arn></GetCallerIdentityResult></GetCallerIdentityResponse>`},
 		"StopInstances":     {`<StopInstancesResponse/>`},
+		"StartInstances":    {`<StartInstancesResponse/>`},
+		"RebootInstances":   {`<RebootInstancesResponse/>`},
 	})
 	id, err := c.Identity(context.Background())
 	if err != nil || id.Account != "123456789012" || !strings.HasSuffix(id.ARN, "Sample/user") {
@@ -299,6 +301,14 @@ func TestIdentityAndInstanceAction(t *testing.T) {
 	last := (*got)[len(*got)-1]
 	if last.PostForm.Get("InstanceId.1") != "i-0123456789abcdef0" || !strings.HasSuffix(last.URL.Path, "/ec2/us-east-1") {
 		t.Errorf("stop request: %v %s", last.PostForm, last.URL.Path)
+	}
+	for action, api := range map[string]string{"start": "StartInstances", "reboot": "RebootInstances"} {
+		if err := c.InstanceAction(context.Background(), "i-0123456789abcdef0", action); err != nil {
+			t.Fatal(action, err)
+		}
+		if last := (*got)[len(*got)-1]; last.PostForm.Get("Action") != api || last.PostForm.Get("InstanceId.1") != "i-0123456789abcdef0" {
+			t.Errorf("%s request: %v", action, last.PostForm)
+		}
 	}
 	if err := c.InstanceAction(context.Background(), "i-0123456789abcdef0", "terminate"); err == nil {
 		t.Error("terminate must be refused")

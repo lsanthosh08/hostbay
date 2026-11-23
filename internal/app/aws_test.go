@@ -69,14 +69,21 @@ func TestAwsRefusesBadInputs(t *testing.T) {
 	if _, err := s.AwsInstances(ctx, "missing", "us-east-1"); err == nil || !strings.Contains(err.Error(), "missing") {
 		t.Errorf("a profile not in the config files: %v", err)
 	}
-	if _, err := s.AwsInstances(ctx, "sso-base", "us-east-1;x"); err == nil {
-		t.Error("a malformed region must be refused")
+	const id = "i-0123456789abcdef0"
+	if _, err := s.AwsInstances(ctx, "sso-base", "us-east-1;x"); err == nil || !strings.Contains(err.Error(), "not an AWS region") {
+		t.Errorf("a malformed region must be refused: %v", err)
 	}
-	if err := s.AwsInstanceAction(ctx, "sso-base", "us-east-1", "i-0123456789abcdef0", "terminate"); err == nil {
-		t.Error("terminate must be refused")
+	if err := s.AwsInstanceAction(ctx, "sso-base", "us-east-1", id, "terminate"); err == nil || !strings.Contains(err.Error(), "unknown instance action") {
+		t.Errorf("terminate must be refused: %v", err)
 	}
-	if err := s.AwsInstanceAction(ctx, "sso-base", "us-east-1", "-i-1", "stop"); err == nil {
-		t.Error("a malformed instance ID must be refused")
+	if err := s.AwsInstanceAction(ctx, "sso-base", "us-east-1", "-i-1", "stop"); err == nil || !strings.Contains(err.Error(), "not an EC2 instance ID") {
+		t.Errorf("a malformed instance ID must be refused: %v", err)
+	}
+	if _, err := s.AwsShell(ctx, "owner", "sso-base", "us-east-1;x", id, 80, 24); err == nil || !strings.Contains(err.Error(), "not an AWS region") {
+		t.Errorf("a shell in a malformed region must be refused: %v", err)
+	}
+	if _, err := s.AwsShell(ctx, "owner", "sso-base", "us-east-1", "-i-1", 80, 24); err == nil || !strings.Contains(err.Error(), "not an EC2 instance ID") {
+		t.Errorf("a shell on a malformed instance ID must be refused: %v", err)
 	}
 	if _, err := s.AwsShell(ctx, "owner", "--debug", "us-east-1", "i-0123456789abcdef0", 80, 24); err == nil || !strings.Contains(err.Error(), "--debug") {
 		t.Errorf("a profile named like a flag must be refused: %v", err)
