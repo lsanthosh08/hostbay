@@ -1437,7 +1437,7 @@ export const en = {
   "aws.saveSsh": "Save as SSH host",
   "aws.saveRdp": "Save as RDP host",
   "aws.saveDb": "Save as database host",
-  "aws.noClusterEndpoint": "Cluster endpoint not found for {names}: this profile may not list RDS clusters, so they save with their own address, which stops working after a failover.",
+  "aws.noClusterEndpoint": "Cluster endpoint not found for {names}: AWS did not return their cluster's writer endpoint, so they save with their own address, which stops working after a failover. Refresh to try again.",
   "kubernetes.shellTab": "{name} (shell)",
   "kubernetes.kind": "Resource",
   "kubernetes.namespace": "Namespace",
