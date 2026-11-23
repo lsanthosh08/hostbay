@@ -109,6 +109,24 @@ export interface AITarget {
 }
 
 /**
+ * AwsRegionList is the regions to offer; Checked is false when the
+ * account's own list could not be read and a built-in one stands in.
+ */
+export interface AwsRegionList {
+    "regions": string[] | null;
+    "checked": boolean;
+}
+
+/**
+ * AwsTools says whether the AWS CLI and the Session Manager plugin were
+ * found, so the tab can say what to install before a shell fails.
+ */
+export interface AwsTools {
+    "cli": boolean;
+    "plugin": boolean;
+}
+
+/**
  * ChangeResult is one planned change and its outcome.
  */
 export interface ChangeResult {

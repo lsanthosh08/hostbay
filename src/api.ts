@@ -12,6 +12,7 @@ import {
   FilesService,
   HostService,
   KubernetesService,
+  AwsService,
   MasterPasswordService,
   MonitorService,
   RdpService,
@@ -902,6 +903,56 @@ export const kubernetesLogs = (clusterId: string, namespace: string, pod: string
 // command is an argument list (the shell picked), never run through a shell.
 export const kubernetesExec = (clusterId: string, namespace: string, pod: string, container: string, command: string[], cols: number, rows: number) =>
   KubernetesService.KubernetesExec(clusterId, namespace, pod, container, command, cols, rows);
+
+// ---- AWS (profiles from this computer's AWS config; no backend session) ----
+// Every call names a profile and region; Go checks both and keeps the
+// credentials. ssoRoot is the profile holding a profile's SSO settings.
+export type AwsProfile = { name: string; region?: string; ssoRoot?: string; mfa?: boolean };
+export type AwsIdentity = { account: string; arn: string };
+export type AwsRegionList = { regions: string[]; checked: boolean };
+export type AwsTools = { cli: boolean; plugin: boolean };
+// platform is "windows" for a Windows instance.
+export type AwsInstance = {
+  id: string;
+  name: string;
+  state: string;
+  type: string;
+  privateIp: string;
+  publicIp: string;
+  publicDns: string;
+  keyName: string;
+  platform: string;
+};
+// kind is the Hostbay host kind that opens it, or "" when none does;
+// saveHost is the address a saved host uses (an Aurora member's cluster
+// writer endpoint).
+export type AwsDatabase = {
+  id: string;
+  engine: string;
+  status: string;
+  address: string;
+  port: number;
+  user: string;
+  dbName: string;
+  cluster?: string;
+  kind: string;
+  saveHost: string;
+};
+export type AwsInstanceAction = "start" | "stop" | "reboot";
+export const awsProfiles = () => list(AwsService.AwsProfiles() as Promise<AwsProfile[] | null>);
+export const awsTools = () => AwsService.AwsTools() as Promise<AwsTools>;
+export const awsAccount = (profile: string, region: string) => AwsService.AwsAccount(profile, region) as Promise<AwsIdentity>;
+export const awsRegions = (profile: string, region: string) =>
+  AwsService.AwsRegions(profile, region).then((r) => ({ regions: r?.regions ?? [], checked: !!r?.checked }));
+export const awsInstances = (profile: string, region: string) => list(AwsService.AwsInstances(profile, region) as Promise<AwsInstance[] | null>);
+export const awsDatabases = (profile: string, region: string) => list(AwsService.AwsDatabases(profile, region) as Promise<AwsDatabase[] | null>);
+export const awsInstanceAction = (profile: string, region: string, id: string, action: AwsInstanceAction) =>
+  AwsService.AwsInstanceAction(profile, region, id, action);
+// Shell and sign-in run the aws program in a terminal and return its ptyId.
+// ownerId is the terminal tab's own ID, as for a local shell.
+export const awsShell = (ownerId: string, profile: string, region: string, id: string, cols: number, rows: number) =>
+  AwsService.AwsShell(ownerId, profile, region, id, cols, rows);
+export const awsSignIn = (ownerId: string, profile: string, cols: number, rows: number) => AwsService.AwsSignIn(ownerId, profile, cols, rows);
 
 // ---- X11 (R47, KTD20) ----
 // localXServer says where this computer's X server answers for forwarded

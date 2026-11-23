@@ -5,6 +5,7 @@ import * as AIService from "./aiservice.js";
 import * as AdminService from "./adminservice.js";
 import * as App from "./app.js";
 import * as AppearanceService from "./appearanceservice.js";
+import * as AwsService from "./awsservice.js";
 import * as ConnService from "./connservice.js";
 import * as DatabaseService from "./databaseservice.js";
 import * as FilesService from "./filesservice.js";
@@ -35,6 +36,7 @@ export {
     AdminService,
     App,
     AppearanceService,
+    AwsService,
     ConnService,
     DatabaseService,
     FilesService,
@@ -69,6 +71,8 @@ export type {
     AIProvider,
     AISkill,
     AITarget,
+    AwsRegionList,
+    AwsTools,
     ChangeResult,
     ClaudeCodeCandidate,
     ClaudeCodeStatus,

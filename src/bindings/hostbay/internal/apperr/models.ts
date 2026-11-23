@@ -51,6 +51,11 @@ export enum Code {
     DatabaseError = "DatabaseError",
 
     /**
+     * an AWS profile's SSO sign-in is missing or expired; details.profile is the profile to sign in, details.expiresAt when known
+     */
+    AWSSignIn = "AWSSignIn",
+
+    /**
      * VPN profiles' failures (KTD2, KTD5). None falls back to a direct
      * connection; details.vpnId names the profile.
      *
