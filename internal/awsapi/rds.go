@@ -15,18 +15,17 @@ const rdsVersion = "2014-10-31"
 // a cluster member whose writer endpoint AWS did not return (a role that may
 // not list clusters), so SaveHost fell back to the member's own address.
 type Database struct {
-	ID       string `json:"id"`
-	Engine   string `json:"engine"`
-	Status   string `json:"status"`
-	Address  string `json:"address"`
-	Port     int    `json:"port"`
-	User     string `json:"user"`
-	DBName   string `json:"dbName"`
-	Cluster  string `json:"cluster,omitempty"`
-	Kind     string `json:"kind"`
-	SaveHost string `json:"saveHost"`
-
-	NoClusterEndpoint bool `json:"noClusterEndpoint,omitempty"`
+	ID                string `json:"id"`
+	Engine            string `json:"engine"`
+	Status            string `json:"status"`
+	Address           string `json:"address"`
+	Port              int    `json:"port"`
+	User              string `json:"user"`
+	DBName            string `json:"dbName"`
+	Cluster           string `json:"cluster,omitempty"`
+	Kind              string `json:"kind"`
+	SaveHost          string `json:"saveHost"`
+	NoClusterEndpoint bool   `json:"noClusterEndpoint,omitempty"`
 }
 
 // Databases lists every RDS instance in the region, following every page.
